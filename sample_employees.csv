@@ -1,0 +1,6 @@
+employee_id,first_name,last_name,email,contact_number,address,department,designation,doj,active
+EMP0101,John,Doe,john.doe@company.com,1234567890,123 Main St,Engineering,Software Engineer,2024-01-15,true
+EMP0102,Jane,Smith,jane.smith@company.com,9876543210,456 Oak Ave,Marketing,Marketing Manager,2024-02-01,true
+EMP0103,Robert,Johnson,robert.j@company.com,5551234567,789 Pine Rd,Sales,Sales Executive,2024-03-10,true
+EMP0104,Emily,Davis,emily.davis@company.com,5559876543,321 Elm St,HR,HR Specialist,2024-04-05,true
+EMP0105,Michael,Wilson,michael.w@company.com,5556789012,654 Maple Dr,Finance,Financial Analyst,2024-05-20,true

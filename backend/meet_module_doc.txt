@@ -1,0 +1,490 @@
+MEET MODULE – BACKEND IMPLEMENTATION (CURRENT BEHAVIOR)
+=====================================================
+
+This document explains how the "Meet" functionality currently works in the backend.
+It covers:
+- Where the logic lives
+- How Google OAuth and Calendar integration are wired
+- The `/api/meet/start` API (request / response and full flow)
+- What is stored locally
+- Error handling, logging, and assumptions
+
+All descriptions are based on the current `unified_server.py` and related files.
+
+
+1. FILES AND MAIN COMPONENTS
+----------------------------
+
+1.1. Main backend module
+- File: `backend/unified_server.py`
+- Framework: Flask
+- The Meet feature is NOT a separate Python module; it is a set of helpers
+  and routes inside this large unified Flask application.
+
+1.2. Google OAuth client configuration
+- File: `backend/Googlemeet token.json`
+- Purpose: Holds the Google OAuth “web client” configuration used to talk to
+  Google Calendar (client_id, client_secret, auth/token URIs, redirect_uris, etc.).
+- At startup, this JSON file is used to populate environment variables if they
+  are not already set.
+- The actual secrets in this file should be treated as sensitive; the code
+  loads them but does not otherwise process them.
+
+1.3. Local storage directory and token file
+- `STORAGE_DIR`: `backend/storage`
+- `GOOGLE_TOKEN_FILE`: `backend/storage/google_tokens.json`
+
+These are defined near the top of `unified_server.py`:
+- `STORAGE_DIR = os.path.join(os.path.dirname(__file__), "storage")`
+- `GOOGLE_TOKEN_FILE = os.path.join(STORAGE_DIR, "google_tokens.json")`
+
+`GOOGLE_TOKEN_FILE` is where the app persists Google OAuth tokens after a
+successful authorization so that it can create Google Calendar events later
+without re-authorizing each time.
+
+1.4. Sample / leftover Meet invite file
+- File: `backend/storage/meet_invites.json`
+- Content: JSON array of meet invite records (invite_id, batch_id, meeting_title,
+  meet_url, participant_email, etc.).
+- Current code status: there are **no references** to `meet_invites.json` in
+  `unified_server.py` or the rest of `backend` from the searches run. It appears
+  to be historical sample data or data used by another component, but not
+  actively read or written by this backend.
+
+
+2. CONFIGURATION AND ENVIRONMENT VARIABLES
+------------------------------------------
+
+2.1. Loading `.env` files
+- At startup, the app calls:
+  - `load_dotenv("id.env")`
+  - `load_dotenv()`
+
+So environment variables can come from `id.env` and/or `.env` in the backend
+folder.
+
+2.2. Insecure transport (development convenience)
+- When `FLASK_ENV` is not `production`, the code sets:
+  - `os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"`
+- Effect: Allows OAuth over plain HTTP (e.g. localhost) for development.
+  In production this should be HTTPS and this flag should not be relied on.
+
+2.3. Google client configuration loading
+- Constant: `GOOGLE_CLIENT_CONFIG_FILE = os.path.join(os.path.dirname(__file__), "Googlemeet token.json")`
+
+Helper: `_maybe_load_google_client_from_file()`
+- If `Googlemeet token.json` exists:
+  - Opens the file and loads JSON.
+  - Returns `data["web"]` if present, else the raw JSON.
+- On any error, prints a warning and returns `None`.
+
+Environment variable population:
+- If the JSON is loaded successfully, then:
+  - `GOOGLE_CLIENT_ID` is set from JSON `client_id` if not already set.
+  - `GOOGLE_CLIENT_SECRET` is set from JSON `client_secret` if not already set.
+  - `GOOGLE_REDIRECT_URI` is set from the first `redirect_uris` entry if not
+    already set.
+
+Other relevant env vars:
+- `JWT_SECRET`, `JWT_ALGORITHM` – used for auth/JWT in the wider app (required).
+- `RESOURCE`, `BASE_URL` – Dataverse / CRM base URL, used for resolving
+  employees and project members.
+
+2.4. Google OAuth-related constants
+- `GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")`
+- `GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")`
+- `GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:5000/google/oauth2callback")`
+- `GOOGLE_SCOPES = ["https://www.googleapis.com/auth/calendar.events"]`
+
+
+3. GOOGLE OAUTH FLOW AND CREDENTIAL STORAGE
+-------------------------------------------
+
+3.1. Building the OAuth flow
+Helper: `_build_google_oauth_flow(state: str | None = None)`
+- Input: optional `state` string (for CSRF / continuity across redirects).
+- Behavior:
+  - Prepares `flow_kwargs = {"scopes": GOOGLE_SCOPES}`.
+  - If `state` is provided, adds it to `flow_kwargs`.
+  - If the Google client JSON file exists:
+    - Creates a `Flow` from `client_secrets_file` = `Googlemeet token.json`.
+  - Else:
+    - Creates a `Flow` from a dict that uses `GOOGLE_CLIENT_ID` and
+      `GOOGLE_CLIENT_SECRET` with `auth_uri` and `token_uri` pointing to
+      Google endpoints.
+  - Sets `flow.redirect_uri` to `GOOGLE_REDIRECT_URI` (env var, defaulting to
+    `http://localhost:5000/google/oauth2callback`).
+
+3.2. Storing Google credentials
+Helpers (earlier in the file):
+- `_save_google_credentials(creds)`
+  - Ensures `STORAGE_DIR` exists.
+  - Writes the token JSON (`creds.to_json()`) into `GOOGLE_TOKEN_FILE`.
+- `_load_google_credentials()`
+  - Ensures `STORAGE_DIR` exists.
+  - If `GOOGLE_TOKEN_FILE` doesn’t exist, returns `None`.
+  - Loads JSON from `GOOGLE_TOKEN_FILE` and constructs a `Credentials` object
+    with `GOOGLE_SCOPES`.
+  - If credentials are expired but have a refresh token, it attempts to refresh
+    them, then re-saves them.
+
+3.3. Getting a Calendar service
+Helper: `get_google_calendar_service()`
+- Calls `_load_google_credentials()`.
+- If no credentials are found:
+  - Raises `RuntimeError("Google OAuth credentials not found. Please authorize via /google/authorize.")`.
+- If credentials are invalid/expired but have a refresh token:
+  - Tries to refresh them and re-save; if refresh fails, logs an error and
+    re-raises.
+- On success:
+  - Returns a `googleapiclient.discovery.build("calendar", "v3", credentials=creds)` service object.
+
+
+4. OAUTH ROUTES USED BY THE MEET FEATURE
+----------------------------------------
+
+These two endpoints are required before `/api/meet/start` can successfully
+create events on Google Calendar.
+
+4.1. `GET /google/authorize`
+Function: `google_authorize()`
+- Checks that `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set.
+  - If not: returns `{"success": False, "error": "Google OAuth not configured"}` with HTTP 500.
+- Builds an OAuth flow via `_build_google_oauth_flow()`.
+- Calls `flow.authorization_url(...)` with:
+  - `access_type="offline"` (so refresh tokens can be obtained)
+  - `include_granted_scopes="true"`
+  - `prompt="consent"`
+- Receives `(authorization_url, state)` and redirects the user to `authorization_url`.
+- On errors: logs with `[ERROR] Google authorize failed` and returns
+  `{"success": False, "error": "Google authorization failed"}` (500).
+
+4.2. `GET /google/oauth2callback`
+Function: `google_oauth2callback()`
+- Checks `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` again.
+  - If missing, returns JSON error with HTTP 500.
+- Reads `state` from query parameters.
+- Rebuilds the same OAuth flow with the state.
+- Calls `flow.fetch_token(authorization_response=request.url)` to exchange the
+  authorization code for tokens.
+- Extracts `creds = flow.credentials` and calls `_save_google_credentials(creds)`.
+- On success: returns `{"success": True}` (HTTP 200).
+- On failure: logs `[ERROR] Google OAuth callback failed` plus traceback and
+  returns `{"success": False, "error": "Google OAuth callback failed"}` (500).
+
+
+5. SUPPORTING HELPERS USED BY THE MEET API
+------------------------------------------
+
+5.1. Project member resolution
+Helper: `_get_project_member_employee_ids(token: str, project_id: str)`
+- Used to expand the list of employee IDs when audience_type is `project` or
+  `custom` and a `project_id` is provided.
+- Steps:
+  - Normalizes `project_id` and escapes single quotes.
+  - Calls Dataverse/CRM endpoint:
+    - `.../crc6f_hr_projectcontributorses?$select=crc6f_employeeid&$filter=crc6f_projectid eq '<project_id>'`
+  - Parses JSON response and builds a `list` of `crc6f_employeeid` values.
+- On any HTTP or parsing error: logs a warning and returns an empty list.
+
+5.2. Employee email resolution
+Helper: `get_employee_email(emp_str)`
+- Not shown in the snippets above, but used by `/api/meet/start` to convert an
+  internal employee ID into an email address.
+- The Meet route calls this helper for each `employee_id` and adds successful
+  lookups to the participant email set.
+
+5.3. Access token for Dataverse
+Helper: `get_access_token()`
+- Used to obtain a bearer token for Dataverse before calling
+  `_get_project_member_employee_ids`.
+- Also used across the app for other CRM-related operations.
+
+
+6. MEET API: `/api/meet/start` (POST)
+-------------------------------------
+
+6.1. Endpoint
+- Route: `@app.route('/api/meet/start', methods=['POST'])`
+- Function: `start_google_meet()`
+- Purpose: Create a Google Calendar event with Google Meet conferencing enabled
+  and invite selected participants, then return the created event (including
+  the Meet URL) to the caller.
+
+6.2. Expected request
+- Content-Type: `application/json`
+- Body fields:
+  - `title` (string, optional)
+    - Meeting title; defaults to "Meeting" if missing or blank.
+  - `description` (string, optional)
+    - Free-text description for the calendar event.
+  - `audience_type` (string, optional)
+    - Expected values: `"employees"`, `"project"`, or `"custom"`.
+    - Any other value is coerced to `"employees"`.
+  - `employee_ids` (array of strings/IDs, optional)
+    - Internal employee identifiers; will be resolved to emails using
+      `get_employee_email`.
+  - `employee_emails` (array of strings, optional)
+    - Direct email addresses to invite. These are added as-is (after trimming).
+  - `project_id` (string, optional)
+    - If provided and `audience_type` is `project` or `custom`, the backend
+      queries Dataverse for all contributors of that project and merges them
+      into `employee_ids`.
+  - `start_time` (string, optional)
+    - ISO/RFC3339 datetime string (as required by Google Calendar API).
+    - If omitted, defaults to "now" (current UTC time) at execution.
+  - `end_time` (string, optional)
+    - ISO/RFC3339 datetime string.
+    - If omitted, defaults to 30 minutes after the current UTC time.
+  - `timezone` (string, optional)
+    - Time zone ID string; default is `"UTC"`.
+
+6.3. Internal processing steps
+
+1) Parse payload and defaults
+- `data = request.get_json(force=True) or {}`.
+- Logs payload: `print("[MEET] Incoming payload:", data)`.
+- Extracts and normalizes:
+  - `title` → `(data.get("title") or "Meeting").strip()`
+  - `description` → `data.get("description") or ""`
+  - `audience_type` → `(data.get("audience_type") or "employees").strip().lower()`
+  - `employee_ids` → `data.get("employee_ids") or []`
+  - `employee_emails` → `data.get("employee_emails") or []`
+  - `project_id` → `data.get("project_id") or None`
+  - `start_time`, `end_time`, `timezone` as described above.
+- If `audience_type` is not in `{"employees", "project", "custom"}` it is
+  forced back to `"employees"` to avoid invalid modes.
+
+2) Get Dataverse access token
+- Calls `token = get_access_token()` to use within any project-related lookups.
+
+3) Optionally expand participants from project
+- If `audience_type` is `"project"` or `"custom"` AND `project_id` is not
+  empty:
+  - Calls `project_emp_ids = _get_project_member_employee_ids(token, project_id)`.
+  - If any IDs are returned, merges them with the incoming `employee_ids`
+    using a set-union style merge, ensuring uniqueness.
+
+4) Construct participant email set
+- Logs the resolved audience: `print(f"[MEET] Resolved audience_type={audience_type}, employee_ids={employee_ids}, project_id={project_id}")`.
+- Initializes `emails = set()`.
+- From `employee_emails`:
+  - For each entry `e`:
+    - Strips whitespace.
+    - If non-empty, adds to `emails`.
+- From `employee_ids`:
+  - For each `emp_id`:
+    - Converts to string and strips whitespace.
+    - If non-empty:
+      - Logs: `[MEET] Resolving email for employee_id=<id>`.
+      - Calls `get_employee_email(emp_str)`.
+      - If the result is a tuple, uses the first element.
+      - Logs the result: `[MEET] get_employee_email => <email>`.
+      - If an email is present, adds to the `emails` set.
+
+5) Validate that at least one email exists
+- If `emails` is empty after all resolution steps:
+  - Logs: `[MEET] No participant emails resolved for: {...}` including
+    `employee_ids`, `employee_emails`, `project_id`.
+  - Returns `{"success": False, "error": "No participant emails resolved"}`
+    with HTTP 400.
+
+6) Build event start and end bodies
+- If `start_time` is provided:
+  - `start_body = {"dateTime": start_time, "timeZone": timezone_str}`.
+- Else:
+  - Uses `datetime.utcnow().replace(microsecond=0)` and appends `"Z"` for UTC.
+  - `start_body = {"dateTime": now_utc.isoformat() + "Z", "timeZone": timezone_str}`.
+
+- If `end_time` is provided:
+  - `end_body = {"dateTime": end_time, "timeZone": timezone_str}`.
+- Else:
+  - Uses `datetime.utcnow().replace(microsecond=0) + timedelta(minutes=30)`.
+  - `end_body = {"dateTime": end_dt_utc.isoformat() + "Z", "timeZone": timezone_str}`.
+
+7) Get Google Calendar service
+- Calls `service = get_google_calendar_service()`.
+- This will:
+  - Load previously saved credentials.
+  - Refresh them if needed.
+  - Raise if credentials are missing or badly configured.
+- Any exception here is caught by the outer `try/except` in the route.
+
+8) Construct the Google Calendar event body
+- `event_body` structure:
+  - `summary`: `title` or "Meeting".
+  - `description`: the provided description.
+  - `start`: `start_body`.
+  - `end`: `end_body`.
+  - `attendees`: list of `{ "email": <email> }` for each email in the
+    `emails` set (sorted for determinism).
+  - `conferenceData`:
+    - `createRequest`:
+      - `requestId`: a unique string of the form `"vtab-" + uuid.uuid4().hex`.
+    - This instructs Google to create a video conferencing link (Google Meet).
+
+9) Create the event on Google Calendar
+- Calls:
+  - `service.events().insert(
+        calendarId="primary",
+        body=event_body,
+        conferenceDataVersion=1,
+        sendUpdates="all",
+    ).execute()`
+- `conferenceDataVersion=1` is required in order to request meeting links.
+- `sendUpdates="all"` tells Google to email all participants.
+
+10) Extract the Meet URL and other details
+- After creating the event, the code tries to determine the Meet link:
+  - First tries `event.get("hangoutLink")`.
+  - If absent, checks `event["conferenceData"]["entryPoints"]` for an object
+    with `entryPointType == "video"` and uses `ep["uri"]`.
+
+- Builds `response_payload`:
+  - `success`: `True`
+  - `event_id`: `event.get("id")`
+  - `html_link`: `event.get("htmlLink")`
+  - `meet_url`: extracted Meet URL (may be `None` if Google did not provide it)
+  - `title`: `event.get("summary")`
+  - `status`: `event.get("status")`
+  - `attendees`: list of attendee emails from `event.get("attendees", [])`
+  - `start`: `event.get("start")` (Google’s representation)
+  - `end`: `event.get("end")`
+  - If `project_id` was provided, adds `project_id` to the payload as well.
+
+- Returns `response_payload` with HTTP 200.
+
+6.4. Error handling
+- The entire function body is wrapped in a `try/except`.
+- On **any** exception:
+  - Logs: `[ERROR] Failed to create Google Meet: {e}`.
+  - Prints traceback.
+  - Returns JSON: `{"success": False, "error": "Failed to create Google Meet"}`
+    with HTTP 500.
+
+
+7. DATA STORAGE AND SIDE EFFECTS
+--------------------------------
+
+7.1. What is stored/persisted
+- Google OAuth tokens:
+  - Stored under `backend/storage/google_tokens.json` after a successful
+    `/google/oauth2callback` call.
+  - Used for subsequent Google Calendar event creation.
+
+- Dataverse / CRM data:
+  - No new data is written to Dataverse by `/api/meet/start` itself.
+  - The route only **reads** project contributors (when `project_id` is used)
+    and employee data (via `get_employee_email`).
+
+7.2. What is NOT stored by the Meet API
+- The backend does **not** persist the created meeting or invite list in its
+  own database or files as part of `/api/meet/start`:
+  - No row is inserted into a meeting table.
+  - No write is done to `meet_invites.json`.
+  - The only persisted state related to Meet is the OAuth token file used for
+    Google API calls.
+
+
+8. LOGGING AND OBSERVABILITY
+----------------------------
+
+8.1. Logs used by `/api/meet/start`
+- Incoming payload:
+  - `print("[MEET] Incoming payload:", data)`.
+- Audience resolution:
+  - `print(f"[MEET] Resolved audience_type={audience_type}, employee_ids={employee_ids}, project_id={project_id}")`.
+- Employee email resolution:
+  - `print(f"[MEET] Resolving email for employee_id={emp_str}")`.
+  - `print(f"[MEET] get_employee_email => {emp_email}")`.
+- No participant emails case:
+  - `print("[MEET] No participant emails resolved for:", {...})`.
+- Generic failure:
+  - `print(f"[ERROR] Failed to create Google Meet: {e}")`.
+  - `traceback.print_exc()`.
+
+8.2. Logs for OAuth
+- For `/google/authorize` and `/google/oauth2callback`, the code prints
+  `[ERROR]` messages and stack traces on failures.
+
+
+9. HOW TO USE THE MEET FEATURE END-TO-END
+-----------------------------------------
+
+9.1. One-time / periodic OAuth authorization
+1) Ensure `Googlemeet token.json` or appropriate env vars are configured.
+2) Start the backend server.
+3) Visit `/google/authorize` in a browser (GET request).
+4) Complete the Google OAuth consent screen.
+5) Google calls back to `/google/oauth2callback`.
+6) On success:
+   - The backend stores OAuth credentials in `storage/google_tokens.json`.
+
+This step must be done at least once (and again if tokens are revoked or expire
+without a refresh token) before `/api/meet/start` can work.
+
+9.2. Starting a Meet via API
+- URL: `POST /api/meet/start`
+- Suggested headers:
+  - `Content-Type: application/json`
+- Example minimal payload (explicit emails only):
+  - `{ "employee_emails": ["user1@example.com", "user2@example.com"] }`
+
+- Example more complex payload (project-based audience):
+  - `{
+       "title": "Project Sync",
+       "description": "Weekly update call",
+       "audience_type": "project",
+       "project_id": "<project-guid-or-id>",
+       "employee_emails": ["external.partner@example.com"],
+       "start_time": "2025-12-01T10:00:00Z",
+       "end_time": "2025-12-01T10:30:00Z",
+       "timezone": "UTC"
+     }`
+
+- Typical successful response:
+  - `{
+       "success": true,
+       "event_id": "<google-event-id>",
+       "html_link": "https://www.google.com/calendar/event?eid=...",
+       "meet_url": "https://meet.google.com/...",
+       "title": "Project Sync",
+       "status": "confirmed",
+       "attendees": ["user1@example.com", "user2@example.com", ...],
+       "start": { ... },
+       "end": { ... },
+       "project_id": "<project-id>"  // only when provided in request
+     }`
+
+- Possible error responses:
+  - 400, no participants:
+    - `{"success": false, "error": "No participant emails resolved"}`
+  - 500, Google OAuth/configuration issues or general failures:
+    - `{"success": false, "error": "Failed to create Google Meet"}`
+
+
+10. CURRENT LIMITATIONS AND NOTES
+---------------------------------
+
+- No internal persistence of meeting metadata
+  - The backend does not store created meetings or invite batches beyond the
+    Google-side Calendar event itself.
+
+- Dependency on external configuration and OAuth
+  - `/api/meet/start` depends heavily on:
+    - Correct `Googlemeet token.json` or env-based OAuth configuration.
+    - Successful completion of the `/google/authorize` → `/google/oauth2callback`
+      flow and a valid `google_tokens.json` file.
+
+- Timezone handling
+  - The `timezone` field is passed directly to Google; caller is responsible for
+    using a valid time zone ID.
+  - When `start_time` / `end_time` are omitted, UTC is used with a default
+    30-minute duration.
+
+- `meet_invites.json` is currently unused in code
+  - The file exists with example data but there is no read/write logic for it
+    in `unified_server.py` at this time.
+
+This reflects the current behavior of the Meet-related logic and APIs in the
+backend as of the time this document was generated.

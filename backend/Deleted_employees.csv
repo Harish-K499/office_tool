@@ -1,0 +1,68 @@
+employee_id,first_name,last_name,email,contact_number,address,department,designation,doj,active
+EMP0012,Michael,Wilson,,5556789012,654 Maple Dr,Finance,Financial Analyst,,false
+EMP0011,Emily,Davis,,5559876543,321 Elm St,HR,HR Specialist,,false
+EMP0009,Jane,Smith,,9876543210,456 Oak Ave,Marketing,Marketing Manager,,false
+EMP0010,Robert,Johnson,,5551234567,789 Pine Rd,Sales,Sales Executive,,false
+EMP0008,John,Doe,,1234567890,123 Main St,Engineering,Software Engineer,,false
+EMP0007,Harish,K,,"Chennai, Tamil Nadu",9383746479,Data analytics,Power BI developer,,false
+EMP0006,Aakaash,P,,"Chennai, Tamil Nadu",9876543210,Data analytics,Power BI developer,,false
+EMP0006,Aakaash,Padhmanaban,,9876543210,Coimbatore,Data analytics,Power BI developer,,false
+EMP0006,Aakaash,P,,"Chennai, Tamil Nadu",9876543210,Data analytics,Power BI developer,,false
+EMP0006,Aakaash,Padhmanaban,,9876543210,Coimbatore,Data analytics,Power BI developer,,false
+EMP010,Harish,Kadhiravan,,7339392289,5,KRK nagar,Veerakeralam,,false
+EMP008,Mohammed,Sameer,,8883533345,3/53,south Street,ervadi,,false
+EMP009,Aakash,Padhmanaban,,9629631022,4/114A,Anbu Nagar Street,VTC: Theethipalayam,,false
+EMP006,Elaiyavan,P,,93633 73608,26/1,Pannadi Pudhur,Nallur (p/o) sathyamangalam (t/k) Erode- 638459,,false
+EMP007,Sohib,Akthar,,7708572382,Address : 36/26f,Ameethu Kalam,Old santhai kadai,,false
+EMP017,Bala,Guru A,,"6/57,Amman kovil Street, Thiruvarangai,Keelakidaram post, Kadalai(TK), Ramanathapuram(DT) - 623528",8428695649,,Data Analyst,,false
+EMP016,Mathivanan,R,,"2/155 Periya Kumara Palayam, Muduthiurai Post,Coimbatore - 638459",9944827600,,Data Analyst,,false
+EMP015,Karthick,C,,"3/168 Kandipudur, Mettupalayam(Taluk), Coimbatore dt. 641113",9047573099,,Data Analyst,,false
+EMP014,Mohamed,Yasin,,"35/39, Janakiammal Estate, Kaladipet, Tiruvottiyur, Chennai-19",9688009186,,Data Analyst,,false
+EMP013,Mohammed,Sameer,,"3/53, south Street, ervadi, ramanathapur district, 623515",8883533345,,Data Analyst,,false
+EMP012,Sohib,Akthar,,"36/26f, Ameethu Kalam, Old santhai kadai, Sirumugai Road, Mettupalayam, Coimbatore- 641301.",7708572382,,Data Analyst,,false
+EMP011,Bharani,A,,"9,Poombugar Nagar,Amman Kovil,Saravanampatti,Coimbatore-641035",8220492645,,Data Analyst,,false
+EMP010,Harini,,,"1/2, Murugan Nagar, Gandhi Street, Vilankuruchi, Coimbatore, Tamil Nadu - 641035",6381338146,,Data Analyst,,false
+EMP009,Karthikeyan,S,,"05 HOUSEING UNIT THANTHONIMALAI,KARUR,TAMILNADU - 639007",6379050858,,Data Analyst,,false
+EMP008,Aakash,Padhmanadan,,"4/114A ANBU NAGAR STREET THEETHIPALAYAM, COIMBATORE, TAMIL NADU, 641010",9629631022,,Data Analyst,,false
+EMP007,Sanjay,. S,,"1/277 M .koundam Palayam, Muduthurai(PO), Mettupalayam (TK), Coimbatore-638459",9025124912,,Data Analyst,,false
+EMP006,Harish,,,5/kk Nagar/ veerakeralam. Coimbatore- 641007,7339392289,,Data Analyst,,false
+EMP005,Sanjay,Janakiraman,,"186 -1, Agraharam, Rettakudi, Sembiyanallur(PO), Thiruvarur, Tamil Nadu - 609503",6383089365,,Data Analyst,,false
+EMP004,Vignesh,Raja S,,,7010991550,,Manager,,false
+EMP003,Kavya,Rajendran,,"1083, Mudukkanthurai, Pogalur (post), Annur(via), Coimbatore - 641697",9344181078,,Data Analyst,,false
+EMP002,Naveenkumar,P,,"2/22-3, Muniyappan Kovil Thottam, Sivakumar Nagar, Nathakadaiyur(PO),Tirupur(DT) - 638108",9486779760,,Data Analyst,,false
+EMP017,Bala,Guru A,,"6/57,Amman kovil Street, Thiruvarangai,Keelakidaram post, Kadalai(TK), Ramanathapuram(DT) - 623528",8428695649,,Data Analyst,,false
+EMP016,Mathivanan,R,,"2/155 Periya Kumara Palayam, Muduthiurai Post,Coimbatore - 638459",9944827600,,Data Analyst,,false
+EMP015,Karthick,C,,"3/168 Kandipudur, Mettupalayam(Taluk), Coimbatore dt. 641113",9047573099,,Data Analyst,,false
+EMP014,Mohamed,Yasin,,"35/39, Janakiammal Estate, Kaladipet, Tiruvottiyur, Chennai-19",9688009186,,Data Analyst,,false
+EMP013,Mohammed,Sameer,,"3/53, south Street, ervadi, ramanathapur district, 623515",8883533345,,Data Analyst,,false
+EMP012,Sohib,Akthar,,"36/26f, Ameethu Kalam, Old santhai kadai, Sirumugai Road, Mettupalayam, Coimbatore- 641301.",7708572382,,Data Analyst,,false
+EMP011,Bharani,A,,"9,Poombugar Nagar,Amman Kovil,Saravanampatti,Coimbatore-641035",8220492645,,Data Analyst,,false
+EMP010,Harini,,,"1/2, Murugan Nagar, Gandhi Street, Vilankuruchi, Coimbatore, Tamil Nadu - 641035",6381338146,,Data Analyst,,false
+EMP009,Karthikeyan,S,,"05 HOUSEING UNIT THANTHONIMALAI,KARUR,TAMILNADU - 639007",6379050858,,Data Analyst,,false
+EMP008,Aakash,Padhmanadan,,"4/114A ANBU NAGAR STREET THEETHIPALAYAM, COIMBATORE, TAMIL NADU, 641010",9629631022,,Data Analyst,,false
+EMP007,Sanjay,. S,,"1/277 M .koundam Palayam, Muduthurai(PO), Mettupalayam (TK), Coimbatore-638459",9025124912,,Data Analyst,,false
+EMP006,Harish,,,5/kk Nagar/ veerakeralam. Coimbatore- 641007,7339392289,,Data Analyst,,false
+EMP005,Sanjay,Janakiraman,,"186 -1, Agraharam, Rettakudi, Sembiyanallur(PO), Thiruvarur, Tamil Nadu - 609503",6383089365,,Data Analyst,,false
+EMP004,Vignesh,Raja S,,,7010991550,,Manager,,false
+EMP003,Kavya,Rajendran,,"1083, Mudukkanthurai, Pogalur (post), Annur(via), Coimbatore - 641697",9344181078,,Data Analyst,,false
+EMP002,Naveenkumar,P,,"2/22-3, Muniyappan Kovil Thottam, Sivakumar Nagar, Nathakadaiyur(PO),Tirupur(DT) - 638108",9486779760,,Data Analyst,,false
+EMP018,Akaash,p,,ddddddd,12345567888,,data analysr,,false
+EMP017,Bala,Guru A,,"6/57,Amman kovil Street, Thiruvarangai,Keelakidaram post, Kadalai(TK), Ramanathapuram(DT) - 623528",8428695649,,Data Analyst,,false
+EMP016,Mathivanan,R,,"2/155 Periya Kumara Palayam, Muduthiurai Post,Coimbatore - 638459",9944827600,,Data Analyst,,false
+EMP015,Karthick,C,,"3/168 Kandipudur, Mettupalayam(Taluk), Coimbatore dt. 641113",9047573099,,Data Analyst,,false
+EMP014,Mohamed,Yasin,,"35/39, Janakiammal Estate, Kaladipet, Tiruvottiyur, Chennai-19",9688009186,,Data Analyst,,false
+EMP013,Mohammed,Sameer,,"3/53, south Street, ervadi, ramanathapur district, 623515",8883533345,,Data Analyst,,false
+EMP012,Sohib,Akthar,,"36/26f, Ameethu Kalam, Old santhai kadai, Sirumugai Road, Mettupalayam, Coimbatore- 641301.",7708572382,,Data Analyst,,false
+EMP011,Bharani,A,,"9,Poombugar Nagar,Amman Kovil,Saravanampatti,Coimbatore-641035",8220492645,,Data Analyst,,false
+EMP009,Karthikeyan,S,,"05 HOUSEING UNIT THANTHONIMALAI,KARUR,TAMILNADU - 639007",6379050858,,Data Analyst,,false
+EMP010,Harini,,,"1/2, Murugan Nagar, Gandhi Street, Vilankuruchi, Coimbatore, Tamil Nadu - 641035",6381338146,,Data Analyst,,false
+EMP008,Aakash,Padhmanadan,,"4/114A ANBU NAGAR STREET THEETHIPALAYAM, COIMBATORE, TAMIL NADU, 641010",9629631022,,Data Analyst,,false
+EMP007,Sanjay,. S,,"1/277 M .koundam Palayam, Muduthurai(PO), Mettupalayam (TK), Coimbatore-638459",9025124912,,Data Analyst,,false
+EMP006,Harish,,,5/kk Nagar/ veerakeralam. Coimbatore- 641007,7339392289,,Data Analyst,,false
+EMP005,Sanjay,Janakiraman,,"186 -1, Agraharam, Rettakudi, Sembiyanallur(PO), Thiruvarur, Tamil Nadu - 609503",6383089365,,Data Analyst,,false
+EMP004,Vignesh,Raja S,,,7010991550,,Manager,,false
+EMP003,Kavya,Rajendran,,"1083, Mudukkanthurai, Pogalur (post), Annur(via), Coimbatore - 641697",9344181078,,Data Analyst,,false
+EMP002,Naveenkumar,P,,"2/22-3, Muniyappan Kovil Thottam, Sivakumar Nagar, Nathakadaiyur(PO),Tirupur(DT) - 638108",9486779760,,Data Analyst,,false
+EMP019,AutoTest2,Onboarding,,Test Address,9999999997,Development,Software Engineer,,false
+EMP018,AutoTest,Onboarding,,Test Address,9999999998,Development,Software Engineer,,false
+EMP022,Test,User2001,,Test Address 2,9999999992,IT,Senior Developer,,false

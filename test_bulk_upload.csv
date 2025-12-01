@@ -1,0 +1,3 @@
+employee_id,first_name,last_name,email,contact_number,address,department,designation,doj,active
+EMP2000,Test,User2000,test2000@vtab.com,9999999991,Test Address 1,IT,Developer,15/06/2021,true
+EMP2001,Test,User2001,test2001@vtab.com,9999999992,Test Address 2,IT,Senior Developer,10/03/2019,true

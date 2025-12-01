@@ -1,0 +1,52 @@
+[
+  {
+    "id": "64c52a4e-9762-468f-8983-dcc0f7872dcd",
+    "employeeId": "EMP006",
+    "employeeName": "Harish",
+    "employeeDepartment": "",
+    "managerId": "EMP019",
+    "managerName": "Shivan  Hari",
+    "managerDepartment": "Power BI Developer",
+    "createdBy": null
+  },
+  {
+    "id": "ae59d3c9-9051-41e4-8c98-0d1ff127c6e6",
+    "employeeId": "EMP008",
+    "employeeName": "Aakash Padhmanadan",
+    "employeeDepartment": "",
+    "managerId": "EMP004",
+    "managerName": "Vignesh Raja S",
+    "managerDepartment": "",
+    "createdBy": null
+  },
+  {
+    "id": "d1355a33-ada9-47b6-be62-420a97038c41",
+    "employeeId": "EMP013",
+    "employeeName": "Mohammed Sameer",
+    "employeeDepartment": "",
+    "managerId": "EMP004",
+    "managerName": "Vignesh Raja S",
+    "managerDepartment": "",
+    "createdBy": null
+  },
+  {
+    "id": "03cf06aa-5713-4850-88ee-9768489b01cc",
+    "employeeId": "EMP015",
+    "employeeName": "Karthick C",
+    "employeeDepartment": "",
+    "managerId": "EMP004",
+    "managerName": "Vignesh Raja S",
+    "managerDepartment": "",
+    "createdBy": null
+  },
+  {
+    "id": "bb06dc28-59cd-4bf0-b9ea-f79486aed987",
+    "employeeId": "EMP017",
+    "employeeName": "Bala Guru A",
+    "employeeDepartment": "",
+    "managerId": "EMP004",
+    "managerName": "Vignesh Raja S",
+    "managerDepartment": "",
+    "createdBy": null
+  }
+]

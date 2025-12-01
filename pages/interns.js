@@ -1,0 +1,328 @@
+import { state } from '../state.js';
+import { getPageContentHTML } from '../utils.js';
+import { renderModal, closeModal } from '../components/modal.js';
+import { listInterns, createIntern } from '../features/internApi.js';
+
+let internPage = 1;
+const INTERN_PAGE_SIZE = 10;
+let internViewMode = 'card';
+let internSearch = '';
+let internTotalCount = 0;
+let internPageSize = INTERN_PAGE_SIZE;
+
+const formatDate = (iso) => {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-IN', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return iso;
+  }
+};
+
+const fieldIds = [
+  { id: 'internId', label: 'Intern ID', required: true },
+  { id: 'employeeId', label: 'Employee ID', required: true },
+  { id: 'unpaidDuration', label: 'Unpaid Duration' },
+  { id: 'unpaidStart', label: 'Unpaid Start', type: 'date' },
+  { id: 'unpaidEnd', label: 'Unpaid End', type: 'date' },
+  { id: 'paidDuration', label: 'Paid Training Duration' },
+  { id: 'paidStart', label: 'Paid Training Start', type: 'date' },
+  { id: 'paidEnd', label: 'Paid Training End', type: 'date' },
+  { id: 'paidSalary', label: 'Paid Training Salary', type: 'number' },
+  { id: 'probationDuration', label: 'Probation Duration' },
+  { id: 'probationStart', label: 'Probation Start', type: 'date' },
+  { id: 'probationEnd', label: 'Probation End', type: 'date' },
+  { id: 'probationSalary', label: 'Probation Salary', type: 'number' },
+  { id: 'postprobDuration', label: 'Post Probation Duration' },
+  { id: 'postprobStart', label: 'Post Probation Start', type: 'date' },
+  { id: 'postprobEnd', label: 'Post Probation End', type: 'date' },
+  { id: 'postprobSalary', label: 'Post Probation Salary', type: 'number' },
+];
+
+const inputControl = ({ id, label, required, type = 'text' }) => `
+  <div class="form-field">
+    <label class="form-label" for="${id}">${label}${required ? ' *' : ''}</label>
+    <input class="input-control" type="${type}" id="${id}" ${required ? 'required' : ''}>
+  </div>
+`;
+
+export const showAddInternModal = () => {
+  const formHTML = `
+    <div class="modal-form modern-form intern-form">
+      <div class="form-section">
+        <div class="form-section-header">
+          <div>
+            <p class="form-eyebrow">New Intern</p>
+            <h3>Primary Details</h3>
+          </div>
+        </div>
+        <div class="form-grid two-col">
+          ${fieldIds.slice(0, 2).map(inputControl).join('')}
+        </div>
+      </div>
+      <div class="form-section">
+        <div class="form-section-header">
+          <div>
+            <p class="form-eyebrow">Internship Phases</p>
+            <h3>Timeline Information</h3>
+          </div>
+        </div>
+        <div class="form-grid two-col">
+          ${fieldIds.slice(2).map(inputControl).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+  renderModal('Add Intern', formHTML, 'save-intern-btn', 'large', 'Create');
+};
+
+export const handleAddIntern = async (e) => {
+  e.preventDefault();
+  const getVal = (id) => {
+    const el = document.getElementById(id);
+    return (el && el.value && el.value.trim()) || '';
+  };
+
+  const payload = {
+    intern_id: getVal('internId'),
+    employee_id: getVal('employeeId'),
+    unpaid_duration: getVal('unpaidDuration'),
+    unpaid_start: getVal('unpaidStart'),
+    unpaid_end: getVal('unpaidEnd'),
+    paid_duration: getVal('paidDuration'),
+    paid_start: getVal('paidStart'),
+    paid_end: getVal('paidEnd'),
+    paid_salary: getVal('paidSalary'),
+    probation_duration: getVal('probationDuration'),
+    probation_start: getVal('probationStart'),
+    probation_end: getVal('probationEnd'),
+    probation_salary: getVal('probationSalary'),
+    postprob_duration: getVal('postprobDuration'),
+    postprob_start: getVal('postprobStart'),
+    postprob_end: getVal('postprobEnd'),
+    postprob_salary: getVal('postprobSalary'),
+  };
+
+  if (!payload.intern_id || !payload.employee_id) {
+    alert('Intern ID and Employee ID are required.');
+    return;
+  }
+
+  try {
+    await createIntern(payload);
+    closeModal();
+    alert('Intern created successfully');
+    renderInternsPage();
+  } catch (err) {
+    console.error('Failed to create intern', err);
+    alert(err.message || 'Failed to create intern');
+  }
+};
+
+const navigateToInternDetail = (internId) => {
+  if (!internId) return;
+  state.selectedInternId = internId;
+  window.location.hash = `#/interns/${encodeURIComponent(internId)}`;
+};
+
+const attachInternEvents = () => {
+  const searchInput = document.getElementById('intern-search-input');
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      internSearch = e.target.value || '';
+      renderInternsPage(internSearch, 1);
+    });
+  }
+
+  const addBtn = document.getElementById('add-intern-btn');
+  if (addBtn) {
+    addBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      showAddInternModal();
+    });
+  }
+
+  document.querySelectorAll('.intern-view-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const internId = btn.getAttribute('data-intern-id');
+      if (internId) navigateToInternDetail(internId);
+    });
+  });
+
+  const cardBtn = document.getElementById('intern-card-view-btn');
+  const tableBtn = document.getElementById('intern-table-view-btn');
+  const cardView = document.getElementById('intern-card-view');
+  const tableView = document.getElementById('intern-table-view');
+  if (cardBtn && tableBtn && cardView && tableView) {
+    const applyViewState = (mode) => {
+      const showTable = mode === 'table';
+      internViewMode = showTable ? 'table' : 'card';
+      cardBtn.classList.toggle('active', !showTable);
+      tableBtn.classList.toggle('active', showTable);
+      cardView.classList.toggle('view-mode-visible', !showTable);
+      tableView.classList.toggle('view-mode-visible', showTable);
+    };
+    cardBtn.addEventListener('click', () => applyViewState('card'));
+    tableBtn.addEventListener('click', () => applyViewState('table'));
+    applyViewState(internViewMode);
+  }
+
+  document.querySelectorAll('.intern-pagination-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const targetPage = parseInt(btn.getAttribute('data-target-page'), 10);
+      if (!Number.isNaN(targetPage)) {
+        renderInternsPage(internSearch, targetPage);
+      }
+    });
+  });
+};
+
+export const renderInternsPage = async (filter = internSearch, page = internPage) => {
+  const isTableMode = internViewMode === 'table';
+  const controls = `
+    <div class="employee-controls">
+      <div class="employee-view-toggle" aria-label="Toggle interns view">
+        <button id="intern-card-view-btn" class="view-toggle-btn ${isTableMode ? '' : 'active'}" title="Card view">
+          <i class="fa-solid fa-grip"></i>
+        </button>
+        <button id="intern-table-view-btn" class="view-toggle-btn ${isTableMode ? 'active' : ''}" title="Table view">
+          <i class="fa-solid fa-table"></i>
+        </button>
+      </div>
+      <div class="employee-control-actions">
+        <button id="add-intern-btn" class="btn btn-primary"><i class="fa-solid fa-plus"></i> ADD INTERN</button>
+      </div>
+    </div>
+  `;
+
+  const skeleton = `
+    <div class="card">
+      <div class="page-controls">
+        <div class="inline-search">
+          <div class="skeleton skeleton-text" style="height: 36px; width: 100%; border-radius: 999px;"></div>
+        </div>
+      </div>
+      <div class="employee-card-grid view-mode view-mode-visible">
+        ${Array.from({ length: 3 }).map(() => `
+          <div class="employee-card">
+            <div class="employee-card-header">
+              <div class="employee-card-info">
+                <div class="skeleton skeleton-circle" style="width:40px;height:40px;"></div>
+                <div>
+                  <div class="skeleton skeleton-list-line-lg"></div>
+                  <div class="skeleton skeleton-list-line-sm" style="margin-top: 4px;"></div>
+                </div>
+              </div>
+              <div class="skeleton skeleton-badge"></div>
+            </div>
+            <div class="employee-card-body">
+              <div class="skeleton skeleton-list-line-lg"></div>
+              <div class="skeleton skeleton-list-line-sm"></div>
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>
+  `;
+
+  document.getElementById('app-content').innerHTML = getPageContentHTML('Interns', skeleton, controls);
+
+  let fetchedItems = [];
+  try {
+    const { items, total, page: curPage, pageSize } = await listInterns(page, INTERN_PAGE_SIZE);
+    internPage = curPage || page;
+    internPageSize = pageSize || INTERN_PAGE_SIZE;
+    fetchedItems = items || [];
+    internTotalCount = typeof total === 'number' ? total : fetchedItems.length;
+    state.interns = fetchedItems;
+  } catch (err) {
+    console.error('Failed to load interns', err);
+    document.getElementById('app-content').innerHTML = getPageContentHTML('Interns', `<div class="card error-card">${err.message || err}</div>`, controls);
+    return;
+  }
+
+  const filtered = (state.interns || []).filter((intern) => {
+    const value = `${intern.intern_id || ''} ${intern.employee_id || ''}`.toLowerCase();
+    return value.includes((filter || '').toLowerCase());
+  });
+
+  const totalPages = internTotalCount ? Math.max(1, Math.ceil(internTotalCount / internPageSize)) : undefined;
+  const prevPage = Math.max(1, internPage - 1);
+  const nextPage = totalPages ? Math.min(totalPages, internPage + 1) : internPage + 1;
+  const prevDisabled = internPage <= 1 ? 'disabled' : '';
+  const nextDisabled = totalPages && internPage >= totalPages ? 'disabled' : '';
+
+  const paginator = `
+    <div class="pagination">
+      <button class="btn intern-pagination-btn" data-target-page="${prevPage}" ${prevDisabled}><i class="fa-solid fa-chevron-left"></i> Prev</button>
+      <span class="page-indicator">Page ${internPage}${totalPages ? ` of ${totalPages}` : ''}</span>
+      <button class="btn intern-pagination-btn" data-target-page="${nextPage}" ${nextDisabled}>Next <i class="fa-solid fa-chevron-right"></i></button>
+    </div>
+  `;
+
+  const cards = filtered.map((intern) => `
+    <div class="employee-card">
+      <div class="employee-card-header">
+        <div class="employee-card-info">
+          <div class="employee-avatar">${(intern.intern_id || '?').slice(0, 2)}</div>
+          <div>
+            <div class="employee-name">${intern.intern_id || 'Intern'}</div>
+            <div class="employee-meta">Employee: ${intern.employee_id || '—'}</div>
+            <div class="employee-meta subtle">Created: ${formatDate(intern.created_on)}</div>
+          </div>
+        </div>
+        <button class="icon-btn intern-view-btn" data-intern-id="${intern.intern_id}" title="View Details"><i class="fa-solid fa-eye"></i></button>
+      </div>
+    </div>
+  `).join('') || '<div class="placeholder-text">No interns found.</div>';
+
+  const tableRows = filtered.map((intern) => `
+    <tr>
+      <td>${intern.intern_id || '—'}</td>
+      <td>${intern.employee_id || '—'}</td>
+      <td>${formatDate(intern.created_on)}</td>
+      <td>
+        <button class="icon-btn intern-view-btn" data-intern-id="${intern.intern_id}"><i class="fa-solid fa-eye"></i></button>
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="4" class="placeholder-text">No interns found.</td></tr>';
+
+  const content = `
+    <div class="card employees-card-shell">
+      <div class="page-controls">
+        <div class="inline-search">
+          <i class="fa-solid fa-search"></i>
+          <input type="text" id="intern-search-input" placeholder="Search by Intern or Employee ID" value="${filter}">
+        </div>
+      </div>
+      <div id="intern-card-view" class="employee-card-grid view-mode ${isTableMode ? '' : 'view-mode-visible'}">
+        ${cards}
+      </div>
+      <div id="intern-table-view" class="view-mode ${isTableMode ? 'view-mode-visible' : ''}">
+        <div class="employee-table-wrapper">
+          <div class="employee-table-scroll">
+            <table class="table employees-table">
+              <thead>
+                <tr>
+                  <th>Intern ID</th>
+                  <th>Employee ID</th>
+                  <th>Created On</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>${tableRows}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      ${paginator}
+    </div>
+  `;
+
+  document.getElementById('app-content').innerHTML = getPageContentHTML('Interns', content, controls);
+  attachInternEvents();
+};

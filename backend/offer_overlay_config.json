@@ -1,0 +1,13 @@
+{
+  "page_overlays": [
+    {
+      "page": 0,
+      "fields": [
+        {"key": "candidate_name_to", "value_key": "candidate_name", "x": 110, "y": 615, "w": 160, "h": 18, "font": "Helvetica", "size": 11},
+        {"key": "candidate_name_dear", "value_key": "candidate_name", "x": 153, "y": 495, "w": 160, "h": 18, "font": "Helvetica", "size": 11},
+        {"key": "designation", "value_key": "designation", "x": 610, "y": 431, "w": 180, "h": 18, "font": "Helvetica-Bold", "size": 11},
+        {"key": "date_of_joining", "value_key": "date_of_joining", "x": 755, "y": 431, "w": 120, "h": 18, "font": "Helvetica-Bold", "size": 11}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Employment Joining Confirmation</title>
+  <style>
+    body {
+      font-family: "Helvetica", "Arial", sans-serif;
+      margin: 0;
+      padding: 40px;
+      color: #111827;
+      line-height: 1.6;
+      font-size: 11pt;
+    }
+    .letter-container {
+      max-width: 700px;
+      margin: 0 auto;
+    }
+    .header {
+      text-align: left;
+      margin-bottom: 30px;
+    }
+    .header h1 {
+      font-size: 18pt;
+      color: #1d4ed8;
+      margin: 0 0 10px 0;
+      font-weight: 600;
+    }
+    .date-line {
+      margin: 20px 0;
+      font-size: 11pt;
+    }
+    .to-section {
+      margin: 20px 0;
+      line-height: 1.4;
+    }
+    .subject {
+      font-weight: 600;
+      margin: 20px 0;
+    }
+    .body-text {
+      margin: 15px 0;
+      text-align: justify;
+    }
+    .signature-section {
+      margin-top: 50px;
+    }
+    .signature-image {
+      margin: 10px 0;
+    }
+    strong {
+      font-weight: 600;
+    }
+    .placeholder {
+      background-color: #fef3c7;
+      padding: 2px 4px;
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body>
+  <div class="letter-container">
+    <!-- COVER PAGE: Offer Letter & Internship and Salary Structure -->
+    <div class="header">
+      <h1>Offer Letter &amp; Internship and Salary Structure</h1>
+    </div>
+    <div class="body-text" style="margin-top: 6px;">
+      <strong>Candidate:</strong> <span class="placeholder">{{candidate_name}}</span>
+    </div>
+    <div class="body-text" style="margin-top: 16px;">
+      <p><strong>Position:</strong> <span class="placeholder">{{designation}}</span></p>
+      <p><strong>Employment Type:</strong> <span class="placeholder">{{employment_type}}</span></p>
+      <p><strong>Stipend/Salary:</strong> <span class="placeholder">{{salary}}</span></p>
+      <p><strong>Duration:</strong> <span class="placeholder">{{duration}}</span></p>
+      <p><strong>Benefits:</strong> <span class="placeholder">{{benefits}}</span></p>
+    </div>
+
+    <!-- Page break to start page 2 -->
+    <div style="page-break-after: always;"></div>
+
+    <!-- PAGE 2: Employment Joining Confirmation -->
+    <div class="header">
+      <h1>Employment Joining Confirmation</h1>
+    </div>
+
+    <!-- Date -->
+    <div class="date-line">
+      <strong>Date:</strong> <span class="placeholder">{{current_date}}</span>
+    </div>
+
+    <!-- To Section -->
+    <div class="to-section">
+      To<br>
+      <span class="placeholder">{{candidate_name}}</span><br>
+      <span class="placeholder">{{candidate_address}}</span>
+    </div>
+
+    <!-- Subject -->
+    <div class="subject">
+      <strong>Subject: Confirmation of Joining</strong>
+    </div>
+
+    <!-- Salutation -->
+    <div class="body-text">
+      Dear <span class="placeholder">{{candidate_name}}</span>,
+    </div>
+
+    <!-- Main Content -->
+    <div class="body-text">
+      This is to confirm that you have joined <strong>VTAB Square Pvt Ltd</strong>
+      as <strong><span class="placeholder">{{designation}}</span></strong>
+      on <strong><span class="placeholder">{{date_of_joining}}</span></strong>.
+      You will be reporting to <strong><span class="placeholder">{{reporting_manager}}</span></strong>
+      and your work location is <strong>[<span class="placeholder">{{work_location}}</span>]</strong>.
+    </div>
+
+    <div class="body-text">
+      We are pleased to have you as part of our team and look forward to your contributions
+      toward the growth and success of the organization. This letter serves as official
+      proof of your employment with <strong>VTAB Square Pvt Ltd</strong> effective from
+      your joining date.
+    </div>
+
+    <div class="body-text">
+      Should you require any additional information or documentation, please feel free to
+      contact the HR department.
+    </div>
+
+    <!-- Signature -->
+    <div class="signature-section">
+      <p>Sincerely,</p>
+      <div class="signature-image">
+        <img src="data:image/png;base64,{{signature_base64}}" alt="Signature" style="height: 60px; display: none;">
+        <p style="margin: 40px 0 5px 0; font-style: italic; color: #6b7280;">[Signature]</p>
+      </div>
+      <p><strong>HR Team</strong><br>
+      VTAB Square Pvt Ltd</p>
+    </div>
+  </div>
+</body>
+</html>

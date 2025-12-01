@@ -1,0 +1,4190 @@
+// shared.js - Shared Inbox page
+import { state } from '../state.js';
+import { getPageContentHTML } from '../utils.js';
+import { renderModal, closeModal } from '../components/modal.js';
+import { fetchEmployeeLeaves, approveLeave, rejectLeave } from '../features/leaveApi.js';
+import { showToast } from '../components/toast.js';
+import { listClients, createClient, updateClient, deleteClient, getNextClientId } from '../features/clientApi.js';
+import { fetchPendingLeaves } from '../features/leaveApi.js';
+import { notifyEmployeeLeaveApproval, notifyEmployeeLeaveRejection, updateNotificationBadge, notifyEmployeeCompOffGranted, notifyEmployeeCompOffRejected } from '../features/notificationApi.js';
+import { listEmployees } from '../features/employeeApi.js';
+
+let currentInboxTab = 'awaiting';
+let currentInboxCategory = 'leaves';
+
+// Check if current user is admin (EMP001)
+const isAdminUser = () => {
+    const empId = String(state.user?.id || '').trim().toUpperCase();
+    const email = String(state.user?.email || '').trim().toLowerCase();
+    return empId === 'EMP001' || email === 'bala.t@vtab.com';
+};
+
+const canManageMyTimesheetRows = () => {
+    if (isAdminUser()) return true;
+    const role = String(state.user?.role || '').trim().toUpperCase();
+    if (role === 'L3' || role === 'L2' || role === 'ADMIN') return true;
+    if (state.user?.is_manager) return true;
+    const designation = String(state.user?.designation || '').trim().toLowerCase();
+    return designation.includes('manager');
+};
+
+const renderMyTsRow = (days, idx = 0) => {
+    const dayInputs = days.map(function (d, i) { return '<div class="ts-cell"><input class="ts-input ts-hhmm" data-row="' + idx + '" data-col="' + i + '" placeholder="HH:MM" /></div>'; }).join('');
+    return `
+      <div class="ts-cell">
+        <select class="ts-input ts-project">
+          <option value="">Select project</option>
+          <option>Project Python Development</option>
+          <option>Internal</option>
+        </select>
+      </div>
+      <div class="ts-cell">
+        <select class="ts-input ts-task">
+          <option value="">Select task</option>
+          <option>Python Training</option>
+          <option>Development</option>
+        </select>
+      </div>
+      <div class="ts-cell">
+        <select class="ts-input ts-billing">
+          <option>Billable</option>
+          <option selected>Non-billable</option>
+        </select>
+      </div>
+      ${dayInputs}
+      <div class="ts-cell ts-total" data-row-total="${idx}">00:00</div>
+    `;
+};
+
+const parseHHMM = (s) => {
+    if (!s) return 0;
+    const m = String(s).trim().match(/^(\d{1,2})(?::(\d{1,2}))?$/);
+    if (!m) return 0;
+    const h = parseInt(m[1] || '0', 10);
+    const mm = parseInt(m[2] || '0', 10);
+    if (mm >= 60) return 0;
+    return h * 60 + mm;
+};
+const fmtHHMM = (mins) => {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+};
+
+const recalcMyTsTotals = () => {
+    const rows = Array.from(document.querySelectorAll('.ts-hhmm'))
+        .reduce((acc, el) => {
+            const r = el.getAttribute('data-row');
+            const v = parseHHMM(el.value);
+            acc[r] = (acc[r] || 0) + v;
+            return acc;
+        }, {});
+    let totalLogged = 0;
+    Object.keys(rows).forEach(r => {
+        totalLogged += rows[r] || 0;
+        const tgt = document.querySelector(`[data-row-total="${r}"]`);
+        if (tgt) tgt.textContent = fmtHHMM(rows[r] || 0);
+    });
+    const totalBillable = totalLogged; // placeholder; billing split not implemented
+    const tl = document.getElementById('ts-total-logged');
+    const tb = document.getElementById('ts-total-billable');
+    if (tl) tl.textContent = `${fmtHHMM(totalLogged)}`;
+    if (tb) tb.textContent = `${fmtHHMM(totalBillable)}`;
+};
+
+const attachMyTsEvents = () => {
+    const debounce = (fn, t = 200) => { let id; return (...a) => { clearTimeout(id); id = setTimeout(() => fn(...a), t); }; };
+    document.querySelectorAll('.ts-hhmm').forEach((inp) => {
+        inp.addEventListener('input', debounce(() => recalcMyTsTotals(), 100));
+        inp.addEventListener('blur', () => recalcMyTsTotals());
+    });
+    const add = document.getElementById('ts-add');
+    if (add) add.addEventListener('click', () => {
+        const grid = document.querySelector('.ts-grid');
+        if (!grid) return;
+        const rows = document.querySelectorAll('[data-row-total]');
+        const idx = rows.length;
+        const weekStart = window.__myTsDate;
+        const days = Array.from({ length: 7 }, (_, i) => new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + i));
+        const wrap = document.createElement('div');
+        wrap.className = 'ts-row';
+        wrap.innerHTML = renderMyTsRow(days, idx);
+        grid.appendChild(wrap);
+        setTimeout(() => attachMyTsEvents(), 0);
+    });
+    const prev = document.getElementById('ts-prev');
+    const next = document.getElementById('ts-next');
+    if (prev) prev.onclick = () => { const d = new Date(window.__myTsDate); d.setDate(d.getDate() - 7); window.__myTsDate = d; renderMyTimesheetPage(); };
+    if (next) next.onclick = () => { const d = new Date(window.__myTsDate); d.setDate(d.getDate() + 7); window.__myTsDate = d; renderMyTimesheetPage(); };
+};
+
+const initials = (name) => (name || '').split(' ').filter(Boolean).slice(0, 2).map(s => s[0].toUpperCase()).join('') || 'NA';
+const badgeColor = (seed) => {
+    const colors = ['#3498db', '#9b59b6', '#e67e22', '#1abc9c', '#e74c3c', '#2ecc71', '#34495e'];
+    let h = 0; for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+    return colors[h % colors.length];
+};
+const teamRow = (emp, days, logs) => {
+    // Helper to format seconds as HH:MM
+    const formatTime = (secs) => {
+        if (!secs) return '00:00';
+        const h = Math.floor(secs / 3600);
+        const m = Math.floor((secs % 3600) / 60);
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    };
+
+    const upEmp = (emp.id || '').toUpperCase();
+    const manualFlags = [];
+    const dayHours = days.map(d => {
+        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; // YYYY-MM-DD (local)
+        // Use local date for comparison
+        const today = new Date();
+        const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+        // Only process dates that are today or in the past (string comparison)
+        if (dateStr > todayStr) {
+            manualFlags.push(false);
+            return 0;
+        }
+
+        let totalSecs = 0;
+        let isManual = false;
+        (logs || []).forEach(l => {
+            const logEmpId = (l.employee_id || '').toUpperCase();
+            const logDate = (l.work_date || '').slice(0, 10); // Ensure YYYY-MM-DD format
+            if (logEmpId === upEmp && logDate === dateStr) {
+                const secs = Number(l.seconds || 0);
+                totalSecs += secs;
+                if (l.manual) isManual = true;
+            }
+        });
+        manualFlags.push(isManual);
+        return totalSecs;
+    });
+
+    // Calculate total for the month
+    const totalSecs = dayHours.reduce((sum, h) => sum + h, 0);
+
+    // Debug logging for employees with logged time
+    if (totalSecs > 0) {
+        console.log(`Team Timesheet - ${emp.name} (${emp.id}): ${formatTime(totalSecs)} total`);
+        console.log(`  Day hours:`, dayHours.map((h, i) => {
+            const d = days[i];
+            const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            return `${ds}=${formatTime(h)}`;
+        }).filter((_, i) => dayHours[i] > 0));
+    }
+
+    const left = `
+      <div class="tt-cell tt-sticky" style="display:flex; align-items:center; justify-content:flex-start; gap:10px;">
+        <span class="emp-badge" style="background:${badgeColor(emp.id)}">${initials(emp.name)}</span>
+        <div>
+          <div style="font-weight:600; color: var(--text-primary, #1f2937);">${emp.name}</div>
+          <div style="color: var(--text-secondary, #6b7280); font-size:12px;">${emp.id}</div>
+        </div>
+      </div>`;
+    const total = `<div class="tt-cell tt-total" style="text-align:center; font-weight:600;">${formatTime(totalSecs)}</div>`;
+    const cells = dayHours.map((h, i) => {
+        const d = days[i];
+        const isSunday = d.getDay() === 0;
+        const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const today = new Date();
+        const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+        // Hard guard: never render time for future days
+        const isFuture = ds > todayStr;
+        if (isSunday) {
+            return `<div class="tt-cell day-off"><span>DO</span></div>`;
+        }
+        if (!isFuture && h > 0) {
+            const icon = manualFlags[i]
+                ? '<i class="fa-solid fa-user" style="font-size:10px; color:#eaf2ff; position:absolute; top:4px; right:4px;" title="Manual entry (edited by L2/L3)"></i>'
+                : '<i class="fa-regular fa-clock" style="font-size:10px; color:#eaf2ff; position:absolute; top:4px; right:4px;" title="Automatic capture"></i>';
+            return `<div class="tt-cell worked" data-emp="${emp.id}" data-date="${ds}" style="position:relative;"><span style="font-weight:700; font-size:13px;">${formatTime(h)}</span>${icon}</div>`;
+        }
+        return `<div class="tt-cell empty"></div>`;
+    }).join('');
+    return `<div class="tt-row">${left}${total}${cells}</div>`;
+};
+const nameFilter = (arr, q) => {
+    const s = String(q || '').trim().toLowerCase();
+    if (!s) return arr;
+    return arr.filter(x => x.id.toLowerCase().includes(s) || (x.name || '').toLowerCase().includes(s));
+};
+const attachTeamTsEvents = () => {
+    const prev = document.getElementById('tt-prev');
+    const next = document.getElementById('tt-next');
+    if (prev) prev.onclick = () => { const d = new Date(window.__teamTsMonth || new Date()); d.setMonth(d.getMonth() - 1); window.__teamTsMonth = d; renderTeamTimesheetPage(); };
+    if (next) next.onclick = () => { const d = new Date(window.__teamTsMonth || new Date()); d.setMonth(d.getMonth() + 1); window.__teamTsMonth = d; renderTeamTimesheetPage(); };
+    const search = document.getElementById('tt-search');
+    if (search) {
+        let id; search.addEventListener('input', (e) => { clearTimeout(id); const v = e.target.value; id = setTimeout(() => { window.__ttSearch = v; renderTeamTimesheetPage(); }, 250); });
+    }
+    // Allow only L2/L3 (managers/admins) to edit team timesheet cells
+    const canEditTeamTimesheet = () => {
+        try {
+            const user = state?.user || window.state?.user || {};
+            const isAdmin = (() => {
+                const empId = String(user.id || '').trim().toUpperCase();
+                const email = String(user.email || '').trim().toLowerCase();
+                return empId === 'EMP001' || email === 'bala.t@vtab.com' || !!user.is_admin;
+            })();
+            const role = String(user.role || '').toLowerCase();
+            const isManager = !!user.is_manager || role === 'l2' || String(user.designation || '').toLowerCase().includes('manager');
+            return isAdmin || isManager;
+        } catch { return false; }
+    };
+    if (canEditTeamTimesheet()) {
+        document.querySelectorAll('.tt-cell.worked').forEach(cell => {
+            cell.addEventListener('click', () => {
+                const empId = cell.getAttribute('data-emp');
+                const dateStr = cell.getAttribute('data-date');
+                if (!empId || !dateStr) return;
+                openTeamTsEditModal(empId, dateStr).catch(err => console.error('Team TS edit modal error', err));
+            });
+        });
+    }
+};
+
+const openTeamTsEditModal = async (employeeId, workDate) => {
+    const API = 'http://localhost:5000/api';
+    const empId = String(employeeId || '').toUpperCase();
+    if (!empId || !workDate) return;
+    let logs = [];
+    try {
+        const url = `${API}/time-tracker/logs?employee_id=${encodeURIComponent(empId)}&start_date=${workDate}&end_date=${workDate}`;
+        const res = await fetch(url);
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success && Array.isArray(data.logs)) {
+            logs = data.logs || [];
+        }
+    } catch (e) {
+        console.error('Failed to load day logs for team edit', e);
+    }
+    const byTask = {};
+    logs.forEach(l => {
+        const key = `${l.project_id || ''}|${l.task_guid || l.task_id || ''}`;
+        if (!byTask[key]) {
+            byTask[key] = {
+                project_id: l.project_id || '',
+                task_guid: l.task_guid || '',
+                task_id: l.task_id || '',
+                task_name: l.task_name || l.task_id || '',
+                seconds: 0,
+                manual: !!l.manual,
+                description: l.description || '',
+            };
+        }
+        byTask[key].seconds += Number(l.seconds || 0);
+    });
+    const entries = Object.values(byTask);
+    const toHHMM = (secs) => {
+        const s = Number(secs || 0);
+        const h = Math.floor(s / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    };
+    const rowsHtml = entries.map((e, idx) => `
+        <tr data-idx="${idx}">
+            <td>${e.project_id || '-'}</td>
+            <td>${e.task_id || '-'}</td>
+            <td>${e.task_name || '-'}</td>
+            <td><input type="text" class="tt-edit-time" data-idx="${idx}" value="${toHHMM(e.seconds)}" placeholder="HH:MM" /></td>
+            <td><input type="text" class="tt-edit-notes" data-idx="${idx}" value="${e.description || ''}" placeholder="Notes (optional)" /></td>
+        </tr>
+    `).join('') || '<tr><td colspan="5" class="placeholder-text">No logs for this date</td></tr>';
+    const body = `
+        <div style="padding:4px 0;">
+            <div style="margin-bottom:10px; font-size:13px; color:#475569;">
+                <div><strong>${empId}</strong> &mdash; ${workDate}</div>
+            </div>
+            <div class="table-container" style="max-height:320px; overflow:auto;">
+                <table class="table">
+                    <thead><tr><th>Project</th><th>Task ID</th><th>Task Name</th><th>Time (HH:MM)</th><th>Notes</th></tr></thead>
+                    <tbody>${rowsHtml}</tbody>
+                </table>
+            </div>
+            <p style="font-size:12px; color:#64748b; margin-top:6px;">Manual updates here will be marked with the people icon in team timesheet.</p>
+        </div>`;
+    renderModal('Edit time for selected day', body, [
+        { id: 'tt-edit-cancel', text: 'Cancel', className: 'btn btn-secondary', type: 'button' },
+        { id: 'tt-edit-save', text: 'Save', className: 'btn btn-primary', type: 'button' }
+    ]);
+    setTimeout(() => {
+        const cancelBtn = document.getElementById('tt-edit-cancel');
+        const saveBtn = document.getElementById('tt-edit-save');
+        if (cancelBtn) cancelBtn.addEventListener('click', () => closeModal());
+        if (!saveBtn) return;
+        saveBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            try {
+                const role = ((() => { const u = state?.user || window.state?.user || {}; const isAdm = !!u.is_admin || String(u.id || '').toUpperCase() === 'EMP001'; return isAdm ? 'l3' : 'l2'; })());
+                const user = state?.user || window.state?.user || {};
+                const editorId = String(user.id || '').toUpperCase();
+                const timeInputs = Array.from(document.querySelectorAll('.tt-edit-time'));
+                for (const inp of timeInputs) {
+                    const idx = Number(inp.getAttribute('data-idx'));
+                    const row = entries[idx];
+                    if (!row) continue;
+                    const raw = String(inp.value || '').trim();
+                    if (!raw) continue;
+                    const m = raw.match(/^(\d{1,2}):(\d{2})$/);
+                    if (!m) { showToast('Enter time as HH:MM'); return; }
+                    const h = parseInt(m[1], 10) || 0; const mm = parseInt(m[2], 10) || 0;
+                    const secs = (h * 3600) + (mm * 60);
+                    const payload = {
+                        employee_id: empId,
+                        project_id: row.project_id || '',
+                        task_guid: row.task_guid || '',
+                        task_id: row.task_id || '',
+                        task_name: row.task_name || '',
+                        seconds: secs,
+                        work_date: workDate,
+                        description: String(document.querySelector(`.tt-edit-notes[data-idx="${idx}"]`)?.value || '').trim(),
+                        role,
+                        editor_id: editorId,
+                    };
+                    const res = await fetch(`${API}/time-tracker/logs/exact`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    });
+                    if (!res.ok) {
+                        const d = await res.json().catch(() => ({}));
+                        showToast(d.error || 'Failed to save time');
+                        return;
+                    }
+                }
+                closeModal();
+                await renderTeamTimesheetPage();
+            } catch (err) {
+                console.error('Team TS save failed', err);
+                showToast('Failed to save time');
+            }
+        });
+    }, 30);
+};
+
+// Resolve current employee ID
+const resolveCurrentEmployeeId = async () => {
+    let empId = String(state.user?.id || '').trim().toUpperCase();
+    const userName = state.user?.name;
+    console.log('My Tasks - Initial empId:', empId, 'userName:', userName);
+    try {
+        const allEmployees = await listEmployees(1, 5000);
+        if (empId && empId.startsWith('EMP')) {
+            const matchId = (allEmployees.items || []).find(e => (e.employee_id || '').toUpperCase() === empId);
+            if (matchId) {
+                console.log('My Tasks - Employee ID resolved by ID:', empId);
+                return empId;
+            }
+        }
+        if (userName) {
+            const match = (allEmployees.items || []).find(e => {
+                const empFullName = `${e.first_name || ''} ${e.last_name || ''}`.trim().toLowerCase();
+                return empFullName === userName.toLowerCase().trim();
+            });
+            if (match && match.employee_id) {
+                empId = match.employee_id.trim().toUpperCase();
+                state.user.id = empId;
+                return empId;
+            }
+        }
+    } catch { }
+    return empId;
+};
+
+export const renderTimeTrackerPage = () => {
+    const content = `<div class="card"><p class="placeholder-text">Time Tracker page is under construction.</p></div>`;
+    document.getElementById('app-content').innerHTML = getPageContentHTML('My Team Timesheet', content);
+};
+
+// Time Tracker subpages (placeholders)
+export const renderMyTasksPage = async () => {
+    const user = state?.user || window.state?.user || {};
+    let empId = String((user.id || user.employee_id || user.employeeId || '')).trim();
+    const empName = String((user.name || user.fullName || user.username || '')).trim();
+    const email = String((user.email || user.mail || '')).trim();
+
+    console.log('My Tasks - User:', user);
+    console.log('My Tasks - Employee ID:', empId);
+    if (!empId) {
+        try { empId = await resolveCurrentEmployeeId(); } catch { }
+        if (empId) { try { state.user = { ...(state.user || {}), id: empId }; } catch { } }
+    }
+    const isPrivileged = !!user.is_admin || ['EMP001'].includes((empId || '').toUpperCase()) || /\b(bala|vignesh)\b/i.test(empName || email);
+
+    // Projects cache for client column
+    let projectsIdx = {};
+    try {
+        const raw = localStorage.getItem('tt_projects_v1');
+        const arr = raw ? JSON.parse(raw) : [];
+        (arr || []).forEach(p => { projectsIdx[(p.id || p.crc6f_projectid)] = p; });
+    } catch { }
+
+    const API = 'http://localhost:5000/api';
+    let tasks = [];
+    let search = '';
+
+    // Initial lightweight skeleton while tasks and indexes are loading
+    try {
+        const skeleton = `
+            <div class="card">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+                    <div class="skeleton skeleton-heading-md"></div>
+                    <div class="skeleton skeleton-pill" style="width:140px; height:32px;"></div>
+                </div>
+                <div class="skeleton skeleton-chart-line"></div>
+            </div>
+        `;
+        const app = document.getElementById('app-content');
+        if (app) app.innerHTML = getPageContentHTML('My Tasks', skeleton);
+    } catch { }
+
+    const loadTasks = async () => {
+        const params = new URLSearchParams();
+        // Use /my-tasks so backend matches by employee id, name, or email depending on what is stored.
+        if (empId) params.set('user_id', String(empId).trim());
+        if (empName) params.set('user_name', String(empName).trim());
+        if (email) params.set('user_email', String(email).trim());
+        params.set('role', isPrivileged ? 'l3' : 'l1');
+        const res = await fetch(`${API}/my-tasks?${params.toString()}`);
+        const data = await res.json().catch(() => ({ success: false }));
+        let fetched = (res.ok && data.success ? (data.tasks || []) : []);
+        // Merge manual tasks stored locally so they show up in My Tasks
+        try {
+            const key = 'tt_manual_tasks_v1';
+            const local = JSON.parse(localStorage.getItem(key) || '[]');
+            const mine = (local || []).filter(t => String(t.assigned_to || '').toUpperCase() === String(empId || '').toUpperCase());
+            const normalized = mine.map(t => ({
+                guid: t.guid || t.task_guid || t.id || `man-${t.task_id || Date.now()}`,
+                task_id: t.task_id || '',
+                task_name: t.task_name || 'Manual Task',
+                project_id: t.project_id || '',
+                task_status: t.task_status || 'New',
+                task_priority: t.task_priority || 'Normal',
+                due_date: t.due_date || ''
+            }));
+            // Deduplicate by guid
+            const merged = [...fetched, ...normalized];
+            const uniq = merged.filter((v, i, a) => a.findIndex(x => String(x.guid || '') === String(v.guid || '')) === i);
+            fetched = uniq;
+        } catch { }
+
+        tasks = fetched.filter(t => {
+            if (!search) return true;
+            const hay = `${t.task_id || ''} ${t.task_name || ''} ${t.task_status || ''} ${t.project_id || ''}`.toLowerCase();
+            return hay.includes(search.toLowerCase());
+        });
+    };
+
+    const fmt = (secs) => {
+        const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60; return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    };
+
+    const ACTIVE_KEY = (id) => `tt_active_${id}`;
+    const todayStr = () => { const t = new Date(); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`; };
+    const PER_TASK_KEY = (emp, guid, date) => `tt_accum_${String(emp || '').toUpperCase()}_${guid}_${date}`;
+    const getActive = () => { try { return JSON.parse(localStorage.getItem(ACTIVE_KEY(empId)) || 'null'); } catch { return null; } };
+    const setActive = (obj) => { try { localStorage.setItem(ACTIVE_KEY(empId), JSON.stringify(obj)); } catch { } };
+    const clearActive = () => { try { localStorage.removeItem(ACTIVE_KEY(empId)); } catch { } };
+
+    const getPersistedSecs = (guid) => { try { return Number(localStorage.getItem(PER_TASK_KEY(empId, guid, todayStr())) || '0') || 0; } catch { return 0; } };
+    const setPersistedSecs = (guid, secs) => { try { localStorage.setItem(PER_TASK_KEY(empId, guid, todayStr()), String(Math.max(0, secs | 0))); } catch { } };
+
+    const postTimesheetLog = async ({ seconds, task }) => {
+        const body = {
+            employee_id: empId,
+            project_id: task.project_id,
+            task_guid: task.guid,
+            task_id: task.task_id,
+            task_name: task.task_name,
+            seconds: Math.max(1, seconds | 0),
+            work_date: todayStr(),
+            description: ''
+        };
+        try {
+            const res = await fetch(`${API}/time-tracker/task-log`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            const result = await res.json().catch(() => ({ success: false }));
+            if (res.ok && result.success) {
+                try { sessionStorage.setItem('tt_last_log', JSON.stringify(body)); } catch { }
+                if (window.location.hash === '#/time-my-timesheet') { try { await renderMyTimesheetPage(); } catch { } }
+                return true;
+            }
+            console.error('Timesheet upsert failed:', result.error || res.status);
+        } catch (err) { console.error('Timesheet upsert network error:', err); }
+        return false;
+    };
+
+    const updateTaskStatus = async (task, newStatus) => {
+        try {
+            const target = String(newStatus || '').trim();
+            if (!target) return;
+            const current = String(task.task_status || '').trim().toLowerCase();
+            if (current === target.toLowerCase()) return;
+
+            const guidStr = String(task.guid || '');
+            if (guidStr.startsWith('man-')) {
+                task.task_status = target;
+                try {
+                    const key = 'tt_manual_tasks_v1';
+                    const cur = JSON.parse(localStorage.getItem(key) || '[]');
+                    const idx = cur.findIndex(x => String(x.guid || x.task_guid || x.id) === guidStr);
+                    if (idx >= 0) {
+                        cur[idx].task_status = target;
+                        localStorage.setItem(key, JSON.stringify(cur));
+                    }
+                } catch { }
+                return;
+            }
+
+            if (!guidStr) return;
+
+            const res = await fetch(`${API}/tasks/${guidStr}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ task_status: target })
+            });
+            const data = await res.json().catch(() => ({ success: false }));
+            if (!res.ok || data.success === false) {
+                console.error('Task status update failed:', data.error || res.status);
+                return;
+            }
+            task.task_status = target;
+        } catch (err) {
+            console.error('Task status update error:', err);
+        }
+    };
+
+    const toggleTimer = async (t) => {
+        const cur = getActive();
+        // If timer is running for this task, pause it
+        if (cur && cur.task_guid === t.guid && !cur.paused) {
+            const elapsed = Math.floor((Date.now() - Number(cur.started_at)) / 1000);
+            const totalAccumulated = (cur.accumulated || 0) + elapsed;
+            setActive({ ...cur, accumulated: totalAccumulated, paused: true, started_at: null });
+            setPersistedSecs(t.guid, totalAccumulated);
+            await postTimesheetLog({ seconds: totalAccumulated, task: t });
+            render();
+            return;
+        }
+        // If another task is running, stop it first
+        if (cur && cur.task_guid && cur.task_guid !== t.guid && !cur.paused) {
+            // Auto-pause current and upsert
+            const elapsed = Math.floor((Date.now() - Number(cur.started_at)) / 1000);
+            const totalAccumulated = (cur.accumulated || 0) + elapsed;
+            // Persist for the old task
+            setPersistedSecs(cur.task_guid, totalAccumulated);
+            await postTimesheetLog({ seconds: totalAccumulated, task: { guid: cur.task_guid, task_id: cur.task_id, task_name: cur.task_name, project_id: cur.project_id } });
+            // Clear active
+            clearActive();
+        }
+        // Start or resume this task
+        if (cur && cur.task_guid === t.guid && cur.paused) {
+            // Resume from paused state
+            setActive({ ...cur, started_at: Date.now(), paused: false });
+        } else {
+            // Start fresh
+            // Seed with persisted seconds for today so it continues from stored value
+            const persisted = getPersistedSecs(t.guid);
+            setActive({ task_guid: t.guid, task_id: t.task_id, task_name: t.task_name, project_id: t.project_id, started_at: Date.now(), accumulated: persisted, paused: false });
+        }
+        await updateTaskStatus(t, 'In Progress');
+        render();
+    };
+
+    const stopLocalTimer = async (t) => {
+        const cur = getActive();
+        if (!cur || cur.task_guid !== t.guid) return;
+
+        // Calculate total seconds (accumulated + current session if running)
+        let totalSeconds = cur.accumulated || 0;
+        if (!cur.paused && cur.started_at) {
+            totalSeconds += Math.floor((Date.now() - Number(cur.started_at)) / 1000);
+        }
+        totalSeconds = Math.max(1, totalSeconds);
+
+        // persist and upsert
+        setPersistedSecs(t.guid, totalSeconds);
+        const ok = await postTimesheetLog({ seconds: totalSeconds, task: t });
+        if (ok) {
+            clearActive();
+        }
+    };
+
+    let timerInterval = null;
+
+    const updateTimers = () => {
+        const active = getActive();
+        if (!active) return;
+
+        document.querySelectorAll('tr[data-guid] .tt-time').forEach(cell => {
+            const tr = cell.closest('tr');
+            const guid = tr?.getAttribute('data-guid');
+            if (guid === active.task_guid) {
+                let totalSecs = active.accumulated || 0;
+                if (!active.paused && active.started_at) {
+                    totalSecs += Math.floor((Date.now() - Number(active.started_at)) / 1000);
+                }
+                const color = active.paused ? '#f39c12' : '#d63031';
+                cell.innerHTML = `<span class="running" style="color:${color}; font-weight:600;">${fmt(totalSecs)}</span>`;
+            }
+        });
+    };
+
+    const render = async () => {
+        await loadTasks();
+        const active = getActive();
+        const rows = tasks.map(t => {
+            const proj = projectsIdx[t.project_id] || {};
+            const clientName = proj.client || '';
+            const projectName = proj.name || (t.project_id || '');
+            const isRunning = active && active.task_guid === t.guid && !active.paused;
+            const isPaused = active && active.task_guid === t.guid && active.paused;
+            let runSecs = getPersistedSecs(t.guid);
+            if (active && active.task_guid === t.guid) {
+                runSecs = (active.accumulated || 0);
+                if (!active.paused && active.started_at) {
+                    runSecs += Math.floor((Date.now() - Number(active.started_at)) / 1000);
+                }
+            }
+            const color = isPaused ? '#f39c12' : '#d63031';
+            const timeText = (isRunning || isPaused || runSecs > 0) ? `<span class="running" style="color:${color}; font-weight:600;">${fmt(runSecs)}</span>` : '-';
+            const toggleIcon = isRunning ? 'fa-pause' : 'fa-play';
+            const toggleTitle = isRunning ? 'Pause' : (isPaused ? 'Resume' : 'Start');
+            return `
+            <tr data-guid="${t.guid}">
+              <td class="actions-cell" style="width:50px; text-align:left;">
+                <button class="action-btn toggle-timer" title="${toggleTitle}"><i class="fa-solid ${toggleIcon}"></i></button>
+              </td>
+              <td><div style="display:flex; align-items:center; gap:10px;"><i class="fa-regular fa-calendar"></i><div><div style="font-weight:600;">${t.task_name || ''}</div><div style="color:#64748b; font-size:12px;">${t.task_id || ''}</div></div></div></td>
+              <td>${projectName}</td>
+              <td>${clientName}</td>
+              <td><span class="status-badge ${String(t.task_status || '').toLowerCase()}">${t.task_status || ''}</span></td>
+              <td>${t.due_date || '-'}</td>
+              <td>${t.task_priority || '-'}</td>
+              <td class="tt-time" style="color:#d63031; font-weight:600;">${timeText}</td>
+            </tr>`;
+        }).join('');
+
+        const controls = `
+            <div class="mt-controls">
+            <input id="mt-search" placeholder="Search tasks" />
+            <button id="mt-refresh" class="icon-btn"><i class="fa-solid fa-rotate"></i></button>
+            <button class="icon-btn"><i class="fa-solid fa-chevron-left"></i></button>
+            <button class="icon-btn"><i class="fa-solid fa-chevron-right"></i></button>
+            </div>
+            `;
+
+
+        const content = `
+                        <div class="mytasks-card">
+                        <div class="mytasks-header">
+                            <div></div>
+                            ${controls}
+                        </div>
+
+                        <div class="table-container">
+                            <table class="table">
+                            <thead>
+                                <tr>
+                                <th style="width:50px;">Run</th>
+                                <th>Work item id & name</th>
+                                <th>Project</th>
+                                <th>Client</th>
+                                <th>Status</th>
+                                <th>Due date</th>
+                                <th>Priority</th>
+                                <th>Time spent</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rows ||
+            `<tr><td colspan="8" class="placeholder-text">No tasks</td></tr>`
+            }
+                            </tbody>
+                            </table>
+                        </div>
+                        </div>
+                        `;
+
+
+        document.getElementById('app-content').innerHTML = getPageContentHTML('My Tasks', content);
+
+        // events
+        const searchEl = document.getElementById('mt-search');
+        if (searchEl) {
+            searchEl.value = search;
+            searchEl.addEventListener('input', (e) => { search = e.target.value || ''; render(); });
+        }
+        const refreshBtn = document.getElementById('mt-refresh');
+        refreshBtn && refreshBtn.addEventListener('click', () => render());
+
+        document.querySelectorAll('tr[data-guid] .action-btn.toggle-timer').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const tr = e.currentTarget.closest('tr');
+                const guid = tr?.getAttribute('data-guid');
+                const t = tasks.find(x => x.guid === guid);
+                if (!t) return;
+                // Always toggle (start/pause/resume) - never save or navigate
+                toggleTimer(t);
+            });
+        });
+
+        // Start timer interval if there's an active timer (running or paused)
+        if (timerInterval) clearInterval(timerInterval);
+        if (active && active.task_guid) {
+            timerInterval = setInterval(updateTimers, 1000);
+            updateTimers(); // Update immediately
+        }
+    };
+
+    await render();
+};
+
+export const renderMyTimesheetPage = async () => {
+    const API = 'http://localhost:5000/api';
+    const user = state?.user || window.state?.user || {};
+    let empId = String((user.id || user.employee_id || user.employeeId || '')).trim();
+    let userNameLc = String((user.name || user.fullName || user.username || '')).trim().toLowerCase();
+    if (!empId) {
+        try { empId = await resolveCurrentEmployeeId(); } catch { }
+        if (empId) { try { state.user = { ...(state.user || {}), id: empId }; } catch { } }
+    }
+
+    console.log('My Timesheet - User:', user);
+    console.log('My Timesheet - Employee ID:', empId);
+
+    // Week navigation helpers
+    const startOfWeek = (d) => { const x = new Date(d); const day = x.getDay(); const diff = (day === 0 ? -6 : 1) - day; x.setDate(x.getDate() + diff); x.setHours(0, 0, 0, 0); return x; };
+    const endOfWeek = (d) => { const x = startOfWeek(d); x.setDate(x.getDate() + 6); x.setHours(23, 59, 59, 999); return x; };
+    const fmt = (dt) => dt.toISOString().slice(0, 10);
+
+    // Initialize anchor from last log or current date
+    let anchor = (() => {
+        try {
+            const last = JSON.parse(sessionStorage.getItem('tt_last_log') || 'null');
+            if (last && last.work_date) return new Date(last.work_date);
+        } catch { }
+        return new Date();
+    })();
+
+    // Load projects and tasks for dropdowns
+    let projects = [];
+    let tasks = [];
+    try {
+        const projRes = await fetch(`${API}/projects`);
+        const projData = await projRes.json();
+        projects = (projData.success ? projData.projects : []) || [];
+    } catch { }
+
+    try {
+        const taskRes = await fetch(`${API}/tasks`);
+        const taskData = await taskRes.json();
+        tasks = (taskData.success ? taskData.tasks : []) || [];
+    } catch { }
+
+    // State for grid rows (derived from logs) and manual rows (user-added)
+    let gridRows = [];
+    let manualRows = [];
+    let submissionStatusMsg = '';
+    let submissionStatusTimer = null;
+
+    // Skeleton shell while logs and configuration are loading
+    try {
+        const skeleton = `
+            <div class="card" style="padding: 0;">
+                <div style="padding: 16px 20px; border-bottom: 1px solid #e5e7eb;">
+                    <div class="skeleton skeleton-heading-md" style="width: 180px;"></div>
+                    <div class="skeleton skeleton-text" style="margin-top: 0.4rem; width: 260px;"></div>
+                </div>
+                <div style="padding: 14px 20px; border-bottom: 1px solid #e5e7eb; display:flex; gap:24px;">
+                    <div class="skeleton skeleton-text" style="width: 120px;"></div>
+                    <div class="skeleton skeleton-text" style="width: 120px;"></div>
+                </div>
+                <div style="padding: 16px 20px;">
+                    <div class="skeleton skeleton-chart-line"></div>
+                </div>
+            </div>
+        `;
+        const app = document.getElementById('app-content');
+        if (app) app.innerHTML = getPageContentHTML('', skeleton);
+    } catch { }
+
+    const load = async (s, e) => {
+        const url = `${API}/time-tracker/logs?employee_id=${encodeURIComponent(empId)}&start_date=${fmt(s)}&end_date=${fmt(e)}`;
+        console.log('Fetching logs from:', url);
+        const res = await fetch(url);
+        console.log('Fetch response status:', res.status);
+        const data = await res.json().catch(() => ({ success: false }));
+        console.log('Fetch response data:', data);
+        return (res.ok && data.success) ? (data.logs || []) : [];
+    };
+
+    const GLOBAL_MANUAL_LOG_KEY = 'tt_manual_logs_v1';
+
+    const parseToSeconds = (val) => {
+        const s = String(val || '').trim();
+        if (!s) return 0;
+        const parts = s.split(':').map(x => parseInt(x, 10));
+        if (parts.some(isNaN)) return 0;
+        let h = 0, m = 0, sec = 0;
+        if (parts.length === 3) { [h, m, sec] = parts; }
+        else if (parts.length === 2) { [h, m] = parts; }
+        else { h = parts[0]; }
+        if (m >= 60 || sec >= 60) return 0;
+        return (h * 3600) + (m * 60) + (sec || 0);
+    };
+
+    const formatSeconds = (secs) => {
+        if (secs === null || secs === undefined) return '';
+        const h = Math.floor(secs / 3600);
+        const m = Math.floor((secs % 3600) / 60);
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    };
+
+    const rowKeyFor = (row) => `${row.project_id || ''}|${row.task_guid || row.task_id || ''}`;
+
+    const render = async () => {
+        const s = startOfWeek(anchor);
+        const e = endOfWeek(anchor);
+        const initialHash = window.location.hash;
+        let logs = await load(s, e);
+        // If the user has navigated away while logs were loading, abort rendering
+        if (initialHash !== '#/time-my-timesheet' || window.location.hash !== '#/time-my-timesheet') {
+            return;
+        }
+
+        // Filter out future dates (use local date, not UTC)
+        const today = new Date();
+        const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        console.log('My Timesheet - Today (local):', todayStr);
+        logs = logs.filter(log => {
+            const logDate = (log.work_date || '').slice(0, 10);
+            return logDate <= todayStr;
+        });
+
+        // manual rows: load from sessionStorage per week range
+        const weekKey = `ts_manual_${fmt(s)}_${fmt(e)}`;
+        try { manualRows = JSON.parse(sessionStorage.getItem(weekKey) || '[]'); } catch { manualRows = []; }
+        if (!Array.isArray(manualRows)) manualRows = [];
+        manualRows = manualRows.map(r => ({
+            ...r,
+            project_name: r.project_name || r.projectId || '',
+            task_name: r.task_name || r.taskName || r.task_id || 'Manual Task'
+        }));
+
+        // manual overrides map (per week)
+        const overridesKey = `${weekKey}_overrides`;
+        let overrides = {};
+        try { overrides = JSON.parse(sessionStorage.getItem(overridesKey) || '{}'); } catch { overrides = {}; }
+
+        const loadOverrides = () => {
+            try { return JSON.parse(sessionStorage.getItem(overridesKey) || '{}'); } catch { return {}; }
+        };
+
+        const saveOverrides = (map) => {
+            try { sessionStorage.setItem(overridesKey, JSON.stringify(map)); } catch { }
+        };
+
+        const showTimesheetSubmissionSummary = (entriesList = []) => {
+            if (!Array.isArray(entriesList) || !entriesList.length) return;
+            const totalSeconds = entriesList.reduce((sum, entry) => sum + Number(entry.seconds || 0), 0);
+            const totalHours = (totalSeconds / 3600).toFixed(2);
+            const rowsHtml = entriesList.map(entry => {
+                const hours = (Number(entry.seconds || 0) / 3600).toFixed(2);
+                return `
+                    <tr>
+                        <td>${entry.date || '-'}</td>
+                        <td>${entry.project_name || entry.project_id || '-'}</td>
+                        <td>${entry.task_name || entry.task_id || '-'}</td>
+                        <td style="text-align:right; font-weight:600;">${hours}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            const body = `
+                <div style="padding: 8px 0;">
+                    <p style="margin-bottom: 12px; color:#475569;">
+                        Your timesheet has been submitted and is pending admin approval. Track the status in <strong>Inbox → Timesheet</strong>.
+                    </p>
+                    <div style="max-height: 320px; overflow:auto; border:1px solid #e2e8f0; border-radius:12px;">
+                        <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                            <thead style="background:#f8fafc;">
+                                <tr>
+                                    <th style="text-align:left; padding:10px;">Date</th>
+                                    <th style="text-align:left; padding:10px;">Project</th>
+                                    <th style="text-align:left; padding:10px;">Task</th>
+                                    <th style="text-align:right; padding:10px;">Hours</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rowsHtml}
+                            </tbody>
+                            <tfoot>
+                                <tr style="background:#f1f5f9;">
+                                    <td colspan="3" style="padding:10px; font-weight:700;">Total hours</td>
+                                    <td style="padding:10px; text-align:right; font-weight:700;">${totalHours}</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            `;
+
+            renderModal('Timesheet submitted', body, [
+                { id: 'ts-summary-close-btn', text: 'Close', className: 'btn btn-secondary', type: 'button' },
+                { id: 'ts-summary-inbox-btn', text: 'View Inbox', className: 'btn btn-primary', type: 'button' },
+            ]);
+
+            setTimeout(() => {
+                document.getElementById('ts-summary-close-btn')?.addEventListener('click', () => closeModal());
+                document.getElementById('ts-summary-inbox-btn')?.addEventListener('click', () => {
+                    closeModal();
+                    currentInboxCategory = 'timesheet';
+                    currentInboxTab = 'requests';
+                    window.location.hash = '#/inbox';
+                });
+            }, 30);
+        };
+
+        // Build days array for column headers
+        const days = Array.from({ length: 7 }, (_, i) => {
+            const d = new Date(s);
+            d.setDate(s.getDate() + i);
+            return d;
+        });
+
+        console.log('My Timesheet - Week:', fmt(s), 'to', fmt(e));
+        console.log('My Timesheet - Today:', todayStr);
+        console.log('My Timesheet - Loaded logs (after filtering):', logs);
+        console.log('My Timesheet - Days in week:', days.map(d => d.toISOString().slice(0, 10)));
+
+        // Group logs by project/task
+        const grouped = {};
+        logs.forEach(l => {
+            const key = `${l.project_id || ''}|${l.task_guid || ''}`;
+            if (!grouped[key]) {
+                grouped[key] = {
+                    project_id: l.project_id,
+                    task_guid: l.task_guid,
+                    task_id: l.task_id,
+                    task_name: l.task_name,
+                    billing: 'Non-billable',
+                    hours: Array(7).fill(0)
+                };
+            }
+            // Match log date to day column using string comparison (YYYY-MM-DD)
+            const logDate = (l.work_date || '').slice(0, 10);
+            // Only process if log date is not in the future (using local date)
+            if (logDate <= todayStr) {
+                for (let i = 0; i < 7; i++) {
+                    const dayDate = new Date(s);
+                    dayDate.setDate(s.getDate() + i);
+                    const dayDateStr = `${dayDate.getFullYear()}-${String(dayDate.getMonth() + 1).padStart(2, '0')}-${String(dayDate.getDate()).padStart(2, '0')}`;
+                    if (logDate === dayDateStr) {
+                        const seconds = Number(l.seconds || 0);
+                        const existingSecs = grouped[key].hours[i] || 0;
+                        grouped[key].hours[i] = existingSecs + seconds;
+                        break;
+                    }
+                }
+            }
+        });
+
+        gridRows = Object.values(grouped);
+        // Auto-sync: ensure all tasks assigned to this user appear as rows (even with 0 hours)
+        try {
+            const upEmp = String(empId || '').toUpperCase();
+            const assignedTasks = (tasks || []).filter(t => {
+                const asg = String(t.assigned_to || '');
+                return asg.toUpperCase().includes(upEmp) || (!!userNameLc && asg.trim().toLowerCase().includes(userNameLc));
+            });
+            const existingKeys = new Set(Object.keys(grouped));
+            assignedTasks.forEach(t => {
+                const key = `${t.project_id || ''}|${t.guid || t.task_id || ''}`;
+                if (!existingKeys.has(key)) {
+                    gridRows.push({
+                        project_id: t.project_id || '',
+                        task_guid: t.guid || '',
+                        task_id: t.task_id || '',
+                        task_name: t.task_name || '',
+                        billing: 'Non-billable',
+                        hours: Array(7).fill(0)
+                    });
+                    existingKeys.add(key);
+                }
+            });
+        } catch { }
+        // Append any manual rows that don't already exist by key
+        if (Array.isArray(manualRows) && manualRows.length) {
+            const existingKeys = new Set(Object.keys(grouped));
+            const toAppend = manualRows.filter(r => !existingKeys.has(`${r.project_id || ''}|${r.task_guid || ''}`));
+            gridRows = gridRows.concat(toAppend);
+        }
+        console.log('My Timesheet - Grid rows:', gridRows);
+
+        if (gridRows.length === 0) {
+            // Show a single placeholder manual row if nothing exists
+            manualRows = [{ id: Date.now(), _manual: true, project_id: '', project_name: 'Manual row', task_guid: '', task_id: '', task_name: 'Manual task', billing: 'Non-billable', hours: Array(7).fill(0) }];
+            gridRows = manualRows.slice();
+            try { sessionStorage.setItem(weekKey, JSON.stringify(manualRows)); } catch { }
+        }
+
+        // Calculate totals in seconds (exclude future days)
+        const computeDisplayTotal = () => {
+            let total = 0;
+            gridRows.forEach(r => {
+                const key = rowKeyFor(r);
+                const ov = (overrides || {})[key] || [];
+                for (let i = 0; i < 7; i++) {
+                    const d = new Date(s); d.setDate(s.getDate() + i);
+                    const dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                    if (dStr > todayStr) continue; // skip future days
+                    const sec = Number(ov[i] ?? r.hours[i] ?? 0);
+                    total += sec;
+                }
+            });
+            return total;
+        };
+        const totalLoggedSecs = computeDisplayTotal();
+        const totalBillableSecs = 0; // Calculate based on billing type if needed
+
+        // Format helper for display
+        const formatTimeDisplay = (secs) => {
+            const h = Math.floor(secs / 3600);
+            const m = Math.floor((secs % 3600) / 60);
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+        };
+
+        const weekOfMonth = Math.floor((s.getDate() - 1) / 7) + 1;
+        const weekLabel = `${s.getDate()} ${s.toLocaleDateString('en-US', { month: 'long' })} ${s.getFullYear()} - ${e.getDate()} ${e.toLocaleDateString('en-US', { month: 'long' })} ${e.getFullYear()} (Week ${weekOfMonth})`;
+
+        // Build project options
+        const projectOpts = projects.map(p => `<option value="${p.crc6f_projectid || p.id}">${p.crc6f_projectname || p.name || p.crc6f_projectid || p.id}</option>`).join('');
+
+        // Build task options
+        const taskOpts = tasks.map(t => `<option value="${t.guid}">${t.task_name || t.task_id}</option>`).join('');
+
+        // Helper to format seconds as HH:MM
+        const formatTime = (secs) => {
+            if (!secs) return '';
+            const h = Math.floor(secs / 3600);
+            const m = Math.floor((secs % 3600) / 60);
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+        };
+
+        // Build grid rows HTML
+        const rowsHtml = gridRows.map((row, idx) => {
+            const key = rowKeyFor(row);
+            const ov = (overrides || {})[key] || [];
+            const dayInputs = row.hours.map((h, dayIdx) => {
+                const dayDate = new Date(s);
+                dayDate.setDate(s.getDate() + dayIdx);
+                const dayDateStr = `${dayDate.getFullYear()}-${String(dayDate.getMonth() + 1).padStart(2, '0')}-${String(dayDate.getDate()).padStart(2, '0')}`;
+                // Use local date for today comparison (todayStr defined above)
+                const isToday = dayDateStr === todayStr;
+                const isSunday = dayDate.getDay() === 0;
+                const classes = ['day-col', isToday ? 'ts-cell-today' : '', isSunday ? 'day-off' : ''].filter(Boolean).join(' ');
+                const isFuture = dayDateStr > todayStr;
+                const secRaw = Number(ov[dayIdx] ?? h ?? 0);
+                const sec = isFuture ? 0 : secRaw; // hide any future-dated values
+                const isManual = ov[dayIdx] !== undefined && ov[dayIdx] !== null;
+                const displayVal = sec ? formatTime(sec) : '';
+                const placeholderVal = isSunday ? 'Day off' : '00:00';
+                const icon = isFuture ? '' : (isManual ? `<i class="fa-regular fa-clock" style="font-size:11px; color:#60a5fa; margin-left:4px;" title="Manual entry"></i>` : (sec > 0 ? `<i class="fa-regular fa-user" style="font-size:11px; color:#10b981; margin-left:4px;" title="Automatic capture"></i>` : ''));
+                return `
+                    <td class="${classes}">
+                        <div style="display:flex; align-items:center; justify-content:center; gap:2px;">
+                            <input type="text" 
+                                   class="ts-hour-input ${isManual ? 'manual' : ''}" 
+                                   data-row="${idx}" 
+                                   data-day="${dayIdx}" 
+                                   data-key="${key}"
+                                   value="${displayVal}" 
+                                   placeholder="${placeholderVal}" 
+                                   ${(isSunday || isFuture) ? 'disabled' : ''} />
+                            ${icon}
+                        </div>
+                    </td>`;
+            }).join('');
+
+            const totalSecs = row.hours.reduce((sum, h, i) => {
+                const d = new Date(s); d.setDate(s.getDate() + i);
+                const dStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                if (dStr > todayStr) return sum; // exclude future
+                return sum + Number((ov[i] ?? h) || 0);
+            }, 0);
+            const rowTotal = formatTime(totalSecs);
+
+            // Find project name
+            const project = projects.find(p => (p.crc6f_projectid || p.id) === row.project_id);
+            const projectName = project ? (project.crc6f_projectname || project.name || row.project_id) : (row.project_name || row.project_id || 'Manual row');
+
+            // Task ID only (not task name)
+            const taskId = row.task_id || row.task_name || 'Manual Task';
+
+            return `
+                <tr data-row-id="${row.id || idx}" ${row._manual ? 'data-manual="1"' : ''}>
+                    <td>
+                        <div style="padding: 8px; font-weight: 500; color: #334155 !important;">${projectName}</div>
+                    </td>
+                    <td>
+                        <div style="padding: 8px; color: #334155 !important;">${taskId}</div>
+                    </td>
+                    <td>
+                        <select class="ts-select ts-billing" data-row="${idx}">
+                            <option value="Non-billable" ${row.billing === 'Non-billable' ? 'selected' : ''}>Non-billable</option>
+                            <option value="Billable" ${row.billing === 'Billable' ? 'selected' : ''}>Billable</option>
+                        </select>
+                    </td>
+                    ${dayInputs}
+                    <td class="ts-total">${rowTotal}</td>
+                    <td class="ts-actions">
+                        ${row._manual ? `<button class="icon-btn ts-delete-row" data-row="${idx}" title="Delete row"><i class="fa-regular fa-circle-xmark"></i></button>` : ''}
+                    </td>
+                </tr>`;
+        }).join('');
+
+        const statusBanner = submissionStatusMsg ? `
+            <div class="ts-status-banner success">
+                <i class="fa-solid fa-circle-check"></i>
+                <span>${submissionStatusMsg}</span>
+            </div>
+        ` : '';
+
+        const content = `
+        <style>
+            :root { --ts-blue: #1e88e5; --ts-blue-light:#e3f2fd; --ts-gray:#f3f4f6; }
+            .ts-header { background: var(--ts-blue); color: #fff; padding: 16px 20px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; border-radius: 12px 12px 0 0; box-shadow: 0 2px 6px rgba(0,0,0,0.08); }
+            .ts-header h2 { margin:0; font-size: 18px; font-weight:700; opacity:.95; }
+            .ts-week-nav { display: flex; gap: 12px; align-items: center; justify-content: center; }
+            .ts-week-nav button { background: rgba(255,255,255,0.2); border: none; color: #fff; padding: 8px 12px; border-radius: 999px; cursor: pointer; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.25); }
+            .ts-week-nav button:hover { background: rgba(255,255,255,0.3); }
+            .ts-summary { padding: 12px 20px; background: var(--surface-alt, #f8f9fb); display: flex; gap: 32px; font-size: 14px; color: var(--text-secondary, #666); border-bottom:1px solid var(--border-color, #eef2f7); }
+            .ts-summary strong { color: var(--text-primary, #333); }
+            .ts-status-banner { margin: 0 20px 12px; padding: 10px 16px; border-radius: 12px; font-size: 14px; font-weight: 600; display:flex; align-items:center; gap:10px; }
+            .ts-status-banner.success { background:#ecfdf3; color:#166534; border:1px solid #bbf7d0; }
+            .ts-table-wrapper { overflow-x: auto; }
+            .ts-table { width: 100%; border-collapse: separate; border-spacing:0; background:#fff; border-radius: 0 0 12px 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.04); }
+            .ts-table th { background: var(--surface-alt, #fafbfd); padding: 12px 8px; text-align: center; font-size: 12px; text-transform: uppercase; color: var(--text-secondary, #666); border-bottom: 2px solid var(--border-color, #e8edf3); }
+            .ts-table th:first-child { text-align: left; min-width: 200px; }
+            .ts-table th:nth-child(2) { text-align: left; min-width: 180px; }
+            .ts-table th:nth-child(3) { text-align: left; min-width: 140px; }
+            .ts-table td { padding: 10px; border-bottom: 1px solid var(--border-color, #f1f5f9); text-align: center; color: #475569; }
+            .ts-table tr:last-child td { border-bottom: none; }
+            .ts-table td:first-child, .ts-table td:nth-child(2), .ts-table td:nth-child(3) { text-align: left; }
+            .ts-table td div { color: #334155 !important; font-weight: 500; }
+            .ts-select { width: 100%; padding: 8px 10px; border: 1px solid #3d4656; border-radius: 8px; font-size: 13px; background: #1E2633; color: #E5EAF3; }
+            .ts-hour-input { width: 80px; padding: 8px 10px; border: 1px solid #3d4656; border-radius: 10px; text-align: center; font-size: 13px; background: #1E2633; color: #E5EAF3; }
+            .ts-hour-input::placeholder { color: #6b7280; }
+            .ts-hour-input.manual { border-color:#60a5fa; background:#1a2942; color: #E5EAF3; }
+            .day-col:nth-child(odd) { background: transparent; }
+            .ts-cell-today { background: #1a2942 !important; }
+            .day-off { background: transparent !important; }
+            .day-off .ts-hour-input { background: #1a1f2e; border-color: #3d4656; color: #6b7280; }
+            .ts-total { font-weight: 700; color: #F1F5F9; }
+            .ts-actions { text-align: center; }
+            .ts-actions .icon-btn { width:36px; height:36px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; background:#f8fafc; border:1px solid #e2e8f0; }
+            .ts-footer { padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #e5e7eb; }
+            .ts-add-btn { background: #fff; border: 1px solid var(--ts-blue); color: var(--ts-blue); padding: 10px 16px; border-radius: 999px; cursor: pointer; display: flex; align-items: center; gap: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
+            .ts-add-btn:hover { background: var(--ts-blue); color: #fff; }
+            .ts-action-btns { display: flex; gap: 12px; justify-content:flex-end; }
+            .ts-action-btns .btn { border-radius:10px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.25); }
+        </style>
+        <div class="card" style="padding: 0; border-radius: 10px;">
+            <div class="ts-header">
+                <div></div>
+                <div class="ts-week-nav">
+                    <button id="ts-prev-week"><i class="fa-solid fa-chevron-left"></i></button>
+                    <span id="ts-week-label" style="font-weight: 500; min-width: 280px; text-align: center;">${weekLabel}</span>
+                    <button id="ts-next-week"><i class="fa-solid fa-chevron-right"></i></button>
+                </div>
+                <div class="ts-action-btns">
+                    <button id="ts-submit" class="btn" style="background: #fff; color: var(--primary-color); border: none; padding: 8px 20px;">SUBMIT</button>
+                </div>
+            </div>
+            ${statusBanner}
+            <div class="ts-summary">
+                <div>Total logged: <strong>${formatTimeDisplay(totalLoggedSecs)}</strong></div>
+                <div>Total billable: <strong>${formatTimeDisplay(totalBillableSecs)}</strong></div>
+            </div>
+            <div class="ts-table-wrapper">
+                <table class="ts-table">
+                    <thead>
+                        <tr>
+                            <th>Project</th>
+                            <th>Task</th>
+                            <th>Billing</th>
+                            ${days.map(d => `<th>${d.toLocaleDateString('en-US', { weekday: 'short' })}<br><span style="font-size: 11px; color: #999;">${d.toLocaleDateString('en-US', { month: 'short', day: '2-digit' })}</span></th>`).join('')}
+                            <th>Total</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="ts-tbody">
+                        ${rowsHtml}
+                    </tbody>
+                </table>
+            </div>
+            <div class="ts-footer">
+                <button id="ts-add-row" class="ts-add-btn">
+                    <i class="fa-solid fa-plus"></i>
+                    <span>Add row</span>
+                </button>
+            </div>
+        </div>`;
+
+        document.getElementById('app-content').innerHTML = getPageContentHTML('My Timesheet', content);
+
+        // Event handlers
+        document.getElementById('ts-prev-week').onclick = () => {
+            anchor = new Date(s.getTime() - 7 * 86400000);
+            render();
+        };
+        document.getElementById('ts-next-week').onclick = () => {
+            anchor = new Date(s.getTime() + 7 * 86400000);
+            render();
+        };
+
+        document.getElementById('ts-add-row').onclick = () => {
+            const projOpts = ['<option value="">Select project</option>'].concat(projects.map(p => `<option value="${p.crc6f_projectid || p.id}">${p.crc6f_projectname || p.name || p.crc6f_projectid || p.id}</option>`)).join('');
+            const taskOpts = ['<option value="">Select task</option>'].concat(tasks.map(t => `<option value="${t.guid}">${t.task_name || t.task_id}</option>`)).join('');
+            const body = `
+              <div id="myts-add-row-form" class="form-grid-2-col myts-add-row-form">
+                <div class="form-group">
+                  <label>Project</label>
+                  <select id="mr-project">${projOpts}</select>
+                </div>
+                <div class="form-group">
+                  <label>Task</label>
+                  <select id="mr-task">${taskOpts}</select>
+                </div>
+                <div class="form-group">
+                  <label>Billing</label>
+                  <select id="mr-billing">
+                    <option value="Non-billable" selected>Non-billable</option>
+                    <option value="Billable">Billable</option>
+                  </select>
+                </div>
+              </div>`;
+            renderModal('Add timesheet row', body, 'ts-manual-submit');
+            setTimeout(() => {
+                const form = document.getElementById('modal-form');
+                if (!form) return;
+                form.addEventListener('submit', (ev) => {
+                    ev.preventDefault();
+                    const pid = document.getElementById('mr-project')?.value || '';
+                    const tg = document.getElementById('mr-task')?.value || '';
+                    const bill = document.getElementById('mr-billing')?.value || 'Non-billable';
+                    const selProject = projects.find(p => (p.crc6f_projectid || p.id) === pid) || {};
+                    const projectName = selProject.crc6f_projectname || selProject.name || pid || 'Manual project';
+                    const selTask = tasks.find(t => String(t.guid) === String(tg)) || {};
+                    // Generate local GUID/task if not chosen from list
+                    const genGuid = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : `man-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                    const guid = tg || genGuid();
+                    const taskId = selTask.task_id || `MAN-${String(Date.now()).slice(-6)}`;
+                    const taskName = selTask.task_name || selTask.name || taskId;
+                    const newRow = {
+                        id: Date.now(), _manual: true,
+                        project_id: pid,
+                        project_name: projectName,
+                        task_guid: guid,
+                        task_id: taskId,
+                        task_name: taskName,
+                        billing: bill,
+                        hours: Array(7).fill(0)
+                    };
+                    manualRows.push(newRow);
+                    try { sessionStorage.setItem(weekKey, JSON.stringify(manualRows)); } catch { }
+                    // Persist a local task so it appears in My Tasks
+                    try {
+                        const key = 'tt_manual_tasks_v1';
+                        const cur = JSON.parse(localStorage.getItem(key) || '[]');
+                        const emp = String(empId || '').toUpperCase();
+                        const rec = { guid, task_id: taskId, task_name: taskName, project_id: pid, project_name: projectName, assigned_to: emp, task_status: 'New', task_priority: 'Normal', due_date: '' };
+                        if (!cur.find(t => String(t.guid) === String(guid))) cur.push(rec);
+                        localStorage.setItem(key, JSON.stringify(cur));
+                    } catch { }
+                    closeModal();
+                    render();
+                });
+            }, 30);
+        };
+
+        document.querySelectorAll('.ts-delete-row').forEach(btn => {
+            btn.onclick = async (e) => {
+                const rowIdx = parseInt(e.currentTarget.getAttribute('data-row'));
+                if (confirm('Delete this row?')) {
+                    // Only manual rows have delete buttons; remove from manualRows store
+                    const toDelete = gridRows[rowIdx];
+                    manualRows = manualRows.filter(r => r.id !== toDelete.id);
+                    try { sessionStorage.setItem(weekKey, JSON.stringify(manualRows)); } catch { }
+                    render();
+                }
+            };
+        });
+
+        document.getElementById('ts-submit').onclick = async () => {
+            const s = startOfWeek(anchor);
+            const e = endOfWeek(anchor);
+            const weekKey = `ts_manual_${fmt(s)}_${fmt(e)}`;
+            const overridesKey = `${weekKey}_overrides`;
+            let overridesMap = {};
+            try { overridesMap = JSON.parse(sessionStorage.getItem(overridesKey) || '{}'); } catch { overridesMap = {}; }
+
+            const today = new Date();
+            const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+            const entries = [];
+            const ensureSeconds = (v) => {
+                if (v === null || v === undefined) return 0;
+                const n = Number(v);
+                return Number.isFinite(n) ? n : 0;
+            };
+
+            gridRows.forEach(row => {
+                const key = rowKeyFor(row);
+                const ov = overridesMap[key] || [];
+                for (let i = 0; i < 7; i++) {
+                    const d = new Date(s);
+                    d.setDate(s.getDate() + i);
+                    const yyyy = d.getFullYear();
+                    const mm = String(d.getMonth() + 1).padStart(2, '0');
+                    const dd = String(d.getDate()).padStart(2, '0');
+                    const workDate = `${yyyy}-${mm}-${dd}`;
+                    if (workDate > todayStr) continue;
+                    const baseSecs = ensureSeconds(row.hours[i]);
+                    const overrideSecs = (ov[i] === null || ov[i] === undefined) ? null : ensureSeconds(ov[i]);
+                    const secs = overrideSecs !== null ? overrideSecs : baseSecs;
+                    if (!secs) continue;
+
+                    const project = projects.find(p => (p.crc6f_projectid || p.id) === row.project_id) || {};
+                    const projectId = row.project_id || project.crc6f_projectid || project.id || '';
+                    const projectName = project.crc6f_projectname || project.name || row.project_name || projectId;
+
+                    entries.push({
+                        date: workDate,
+                        project_id: projectId,
+                        project_name: projectName || '',
+                        task_id: row.task_id || '',
+                        task_guid: row.task_guid || '',
+                        task_name: row.task_name || '',
+                        seconds: secs,
+                        hours_worked: Math.round((secs / 3600) * 100) / 100,
+                        description: ''
+                    });
+                }
+            });
+
+            if (!entries.length) {
+                showToast('No time entries to submit for this week.');
+                return;
+            }
+
+            const fullName = `${user.first_name || user.firstName || ''} ${user.last_name || user.lastName || ''}`.trim();
+            const employeeName = fullName || user.name || user.displayName || '';
+
+            const payload = {
+                employee_id: empId,
+                employee_name: employeeName,
+                entries
+            };
+
+            try {
+                const res = await fetch(`${API}/time-tracker/timesheet/submit`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || !data.success) {
+                    showToast(`Failed to submit timesheet: ${data.error || res.status}`);
+                    return;
+                }
+                try { sessionStorage.removeItem(weekKey); } catch { }
+                try { sessionStorage.removeItem(overridesKey); } catch { }
+                if (submissionStatusTimer) {
+                    clearTimeout(submissionStatusTimer);
+                    submissionStatusTimer = null;
+                }
+                submissionStatusMsg = 'Timesheet submitted.';
+                submissionStatusTimer = setTimeout(() => {
+                    submissionStatusMsg = '';
+                    if (window.location.hash === '#/time-my-timesheet') {
+                        try { render(); } catch { }
+                    }
+                }, 5000);
+                showToast('Timesheet submitted.');
+                await render();
+            } catch (err) {
+                console.error('Timesheet submit failed', err);
+                showToast('Failed to submit timesheet. Please try again.');
+            }
+        };
+
+        // My Timesheet is read-only: disable all hour inputs and remove manual overrides
+        document.querySelectorAll('.ts-hour-input').forEach(inp => {
+            inp.setAttribute('readonly', 'readonly');
+            inp.setAttribute('disabled', 'disabled');
+        });
+        const addRowBtn = document.getElementById('ts-add-row');
+        if (addRowBtn) {
+            if (canManageMyTimesheetRows()) {
+                addRowBtn.removeAttribute('disabled');
+                addRowBtn.style.opacity = '';
+                addRowBtn.style.cursor = '';
+            } else {
+                addRowBtn.setAttribute('disabled', 'disabled');
+                addRowBtn.style.opacity = '0.6';
+                addRowBtn.style.cursor = 'not-allowed';
+            }
+        }
+    };
+
+    await render();
+};
+
+export const renderTeamTimesheetPage = async () => {
+    const API = 'http://localhost:5000/api';
+
+    // Skeleton grid while employees and logs are loading
+    try {
+        const skeleton = `
+            <div class="card" style="padding:0;">
+                <div style="padding: 14px 16px; border-bottom: 1px solid #e5e7eb; display:flex; justify-content:space-between; align-items:center; gap:16px;">
+                    <div class="skeleton skeleton-heading-md" style="width: 200px;"></div>
+                    <div class="skeleton skeleton-pill" style="width: 180px; height: 32px;"></div>
+                </div>
+                <div style="padding: 16px 16px 20px;">
+                    <div class="skeleton skeleton-chart-line"></div>
+                </div>
+            </div>
+        `;
+        const app = document.getElementById('app-content');
+        if (app) app.innerHTML = getPageContentHTML('My team timesheet', skeleton);
+    } catch { }
+
+    try {
+        const base = window.__teamTsMonth || new Date();
+        const month = new Date(base.getFullYear(), base.getMonth(), 1);
+        window.__teamTsMonth = new Date(month);
+        const year = month.getFullYear();
+        const m = month.getMonth();
+        const daysInMonth = new Date(year, m + 1, 0).getDate();
+        const days = Array.from({ length: daysInMonth }, (_, i) => new Date(year, m, i + 1));
+
+        // Fetch all employees
+        const all = await listEmployees(1, 5000);
+        const allItems = (all.items || []).map(e => ({
+            id: (e.employee_id || '').toUpperCase(),
+            name: `${e.first_name || ''} ${e.last_name || ''}`.trim() || (e.employee_id || '')
+        }));
+        // Determine current user and admin (kept for other logic), but show ALL employees
+        const currentEmpId = (await resolveCurrentEmployeeId()) || String(state.user?.id || '').toUpperCase();
+        const isAdmin = isAdminUser();
+        let items = allItems;
+
+        // Fetch timesheet logs for the month (use local dates, not UTC)
+        const pad2 = (n) => String(n).padStart(2, '0');
+        const startDate = `${year}-${pad2(m + 1)}-${pad2(1)}`;
+        const endDate = `${year}-${pad2(m + 1)}-${pad2(daysInMonth)}`;
+
+        console.log(`Team Timesheet - Fetching logs for month: ${startDate} to ${endDate}`);
+        console.log(`Team Timesheet - Employees:`, items.map(e => `${e.name} (${e.id})`));
+
+        // Fetch logs for all employees in the month
+        let allLogs = [];
+        // Use local date for comparison
+        const today = new Date();
+        const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        console.log('Team Timesheet - Today (local):', todayStr);
+        try {
+            // For now, fetch all logs and filter client-side
+            // In production, backend should support fetching all employees' logs
+            const response = await fetch(`${API}/time-tracker/logs?employee_id=ALL&start_date=${startDate}&end_date=${endDate}`);
+            console.log(`Team Timesheet - Fetch response status: ${response.status}`);
+            if (response.ok) {
+                const data = await response.json();
+                // Filter out logs with future dates
+                allLogs = (data.logs || []).filter(log => {
+                    const logDate = (log.work_date || '').slice(0, 10);
+                    return logDate <= todayStr;
+                });
+                console.log(`Team Timesheet - Fetched ${allLogs.length} logs`);
+                // Log unique employee IDs in the logs
+                const uniqueEmpIds = [...new Set(allLogs.map(l => l.employee_id))];
+                console.log(`Team Timesheet - Employee IDs in logs:`, uniqueEmpIds);
+            } else {
+                // Fallback: fetch logs for each scoped employee (slower but works)
+                for (const emp of items) {
+                    try {
+                        const res = await fetch(`${API}/time-tracker/logs?employee_id=${encodeURIComponent(emp.id)}&start_date=${startDate}&end_date=${endDate}`);
+                        if (res.ok) {
+                            const data = await res.json();
+                            // Filter out logs with future dates
+                            const validLogs = (data.logs || []).filter(log => {
+                                const logDate = (log.work_date || '').slice(0, 10);
+                                return logDate <= todayStr;
+                            });
+                            allLogs = allLogs.concat(validLogs);
+                        }
+                    } catch (e) {
+                        console.error(`Failed to fetch logs for ${emp.id}:`, e);
+                    }
+                }
+            }
+
+            // Do not filter employees by logs; show everyone. Values will appear only for employees who have logs.
+        } catch (e) {
+            console.error('Failed to fetch team logs:', e);
+        }
+
+        console.log(`Team Timesheet - Loaded ${allLogs.length} logs`);
+
+        const nav = `
+          <div style="display:flex; align-items:center; gap:10px;">
+            <button id="tt-prev" class="icon-btn"><i class="fa-solid fa-chevron-left"></i></button>
+            <div id="tt-month" style="font-weight:600;">${month.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</div>
+            <button id="tt-next" class="icon-btn"><i class="fa-solid fa-chevron-right"></i></button>
+          </div>`;
+        const controls = `
+          <div class="tt-search-shell">
+            <div class="inline-search" style="max-width:320px; width:100%;">
+              <i class="fa-solid fa-search"></i>
+              <input id="tt-search" type="text" placeholder="Search by employee name or ID" />
+            </div>
+          </div>`;
+        const head = `
+          <div class="tt-head" style="display:grid; grid-template-columns: 260px 120px repeat(${days.length}, 90px);">
+            <div class="th" style="position:sticky; left:0; background: var(--surface-alt, #fafafa); padding:10px; font-weight:600; border-right:1px solid #eee; z-index:2; color: var(--text-primary, #1f2937);">Employee name, Emp Id</div>
+            <div class="th" style="padding:10px; font-weight:600; border-right:1px solid #eee; color: var(--text-primary, #1f2937);">Total</div>
+            ${days.map(function (d) { return '<div class="th" style="padding:10px; font-weight:600; text-align:center; border-right:1px solid #eee; color: var(--text-primary, #1f2937);">' + d.toLocaleDateString(undefined, { weekday: 'short' }) + '<br><span style="color: var(--text-secondary, #9ca3af);">' + d.toLocaleDateString(undefined, { month: 'short', day: '2-digit' }) + '</span></div>'; }).join('')}
+          </div>`;
+
+        const rows = (nameFilter(items, window.__ttSearch || '')).map(emp => teamRow(emp, days, allLogs)).join('');
+        const content = `
+          <style>
+            :root { --tt-blue:#1e88e5; }
+            .tt-header { background: var(--tt-blue); color:#fff; padding:14px 16px; border-radius:12px 12px 0 0; box-shadow:0 2px 6px rgba(0,0,0,0.08); display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+            .tt-header .center { display:flex; align-items:center; justify-content:flex-start; gap:12px; }
+            .tt-header .icon-btn { background:rgba(255,255,255,0.2); color:#fff; border:none; width:36px; height:36px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; }
+            .tt-header .controls { display:flex; justify-content:flex-end; align-items:center; flex:1; }
+            .tt-search-shell { width:100%; display:flex; justify-content:flex-end; }
+            .tt-header .controls .tt-search-input { 
+              display:flex; 
+              align-items:center; 
+              gap:8px; 
+              padding:8px 12px; 
+              border-radius:999px; 
+              background: var(--surface-color, #ffffff); 
+              border:1px solid var(--border-color, rgba(15,23,42,0.06)); 
+              box-shadow:0 4px 10px rgba(15,23,42,0.12); 
+              width:100%; 
+              max-width:320px; 
+            }
+            .tt-header .controls .tt-search-input i { color: var(--text-muted, #9ca3af); font-size:0.85rem; }
+            .tt-header .controls .tt-search-input input { 
+              border:none; 
+              outline:none; 
+              width:100%; 
+              background:transparent; 
+              color: var(--text-primary, #111827); 
+              font-size:0.9rem; 
+            }
+            .tt-header .controls .tt-search-input input::placeholder { color: var(--text-muted, #9ca3af); }
+            .tt-wrap { overflow:auto; }
+            .tt-head { background: var(--surface-alt, #fafbfd); border-bottom:1px solid var(--border-color, #e8edf3); box-sizing:border-box; }
+            .tt-head .th { color: var(--text-primary, #1f2937); }
+            .tt-row { display:grid; grid-template-columns: 260px 120px repeat(${days.length}, 90px); background: var(--surface-color, #fff); box-sizing:border-box; }
+            .tt-cell { border-top:1px solid var(--border-color, #f1f5f9); border-right:1px solid var(--border-color, #eef2f7); padding:10px; display:flex; align-items:center; justify-content:center; gap:6px; min-height:44px; box-sizing:border-box; }
+            .tt-cell:nth-child(2n+3) { background: var(--surface-hover, #fafafa); }
+            .tt-sticky { position:sticky; left:0; background: var(--surface-color, #fff); z-index:1; justify-content:flex-start; text-align:left; padding-left:12px; }
+            .tt-sticky > div { display:flex; flex-direction:column; line-height:1.1; }
+            .emp-badge { width:34px; height:34px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; color:#fff; font-weight:700; margin-right:10px; box-shadow: inset 0 0 0 2px rgba(255,255,255,0.25); }
+            .tt-cell.worked { background:#60a5fa; color:#fff; border-color:transparent; border-radius:10px; position:relative; display:flex; align-items:center; justify-content:center; }
+            .tt-cell.worked span { font-weight:700; letter-spacing:.2px; }
+            .tt-cell.day-off { background: var(--surface-hover, #e5e7eb); color: var(--text-primary, #374151); font-weight:600; border-radius:10px; }
+            .tt-cell.empty { background: var(--surface-alt, #f8fafc); border-radius:10px; }
+            .tt-total { font-weight:700; color: var(--text-primary, #111827); }
+            .tt-footnote { color: var(--text-secondary, #6b7280); font-size:12px; padding:10px 14px; }
+            /* Alternate background for day headers to align with columns */
+            .tt-head .th:nth-child(2n+3) { background: var(--surface-hover, #f6f7fb); }
+          </style>
+          <div class="card" style="padding:0;">
+            <div class="tt-header">
+              <div></div>
+              <div class="center">${nav}</div>
+              <div class="controls">${controls}</div>
+            </div>
+            <div class="tt-wrap">
+              ${head}
+              ${rows || `<div class="placeholder-text" style="padding:24px;">No employees found</div>`}
+            </div>
+            <div class="tt-footnote">Approved timesheet entries alone are recorded in My Team Timesheet.</div>
+          </div>`;
+        document.getElementById('app-content').innerHTML = getPageContentHTML('My Team Timesheet', content);
+        setTimeout(() => attachTeamTsEvents(), 0);
+    } catch (err) {
+        console.error('Team timesheet error:', err);
+        const content = `<div class="card"><p class="placeholder-text">Failed to load team timesheet.</p></div>`;
+        document.getElementById('app-content').innerHTML = getPageContentHTML('My Team Timesheet', content);
+    }
+};
+
+let _clientsFilters = { search: '', country: '', company: '', sort: 'recent' };
+let _clientsCache = { items: [], countries: [], companies: [], page: 1, pageSize: 25, total: 0 };
+
+export const renderTTClientsPage = async () => {
+    try {
+        const params = {
+            search: _clientsFilters.search,
+            country: _clientsFilters.country,
+            company: _clientsFilters.company,
+            sort: _clientsFilters.sort,
+            page: 1,
+            pageSize: 5000
+        };
+        const data = await listClients(params);
+        const items = data.clients || [];
+        _clientsCache.items = items;
+        _clientsCache.total = data.total || items.length;
+        _clientsCache.page = data.page || 1;
+        _clientsCache.pageSize = data.pageSize || 25;
+        _clientsCache.countries = Array.from(new Set(items.map(x => (x.crc6f_country || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+        _clientsCache.companies = Array.from(new Set(items.map(x => (x.crc6f_companyname || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+
+        const controls = `
+          <div class="tm-like-controls" style="display:flex; gap:12px; flex-wrap:wrap; justify-content:flex-end;">
+            <button id="clients-add" class="btn btn-primary"><i class="fa-solid fa-user-plus"></i> Add Client</button>
+            <button id="clients-refresh" class="btn btn-secondary"><i class="fa-solid fa-rotate"></i> Refresh</button>
+          </div>`;
+
+        const safe = (v) => (v || '');
+        const rows = items.map(r => `
+            <tr>
+                <td>${safe(r.crc6f_clientid)}</td>
+                <td>${safe(r.crc6f_clientname)}</td>
+                <td>${safe(r.crc6f_companyname)}</td>
+                <td>${safe(r.crc6f_email)}</td>
+                <td>${safe(r.crc6f_phone)}</td>
+                <td>${safe(r.crc6f_country)}</td>
+                <td class="actions-cell" style="text-align:center;">
+                    <button class="icon-btn client-view" title="View" data-id="${r.crc6f_hr_clientsid}"><i class="fa-solid fa-eye"></i></button>
+                    <button class="icon-btn client-edit" title="Edit" data-id="${r.crc6f_hr_clientsid}"><i class="fa-solid fa-pen-to-square"></i></button>
+                    <button class="icon-btn client-delete" title="Delete" data-id="${r.crc6f_hr_clientsid}" data-clientid="${r.crc6f_clientid}"><i class="fa-solid fa-trash"></i></button>
+                </td>
+            </tr>
+        `).join('');
+
+        const filtersHtml = `
+          <div class="clients-filters" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px; align-items:end; margin-bottom:12px;">
+            <div class="filter-field filter-wide" style="grid-column:span 2;">
+              <label style="display:block; font-weight:600; margin-bottom:6px;" for="clients-search">Search</label>
+              <div class="inline-search" style="width:100%;">
+                <i class="fa-solid fa-search"></i>
+                <input type="text" id="clients-search" placeholder="Search by Client ID, Name or Company" value="${_clientsFilters.search}" />
+              </div>
+            </div>
+            <div class="filter-field">
+              <label style="display:block; font-weight:600; margin-bottom:6px;" for="clients-country">Country</label>
+              <select id="clients-country" style="width:100%; border:1px solid #ddd; border-radius:8px; padding:8px 10px;">
+                <option value="">All Countries</option>
+                ${_clientsCache.countries.map(function (c) { return '<option ' + (_clientsFilters.country === c.toLowerCase() ? 'selected' : '') + ' value="' + c + '">' + c + '</option>'; }).join('')}
+              </select>
+            </div>
+            <div class="filter-field">
+              <label style="display:block; font-weight:600; margin-bottom:6px;" for="clients-company">Company</label>
+              <select id="clients-company" style="width:100%; border:1px solid #ddd; border-radius:8px; padding:8px 10px;">
+                <option value="">All Companies</option>
+                ${_clientsCache.companies.map(function (c) { return '<option ' + (_clientsFilters.company === c.toLowerCase() ? 'selected' : '') + ' value="' + c + '">' + c + '</option>'; }).join('')}
+              </select>
+            </div>
+            <div class="filter-field">
+              <label style="display:block; font-weight:600; margin-bottom:6px;" for="clients-sort">Sort</label>
+              <select id="clients-sort" style="width:100%; border:1px solid #ddd; border-radius:8px; padding:8px 10px;">
+                <option value="recent" ${_clientsFilters.sort === 'recent' ? 'selected' : ''}>Recently Created</option>
+                <option value="name" ${_clientsFilters.sort === 'name' ? 'selected' : ''}>Name</option>
+                <option value="country" ${_clientsFilters.sort === 'country' ? 'selected' : ''}>Country</option>
+              </select>
+            </div>
+           </div>`;
+
+        const tableHtml = `
+          <div class="table-container" style="overflow:hidden; border:1px solid #eee; border-radius:12px; background:#fff;">
+            <table class="table" style="table-layout:auto; width:100%; border-collapse:separate; border-spacing:0;">
+              <thead>
+                <tr>
+                  <th style="text-align:center; position:sticky; top:0; background:var(--surface-alt);">Client ID</th>
+                  <th style="text-align:center; position:sticky; top:0; background:var(--surface-alt);">Client Name</th>
+                  <th style="text-align:center; position:sticky; top:0; background:var(--surface-alt);">Company Name</th>
+                  <th style="text-align:center; position:sticky; top:0; background:var(--surface-alt);">Email</th>
+                  <th style="text-align:center; position:sticky; top:0; background:var(--surface-alt);">Phone</th>
+                  <th style="text-align:center; position:sticky; top:0; background:var(--surface-alt);">Country</th>
+                  <th style="text-align:center; position:sticky; top:0; background:var(--surface-alt);">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows || `<tr><td colspan="7" class="placeholder-text">No Clients Found</td></tr>`}
+              </tbody>
+            </table>
+          </div>`;
+
+        const content = `
+          <style>
+            .clients-card { padding:16px; }
+            .clients-filters .filter-wide { grid-column: span 2; }
+            @media (max-width: 720px) { .clients-filters .filter-wide { grid-column: span 1; } }
+            .clients-card .table th,
+            .clients-card .table td {
+              padding:8px 10px;
+              text-align:center;
+              vertical-align:middle;
+            }
+            .actions-cell .icon-btn + .icon-btn { margin-left:6px; }
+          </style>
+          <div class="card clients-card">
+            ${filtersHtml}
+            ${tableHtml}
+          </div>`;
+
+        document.getElementById('app-content').innerHTML = getPageContentHTML('Clients', content, controls);
+
+        attachClientsEvents();
+    } catch (err) {
+        console.error('Failed to load clients:', err);
+        showToast(err?.message || 'Failed to load clients', 'error');
+        const content = `<div class="card"><p class="placeholder-text">Failed to load clients.</p></div>`;
+        document.getElementById('app-content').innerHTML = getPageContentHTML('Clients', content);
+    }
+};
+
+const attachClientsEvents = () => {
+    const search = document.getElementById('clients-search');
+    const country = document.getElementById('clients-country');
+    const company = document.getElementById('clients-company');
+    const sort = document.getElementById('clients-sort');
+    const refresh = document.getElementById('clients-refresh');
+    const add = document.getElementById('clients-add');
+
+    let debounce;
+    if (search) search.addEventListener('input', (e) => {
+        clearTimeout(debounce);
+        const v = e.target.value;
+        debounce = setTimeout(() => { _clientsFilters.search = v.trim(); renderTTClientsPage(); }, 300);
+    });
+    if (country) country.addEventListener('change', (e) => { _clientsFilters.country = (e.target.value || '').toLowerCase(); renderTTClientsPage(); });
+    if (company) company.addEventListener('change', (e) => { _clientsFilters.company = (e.target.value || '').toLowerCase(); renderTTClientsPage(); });
+    if (sort) sort.addEventListener('change', (e) => { _clientsFilters.sort = e.target.value; renderTTClientsPage(); });
+    if (refresh) refresh.addEventListener('click', () => renderTTClientsPage());
+    if (add) add.addEventListener('click', () => showClientModal());
+
+    document.querySelectorAll('.client-edit').forEach(btn => btn.addEventListener('click', () => showClientModal(btn.dataset.id)));
+    document.querySelectorAll('.client-delete').forEach(btn => btn.addEventListener('click', () => handleDeleteClient(btn.dataset.id, btn.dataset.clientid)));
+    document.querySelectorAll('.client-view').forEach(btn => btn.addEventListener('click', () => showClientDetails(btn.dataset.id)));
+};
+
+const clientFormHTML = (data = {}) => `
+  <div class="modal-form modern-form client-form">
+    <div class="form-section">
+      <div class="form-section-header">
+        <div>
+          <p class="form-eyebrow">Client</p>
+          <h3>Client details</h3>
+        </div>
+      </div>
+      <div class="form-grid two-col">
+        <div class="form-field">
+          <label class="form-label" for="cl-clientid">Client ID</label>
+          <input class="input-control" type="text" id="cl-clientid" value="${data.crc6f_clientid || ''}" ${data._isEdit ? '' : 'placeholder="Auto-generated if empty"'}>
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="cl-name">Client Name</label>
+          <input class="input-control" type="text" id="cl-name" value="${data.crc6f_clientname || ''}" required>
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="cl-company">Company Name</label>
+          <input class="input-control" type="text" id="cl-company" value="${data.crc6f_companyname || ''}">
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="cl-email">Email</label>
+          <input class="input-control" type="email" id="cl-email" value="${data.crc6f_email || ''}">
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="cl-phone">Phone</label>
+          <input class="input-control" type="text" id="cl-phone" value="${data.crc6f_phone || ''}" required>
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="cl-country">Country</label>
+          <input class="input-control" type="text" id="cl-country" value="${data.crc6f_country || ''}">
+        </div>
+        <div class="form-field" style="grid-column:1 / -1;">
+          <label class="form-label" for="cl-address">Address</label>
+          <textarea class="input-control" id="cl-address" rows="3">${data.crc6f_address || ''}</textarea>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+const showClientModal = async (recordId) => {
+    const isEdit = !!recordId;
+    let data = {};
+    if (isEdit) {
+        const rec = _clientsCache.items.find(x => x.crc6f_hr_clientsid === recordId);
+        data = { ...rec, _isEdit: true };
+    } else {
+        try {
+            const next = await getNextClientId();
+            data.crc6f_clientid = next;
+        } catch { }
+    }
+    renderModal(isEdit ? 'Edit Client' : 'Add Client', clientFormHTML(data), 'clients-submit');
+    setTimeout(() => {
+        const form = document.getElementById('modal-form');
+        if (!form) return;
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            try {
+                const payload = collectClientForm();
+                validateClient(payload);
+                if (isEdit) {
+                    await updateClient(recordId, payload);
+                    showToast('Client updated successfully', 'success');
+                } else {
+                    await createClient(payload);
+                    showToast('Client created successfully', 'success');
+                }
+                await renderTTClientsPage();
+                closeModal();
+            } catch (err) {
+                console.error(err);
+                showToast(err?.message || 'Failed to save client', 'error');
+            }
+        });
+    }, 50);
+};
+
+const collectClientForm = () => ({
+    crc6f_clientid: document.getElementById('cl-clientid')?.value?.trim(),
+    crc6f_clientname: document.getElementById('cl-name')?.value?.trim(),
+    crc6f_companyname: document.getElementById('cl-company')?.value?.trim(),
+    crc6f_email: document.getElementById('cl-email')?.value?.trim(),
+    crc6f_phone: document.getElementById('cl-phone')?.value?.trim(),
+    crc6f_address: document.getElementById('cl-address')?.value?.trim(),
+    crc6f_country: document.getElementById('cl-country')?.value?.trim(),
+});
+
+const validateClient = (p) => {
+    if (!p.crc6f_clientname) throw new Error('Client Name is required');
+    if (!p.crc6f_phone) throw new Error('Phone is required');
+    if (p.crc6f_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(p.crc6f_email)) throw new Error('Invalid email');
+};
+
+const handleDeleteClient = async (recordId, clientId) => {
+    if (!confirm(`Delete client ${clientId || ''}?`)) return;
+    try {
+        await deleteClient(recordId);
+        showToast('Client deleted', 'success');
+        await renderTTClientsPage();
+    } catch (err) {
+        console.error(err);
+        showToast(err?.message || 'Failed to delete client', 'error');
+    }
+};
+
+const showClientDetails = (recordId) => {
+    const rec = _clientsCache.items.find(x => x.crc6f_hr_clientsid === recordId);
+    if (!rec) return;
+    const body = `
+      <div class="form-grid-2-col">
+        <div class="form-group"><label>Client ID</label><input type="text" value="${rec.crc6f_clientid || ''}" disabled></div>
+        <div class="form-group"><label>Client Name</label><input type="text" value="${rec.crc6f_clientname || ''}" disabled></div>
+        <div class="form-group"><label>Company</label><input type="text" value="${rec.crc6f_companyname || ''}" disabled></div>
+        <div class="form-group"><label>Email</label><input type="text" value="${rec.crc6f_email || ''}" disabled></div>
+        <div class="form-group"><label>Phone</label><input type="text" value="${rec.crc6f_phone || ''}" disabled></div>
+        <div class="form-group"><label>Country</label><input type="text" value="${rec.crc6f_country || ''}" disabled></div>
+        <div class="form-group" style="grid-column:1 / span 2;"><label>Address</label><textarea rows="3" disabled>${rec.crc6f_address || ''}</textarea></div>
+      </div>`;
+    renderModal('Client Details', body, [
+        { id: 'close-client', text: 'Close', className: 'btn-secondary', type: 'button' }
+    ]);
+    setTimeout(() => {
+        const close = document.getElementById('close-client');
+        if (close) close.onclick = closeModal;
+    }, 50);
+};
+
+export const renderTTProjectsPage = async () => {
+    const content = `<div class="card"><p class="placeholder-text">Projects page is under construction.</p></div>`;
+    document.getElementById('app-content').innerHTML = getPageContentHTML('Projects', content);
+};
+
+export const renderInboxPage = async () => {
+    console.log('📥 Rendering Inbox Page...');
+
+    // Update notification badge
+    await updateNotificationBadge();
+
+    const isAdmin = isAdminUser();
+    console.log('👤 User is admin:', isAdmin);
+
+    // Initial static content
+    const content = `
+    <div class="inbox-container">
+        <div class="inbox-sidebar">
+            <div class="inbox-category active" data-category="leaves">Leaves</div>
+            <div class="inbox-category" data-category="timesheet">Timesheet</div>
+            <div class="inbox-category" data-category="attendance">Attendance Report</div>
+        </div>
+        <div class="inbox-content">
+            <div class="inbox-tabs">
+                ${isAdmin ? '<div class="inbox-tab active" data-tab="awaiting">Awaiting approval</div>' : ''}
+                <div class="inbox-tab ${!isAdmin ? 'active' : ''}" data-tab="requests">My requests</div>
+                <div class="inbox-tab" data-tab="completed">Completed</div>
+            </div>
+            <div class="inbox-list">
+                <div style="padding: 16px 20px;">
+                    <div class="skeleton skeleton-list-line-lg" style="width: 70%;"></div>
+                    <div class="skeleton skeleton-list-line-sm" style="width: 40%; margin-top: 4px;"></div>
+                    <div style="margin-top: 16px; display:flex; flex-direction:column; gap:12px;">
+                        <div class="skeleton skeleton-list-line-lg"></div>
+                        <div class="skeleton skeleton-list-line-lg"></div>
+                        <div class="skeleton skeleton-list-line-lg"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    `;
+    document.getElementById('app-content').innerHTML = getPageContentHTML('Inbox', content);
+
+    // Set initial tab
+    if (!isAdmin) {
+        currentInboxTab = 'requests';
+    }
+
+    // Add event listeners
+    setTimeout(async () => {
+        // Category navigation
+        document.querySelectorAll('.inbox-category').forEach(cat => {
+            cat.addEventListener('click', (e) => {
+                document.querySelectorAll('.inbox-category').forEach(c => c.classList.remove('active'));
+                e.currentTarget.classList.add('active');
+                currentInboxCategory = e.currentTarget.getAttribute('data-category');
+
+                if (currentInboxCategory === 'leaves') {
+                    loadInboxLeaves();
+                } else if (currentInboxCategory === 'timesheet') {
+                    loadInboxTimesheets();
+                } else if (currentInboxCategory === 'attendance') {
+                    loadInboxAttendance();
+                }
+            });
+        });
+
+        // Tab navigation
+        document.querySelectorAll('.inbox-tab').forEach(tab => {
+            tab.addEventListener('click', (e) => {
+                document.querySelectorAll('.inbox-tab').forEach(t => t.classList.remove('active'));
+                e.currentTarget.classList.add('active');
+                currentInboxTab = e.currentTarget.getAttribute('data-tab');
+
+                if (currentInboxCategory === 'leaves') {
+                    loadInboxLeaves();
+                } else if (currentInboxCategory === 'timesheet') {
+                    loadInboxTimesheets();
+                } else if (currentInboxCategory === 'attendance') {
+                    loadInboxAttendance();
+                }
+            });
+        });
+
+        // Load initial data for current category
+        if (currentInboxCategory === 'leaves') {
+            await loadInboxLeaves();
+        } else if (currentInboxCategory === 'timesheet') {
+            await loadInboxTimesheets();
+        } else if (currentInboxCategory === 'attendance') {
+            await loadInboxAttendance();
+        }
+    }, 0);
+};
+
+export const renderMeetPage = async () => {
+    const tz = (() => {
+        try {
+            return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+        } catch {
+            return 'UTC';
+        }
+    })();
+
+    const content = `
+    <style>
+        .meet-project-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 12px;
+        }
+        #meet-form .form-group {
+            position: static;
+            padding-left: 0;
+        }
+        #meet-form .form-group label {
+            position: static;
+            left: auto;
+            top: auto;
+            transform: none;
+            margin-bottom: 4px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #374151;
+        }
+        #meet-form .form-group textarea + label,
+        #meet-form .form-group input + label,
+        #meet-form .form-group select + label {
+            top: auto;
+        }
+        label[for="meet-employee-search"] {
+            position: static;
+            left: auto;
+            top: auto;
+            transform: none;
+            margin-bottom: 4px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #374151;
+        }
+        /* Dark mode: boost label and helper-text contrast for Meet form */
+        body.dark-theme #meet-form .form-group label,
+        body.dark-theme label[for="meet-employee-search"],
+        body.dark-theme #meet-employee-ids-group > label,
+        body.dark-theme #meet-project-id-group > label {
+            color: #e6e6e6;
+        }
+        body.dark-theme #meet-form .form-control::placeholder,
+        body.dark-theme #meet-employee-search::placeholder,
+        body.dark-theme #meet-employee-id-input::placeholder,
+        body.dark-theme #meet-project-id::placeholder,
+        body.dark-theme #meet-timezone::placeholder {
+            color: rgba(230, 230, 230, 0.78);
+        }
+        /* Dark mode: card headers and descriptions inside Meet cards */
+        body.dark-theme .card > .card-header-flex h2,
+        body.dark-theme .card > .card-header-flex h3 {
+            color: #ffffff;
+        }
+        body.dark-theme .card > .card-header-flex p {
+            color: #a0a0a0 !important;
+        }
+        .meet-project-card {
+            border: 1px solid rgba(148, 163, 184, 0.45);
+            border-radius: 18px;
+            padding: 16px 18px;
+            background: radial-gradient(circle at top left, rgba(248, 250, 252, 0.96), rgba(241, 245, 249, 0.94));
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: 10px;
+            box-shadow: 0 14px 36px rgba(15, 23, 42, 0.08);
+            transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.2s ease, background 0.2s ease;
+        }
+        body.dark-theme .meet-project-card {
+            background: radial-gradient(circle at top left, #020617, #020617);
+            border-color: rgba(148, 163, 184, 0.5);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.85);
+        }
+        body.dark-theme .meet-project-card h4 {
+            color: #f9fafb;
+        }
+        body.dark-theme .meet-project-card p,
+        body.dark-theme .meet-project-card span {
+            color: #e5e7eb;
+        }
+        body.dark-theme .meet-project-card button {
+            border-color: rgba(96, 165, 250, 0.7);
+            color: #e0f2fe;
+        }
+        .meet-project-card:hover {
+            transform: translateY(-4px);
+            border-color: rgba(129, 140, 248, 0.9);
+            box-shadow:
+                0 18px 48px rgba(15, 23, 42, 0.25),
+                0 0 0 1px rgba(129, 140, 248, 0.35);
+        }
+        .meet-chip-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            min-height: 32px;
+            align-items: center;
+        }
+        .meet-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: #eef2ff;
+            color: #312e81;
+            font-size: 12px;
+        }
+        body.dark-theme .meet-chip {
+            background: rgba(96, 165, 250, 0.2);
+            color: #dbeafe;
+        }
+        .meet-chip button {
+            border: none;
+            background: transparent;
+            color: #1f2937;
+            cursor: pointer;
+            font-size: 11px;
+            padding: 0 2px;
+        }
+        .meet-call-modal {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            background: radial-gradient(circle at top, rgba(15, 23, 42, 0.88), rgba(15, 23, 42, 0.78));
+            backdrop-filter: blur(22px) saturate(145%);
+            -webkit-backdrop-filter: blur(22px) saturate(145%);
+        }
+        .meet-call-modal.hidden {
+            display: none;
+        }
+        .meet-call-modal-card {
+            width: min(520px, 92%);
+            background: radial-gradient(circle at top left, #0b1120, #020617);
+            border-radius: 24px;
+            padding: 22px 22px 18px;
+            box-shadow: 0 26px 80px rgba(15, 23, 42, 0.85);
+            max-height: 80vh;
+            overflow-y: auto;
+            border: 1px solid rgba(148, 163, 184, 0.55);
+            color: #e5e7eb;
+        }
+        .meet-call-banner {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            background: rgba(59, 130, 246, 0.12);
+            border: 1px solid rgba(59, 130, 246, 0.4);
+            border-radius: 12px;
+            padding: 12px 14px;
+            margin-bottom: 14px;
+        }
+        .meet-call-banner.hidden {
+            display: none;
+        }
+        .meet-call-banner-icon {
+            position: relative;
+            width: 38px;
+            height: 38px;
+            border-radius: 999px;
+            background: rgba(59, 130, 246, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #1d4ed8;
+            font-size: 15px;
+            overflow: hidden;
+        }
+        .meet-call-banner h4 {
+            margin: 0;
+            font-size: 15px;
+        }
+        .meet-call-banner p {
+            margin: 4px 0 0;
+            font-size: 12px;
+            color: #1f2937;
+        }
+        body.dark-theme .meet-call-banner {
+            background: rgba(96, 165, 250, 0.18);
+            border-color: rgba(96, 165, 250, 0.6);
+            color: #dbeafe;
+        }
+        body.dark-theme .meet-call-banner-icon {
+            background: rgba(96, 165, 250, 0.35);
+            color: #e0f2fe;
+        }
+        body.dark-theme .meet-call-banner p {
+            color: #bfdbfe;
+        }
+        .meet-call-user {
+            border: 1px solid rgba(148, 163, 184, 0.45);
+            border-radius: 16px;
+            padding: 12px 14px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(15, 23, 42, 0.03);
+        }
+        body.dark-theme .meet-call-user {
+            border-color: rgba(148, 163, 184, 0.6);
+            background: rgba(15, 23, 42, 0.6);
+        }
+        .meet-call-user-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .meet-call-user-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .meet-employee-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 16px;
+            margin-top: 16px;
+        }
+        .meet-employee-card {
+            border: 1px solid rgba(148, 163, 184, 0.45);
+            border-radius: 18px;
+            padding: 14px 16px;
+            background: radial-gradient(circle at top, #ffffff, #f9fafb);
+            cursor: pointer;
+            transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.2s ease, background 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+        }
+        .meet-employee-card:hover {
+            transform: translateY(-4px);
+            border-color: rgba(129, 140, 248, 0.85);
+            box-shadow:
+                0 18px 44px rgba(15, 23, 42, 0.18),
+                0 0 0 1px rgba(129, 140, 248, 0.3);
+        }
+        .meet-employee-card.selected {
+            border-color: #2563eb;
+            background: linear-gradient(135deg, #eff6ff, #dbeafe);
+        }
+        body.dark-theme .meet-employee-card {
+            border-color: rgba(148, 163, 184, 0.55);
+            background: radial-gradient(circle at top left, #020617, #020617);
+            color: #e5e7eb;
+            box-shadow: 0 22px 50px rgba(0, 0, 0, 0.85);
+        }
+        body.dark-theme .meet-employee-card h4 {
+            color: #ffffff !important;
+        }
+        body.dark-theme .meet-employee-card p {
+            color: #e6e6e6 !important;
+        }
+        body.dark-theme .meet-employee-card.selected {
+            border-color: #60a5fa;
+            background: radial-gradient(circle at top left, rgba(37, 99, 235, 0.6), rgba(15, 23, 42, 0.9));
+        }
+        .meet-employee-card h4 {
+            margin: 0;
+            font-size: 15px;
+            font-weight: 600;
+            color: #0f172a;
+        }
+        .meet-employee-card p {
+            margin: 0;
+            font-size: 12px;
+            color: #4b5563;
+        }
+        .meet-employee-card .badge {
+            align-self: flex-start;
+            border-radius: 999px;
+            padding: 2px 10px;
+            font-size: 11px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            background: rgba(148, 163, 184, 0.16);
+            color: #0f172a;
+        }
+        body.dark-theme .meet-employee-card .badge {
+            background: rgba(148, 163, 184, 0.3);
+            color: #e5e7eb;
+        }
+    </style>
+    <div class="card">
+        <div class="card-header-flex">
+            <div>
+                <h2 style="margin:0; font-size:18px;">Start a meeting</h2>
+                <p style="margin:4px 0 0; font-size:13px; color:#6b7280;">Create a Google Meet and invite employees or an entire project team.</p>
+            </div>
+        </div>
+        <form id="meet-form" class="form-grid" style="margin-top:16px; gap:12px;">
+            <div class="form-group">
+                <label for="meet-title">Title</label>
+                <input id="meet-title" class="form-control" placeholder="Daily standup" />
+            </div>
+            <div class="form-group">
+                <label for="meet-description">Description</label>
+                <textarea id="meet-description" class="form-control" rows="2" placeholder="Optional agenda or notes"></textarea>
+            </div>
+            <div class="form-row" style="display:flex; gap:12px; flex-wrap:wrap;">
+                <div class="form-group" style="flex:1 1 220px; min-width:200px;">
+                    <label for="meet-audience-type">Audience</label>
+                    <select id="meet-audience-type" class="form-control">
+                        <option value="employees">Selected employees</option>
+                        <option value="project">Entire project</option>
+                        <option value="custom">Project + extra employees</option>
+                    </select>
+                </div>
+            </div>
+            <div id="meet-employee-ids-group" class="form-group" style="margin-top:8px;">
+                <label>Participants</label>
+                <div id="meet-participants" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:4px; min-height:28px; align-items:center;">
+                    <span id="meet-participants-empty" style="font-size:12px; color:#9ca3af;">No participants added yet.</span>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center; margin-top:8px; max-width:420px;">
+                    <input id="meet-employee-id-input" class="form-control" placeholder="Type employee ID (EMP001) and click Add" />
+                    <button type="button" id="meet-add-member-btn" class="btn btn-secondary btn-sm"><i class="fa-solid fa-user-plus"></i> Add</button>
+                </div>
+            </div>
+            <div id="meet-project-id-group" class="form-group" style="flex:1 1 200px; min-width:180px; margin-top:8px;">
+                <label for="meet-project-id">Project ID (for project mode)</label>
+                <input id="meet-project-id" class="form-control" placeholder="VTAB001" />
+            </div>
+            <div class="form-row" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+                <div class="form-group" style="flex:1 1 180px; min-width:160px;">
+                    <label>
+                        <input type="checkbox" id="meet-start-now" checked /> Start now
+                    </label>
+                </div>
+                <div class="form-group" style="flex:1 1 220px; min-width:200px;">
+                    <label for="meet-start-time">Start time</label>
+                    <input type="datetime-local" id="meet-start-time" class="form-control" />
+                </div>
+                <div class="form-group" style="flex:1 1 220px; min-width:200px;">
+                    <label for="meet-end-time">End time</label>
+                    <input type="datetime-local" id="meet-end-time" class="form-control" />
+                </div>
+            </div>
+            <div class="form-row" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+                <div class="form-group" style="flex:1 1 200px; min-width:180px;">
+                    <label for="meet-timezone">Timezone</label>
+                    <input id="meet-timezone" class="form-control" value="${tz}" />
+                </div>
+                <div style="flex:0 0 auto; margin-top:20px; display:flex; gap:8px; flex-wrap:wrap;">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fa-solid fa-video"></i> Create Meet
+                    </button>
+                    <button type="button" id="meet-call-btn" class="btn btn-success" disabled>
+                        <i class="fa-solid fa-phone"></i> Call Participants
+                    </button>
+                </div>
+            </div>
+        </form>
+        <div id="meet-result" style="margin-top:16px;"></div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+        <div class="card-header-flex" style="align-items:flex-start; gap:12px;">
+            <div>
+                <h3 style="margin:0; font-size:17px;">Employee directory</h3>
+                <p style="margin:4px 0 0; font-size:13px; color:#6b7280;">Tap a card to add employees to the call list.</p>
+            </div>
+            <div style="margin-left:auto; font-size:13px; color:#4b5563;">
+                <span id="meet-employee-count">0 selected</span>
+            </div>
+        </div>
+        <div class="form-row" style="margin-top:12px; display:flex; gap:12px; flex-wrap:wrap;">
+            <div class="form-group" style="flex:1 1 280px;">
+                <label for="meet-employee-search">Search employees</label>
+                <input id="meet-employee-search" class="form-control" placeholder="Search by name, ID, department" />
+            </div>
+        </div>
+        <div id="meet-employee-grid" class="meet-employee-grid">
+            <div class="placeholder-text" style="grid-column:1 / -1;">
+                <i class="fa-solid fa-spinner fa-spin" style="color:#007bff; margin-bottom:0.5rem;"></i>
+                <p>Loading employees…</p>
+            </div>
+        </div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+        <div class="card-header-flex">
+            <div>
+                <h3 style="margin:0; font-size:17px;">Project library</h3>
+                <p style="margin:4px 0 0; font-size:13px; color:#6b7280;">Browse active projects and quickly add whole teams to a call.</p>
+            </div>
+        </div>
+        <div id="meet-project-grid" class="meet-project-grid" style="margin-top:16px;">
+            <div class="placeholder-text" style="grid-column: 1 / -1;">
+                <i class="fa-solid fa-spinner fa-spin fa-2x" style="color:#007bff; margin-bottom: 0.5rem;"></i>
+                <p>Loading projects…</p>
+            </div>
+        </div>
+        <div style="margin-top:16px;">
+            <label style="font-size:13px; color:#6b7280;">Selected projects</label>
+            <div id="meet-selected-projects" class="meet-chip-container" style="margin-top:6px;">
+                <span id="meet-selected-projects-empty" style="font-size:12px; color:#9ca3af;">No projects selected.</span>
+            </div>
+        </div>
+    </div>
+    <div id="meet-call-modal" class="meet-call-modal hidden">
+        <div class="meet-call-modal-card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <div>
+                    <h3 style="margin:0; font-size:18px;">Call participants</h3>
+                    <p style="margin:4px 0 0; font-size:13px; color:#6b7280;">Gather confirmations before joining the meeting.</p>
+                </div>
+                <button id="meet-call-close" class="btn btn-link" style="font-size:18px; padding:4px 8px;">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div id="meet-call-banner" class="meet-call-banner hidden">
+                <div class="meet-call-banner-icon">
+                    <i class="fa-solid fa-bell"></i>
+                </div>
+                <div>
+                    <h4 id="meet-call-banner-title">Ringing participants…</h4>
+                    <p id="meet-call-banner-text">Awaiting responses with join/decline options.</p>
+                </div>
+            </div>
+            <div id="meet-call-list"></div>
+        </div>
+    </div>
+    `;
+
+    const app = document.getElementById('app-content');
+    if (app) {
+        app.innerHTML = getPageContentHTML('Meet', content);
+    }
+
+    setTimeout(() => {
+        const API_BASE = 'http://localhost:5000';
+        const employeesDirectory = new Map();
+
+        const form = document.getElementById('meet-form');
+        const resultEl = document.getElementById('meet-result');
+        const audienceSelect = document.getElementById('meet-audience-type');
+        const empGroup = document.getElementById('meet-employee-ids-group');
+        const projGroup = document.getElementById('meet-project-id-group');
+        const startNowCheckbox = document.getElementById('meet-start-now');
+        const startInput = document.getElementById('meet-start-time');
+        const endInput = document.getElementById('meet-end-time');
+        const participantsContainer = document.getElementById('meet-participants');
+        const participantsEmpty = document.getElementById('meet-participants-empty');
+        const empIdInput = document.getElementById('meet-employee-id-input');
+        const addMemberBtn = document.getElementById('meet-add-member-btn');
+        const projectGrid = document.getElementById('meet-project-grid');
+        const selectedProjectsWrap = document.getElementById('meet-selected-projects');
+        const selectedProjectsEmpty = document.getElementById('meet-selected-projects-empty');
+        const callBtn = document.getElementById('meet-call-btn');
+        const callModal = document.getElementById('meet-call-modal');
+        const callList = document.getElementById('meet-call-list');
+        const callCloseBtn = document.getElementById('meet-call-close');
+        const callBanner = document.getElementById('meet-call-banner');
+        const callBannerTitle = document.getElementById('meet-call-banner-title');
+        const callBannerText = document.getElementById('meet-call-banner-text');
+        const employeeGrid = document.getElementById('meet-employee-grid');
+        const employeeSearchInput = document.getElementById('meet-employee-search');
+        const employeeCountEl = document.getElementById('meet-employee-count');
+        const titleInput = document.getElementById('meet-title');
+        const descriptionInput = document.getElementById('meet-description');
+        const projectIdInput = document.getElementById('meet-project-id');
+        const timezoneInput = document.getElementById('meet-timezone');
+
+        const participantDirectory = new Map();
+        const selectedProjects = new Map();
+        let projectsCache = [];
+        let currentMeetInfo = null;
+        let callDecisions = new Map();
+        let serverParticipantStatuses = new Map();
+        let employeeCards = [];
+        let filteredEmployeeCards = [];
+        const createMeetBtn = form?.querySelector('button[type="submit"]');
+        const defaultCreateBtnHTML = createMeetBtn?.innerHTML || '<i class="fa-solid fa-video"></i> Create Meet';
+        const defaultCallBtnHTML = callBtn?.innerHTML || '<i class="fa-solid fa-phone"></i> Call Participants';
+        let isMeetRequestInFlight = false;
+        let ringToneController = null;
+
+        const normalizeEmployeeId = (value) => String(value || '').trim().toUpperCase();
+        const makeManualSource = (id) => `manual:${id}`;
+        const makeProjectSource = (projectId) => `project:${projectId}`;
+
+        const ensureParticipantEntry = (id, meta = {}) => {
+            const existing = participantDirectory.get(id) || {
+                id,
+                name: meta.name || id,
+                email: meta.email || '',
+                designation: meta.designation || '',
+                sources: new Set()
+            };
+            if (meta.name && (!existing.name || existing.name === existing.id)) {
+                existing.name = meta.name;
+            }
+            if (meta.email) existing.email = meta.email;
+            if (meta.designation) existing.designation = meta.designation;
+            participantDirectory.set(id, existing);
+            return existing;
+        };
+
+        const addParticipantSource = (id, sourceKey, meta = {}) => {
+            const entry = ensureParticipantEntry(id, meta);
+            entry.sources.add(sourceKey);
+        };
+
+        const removeParticipantSource = (id, sourceKey) => {
+            const entry = participantDirectory.get(id);
+            if (!entry) return;
+            entry.sources.delete(sourceKey);
+            if (entry.sources.size === 0) {
+                participantDirectory.delete(id);
+            }
+        };
+
+        const getAllParticipantIds = () => Array.from(participantDirectory.keys());
+        const getPendingParticipantCount = () => getAllParticipantIds().filter((id) => {
+            const s = String(serverParticipantStatuses.get(id) || callDecisions.get(id) || '').toLowerCase();
+            return s !== 'accepted' && s !== 'declined';
+        }).length;
+
+        const updateCallButtonState = () => {
+            if (!callBtn) return;
+            const noParticipants = getAllParticipantIds().length === 0;
+            callBtn.disabled = noParticipants || isMeetRequestInFlight;
+        };
+
+        const spinnerHTML = (label) => `<i class="fa-solid fa-spinner fa-spin"></i> ${label}`;
+
+        const setMeetRequestInFlight = (inFlight, triggerBtn = null) => {
+            isMeetRequestInFlight = inFlight;
+            if (createMeetBtn) {
+                if (!inFlight) {
+                    createMeetBtn.innerHTML = defaultCreateBtnHTML;
+                    createMeetBtn.disabled = false;
+                } else {
+                    createMeetBtn.disabled = true;
+                    if (triggerBtn === createMeetBtn) {
+                        createMeetBtn.innerHTML = spinnerHTML('Creating...');
+                    }
+                }
+            }
+            if (callBtn) {
+                const noParticipants = getAllParticipantIds().length === 0;
+                callBtn.disabled = inFlight || noParticipants;
+                if (!inFlight) {
+                    callBtn.innerHTML = defaultCallBtnHTML;
+                } else if (triggerBtn === callBtn) {
+                    callBtn.innerHTML = spinnerHTML('Calling...');
+                }
+            }
+        };
+
+        const updateCallBanner = (state, pendingCount = null) => {
+            if (!callBanner || !callBannerTitle || !callBannerText) return;
+            if (state === 'hidden') {
+                callBanner.classList.add('hidden');
+                return;
+            }
+            callBanner.classList.remove('hidden');
+            if (state === 'ringing') {
+                callBannerTitle.textContent = 'Ringing participants…';
+                if (typeof pendingCount === 'number') {
+                    callBannerText.textContent = pendingCount > 0
+                        ? `Awaiting response from ${pendingCount} participant${pendingCount === 1 ? '' : 's'}.`
+                        : 'Waiting for responses...';
+                } else {
+                    callBannerText.textContent = 'Waiting for responses...';
+                }
+            } else if (state === 'complete') {
+                callBannerTitle.textContent = 'Call notification complete';
+                callBannerText.textContent = 'All participants have responded. You can close this panel.';
+            }
+        };
+
+        const startRingTone = () => {
+            try {
+                stopRingTone();
+                ringToneController = null;
+            } catch (err) {
+                console.warn('Unable to play ring tone', err);
+            }
+        };
+
+        const stopRingTone = () => {
+            if (ringToneController) {
+                try { ringToneController.stop(); } catch (_) {}
+                ringToneController = null;
+            }
+        };
+
+        const syncCallBannerState = () => {
+            const pending = getPendingParticipantCount();
+            if (!callBanner) return;
+            if (pending > 0) {
+                updateCallBanner('ringing', pending);
+            } else if (getAllParticipantIds().length) {
+                updateCallBanner('complete');
+                stopRingTone();
+            } else {
+                updateCallBanner('hidden');
+                stopRingTone();
+            }
+        };
+
+        const removeProject = (projectId) => {
+            const entry = selectedProjects.get(projectId);
+            if (!entry) return;
+            entry.contributors.forEach((contrib) => {
+                const pid = contrib.employee_id || contrib.employeeId;
+                if (!pid) return;
+                removeParticipantSource(pid, makeProjectSource(projectId));
+            });
+            selectedProjects.delete(projectId);
+            renderSelectedProjects();
+            updateCallButtonState();
+        };
+
+        const renderSelectedProjects = () => {
+            if (!selectedProjectsWrap) return;
+            selectedProjectsWrap.innerHTML = '';
+            if (!selectedProjects.size) {
+                if (selectedProjectsEmpty) {
+                    selectedProjectsEmpty.style.display = '';
+                    selectedProjectsWrap.appendChild(selectedProjectsEmpty);
+                }
+                return;
+            }
+            if (selectedProjectsEmpty) {
+                selectedProjectsEmpty.style.display = 'none';
+            }
+            selectedProjects.forEach((entry, projectId) => {
+                const chip = document.createElement('span');
+                chip.className = 'meet-chip';
+                chip.innerHTML = `
+                    <span>${projectId}</span>
+                    <button type="button" data-role="remove-project" data-project-id="${projectId}">&times;</button>
+                `;
+                const removeBtn = chip.querySelector('[data-role="remove-project"]');
+                if (removeBtn) {
+                    removeBtn.addEventListener('click', () => removeProject(projectId));
+                }
+                selectedProjectsWrap.appendChild(chip);
+            });
+        };
+
+        const updateParticipantCount = () => {
+            if (!employeeCountEl) return;
+            const count = getAllParticipantIds().length;
+            employeeCountEl.textContent = `${count} selected`;
+        };
+
+        const getEmployeeMeta = (employeeId) => {
+            const key = String(employeeId || '').trim().toUpperCase();
+            return employeesDirectory.get(key) || null;
+        };
+
+        const loadEmployeeDirectory = async () => {
+            if (employeesDirectory.size) return employeesDirectory;
+            try {
+                const resp = await fetch(`${API_BASE}/api/employees/all`);
+                const data = await resp.json().catch(() => ({}));
+                if (resp.ok && data.success && Array.isArray(data.employees)) {
+                    data.employees.forEach((emp) => {
+                        const key = String(emp.employee_id || '').trim().toUpperCase();
+                        if (!key) return;
+                        employeesDirectory.set(key, {
+                            name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || key,
+                            email: emp.email || '',
+                            designation: emp.designation || '',
+                            department: emp.department || ''
+                        });
+                    });
+                }
+            } catch (err) {
+                console.error('Failed to load employees directory', err);
+                showToast('Unable to load employee directory. Some info may be missing.', 'warning');
+            }
+            return employeesDirectory;
+        };
+
+        const fetchProjects = async () => {
+            if (!projectGrid) return;
+            projectGrid.innerHTML = `
+                <div class="placeholder-text" style="grid-column: 1 / -1;">
+                    <i class="fa-solid fa-spinner fa-spin" style="color:#007bff; margin-bottom: 0.5rem;"></i>
+                    <p>Loading projects...</p>
+                </div>
+            `;
+            try {
+                const resp = await fetch(`${API_BASE}/api/projects?sort=name`);
+                const data = await resp.json().catch(() => ({}));
+                if (!resp.ok || !data.success) {
+                    throw new Error(data.error || `Failed to load projects (${resp.status})`);
+                }
+                projectsCache = data.projects || [];
+                renderProjectCards();
+            } catch (err) {
+                console.error('Failed to load projects', err);
+                if (projectGrid) {
+                    projectGrid.innerHTML = `
+                        <div class="placeholder-text" style="grid-column: 1 / -1; color:#dc2626;">
+                            <i class="fa-solid fa-triangle-exclamation" style="margin-bottom: 0.5rem;"></i>
+                            <p>${err?.message || 'Failed to load projects'}</p>
+                        </div>
+                    `;
+                }
+            }
+        };
+
+        const renderProjectCards = () => {
+            if (!projectGrid) return;
+            projectGrid.innerHTML = '';
+            if (!projectsCache.length) {
+                projectGrid.innerHTML = `
+                    <div class="placeholder-text" style="grid-column: 1 / -1;">
+                        <p>No projects available.</p>
+                    </div>
+                `;
+                return;
+            }
+            projectsCache.forEach((project) => {
+                const projectId = (project.crc6f_projectid || '').toUpperCase();
+                const card = document.createElement('div');
+                card.className = 'meet-project-card';
+                card.innerHTML = `
+                    <div>
+                        <p style="font-size:12px; color:#6b7280; margin:0;">${projectId}</p>
+                        <h4 style="margin:4px 0 6px;">${project.crc6f_projectname || 'Untitled project'}</h4>
+                        <p style="font-size:12px; color:#4b5563; margin:0 0 6px;">
+                            ${project.crc6f_projectstatus || 'Status unknown'} · ${project.crc6f_noofcontributors || 0} contributors
+                        </p>
+                        ${project.crc6f_projectdescription ? `<p style="font-size:12px; color:#6b7280; margin:0;">${project.crc6f_projectdescription}</p>` : ''}
+                    </div>
+                    <button class="btn btn-sm btn-outline-primary" data-role="add-project" data-project-id="${projectId}">
+                        <i class="fa-solid fa-plus"></i> Add
+                    </button>
+                `;
+                projectGrid.appendChild(card);
+            });
+
+            projectGrid.querySelectorAll('button[data-role="add-project"]').forEach(btn => {
+                btn.addEventListener('click', async (ev) => {
+                    const pid = ev.currentTarget.getAttribute('data-project-id');
+                    await handleAddProject(pid, ev.currentTarget);
+                });
+            });
+        };
+
+        const fetchProjectContributors = async (projectId) => {
+            const safeId = encodeURIComponent(projectId);
+            const resp = await fetch(`${API_BASE}/api/projects/${safeId}/contributors`);
+            const data = await resp.json().catch(() => ({}));
+            if (!resp.ok || data.success === false || data.ok === false) {
+                throw new Error(data.error || 'Failed to load project contributors');
+            }
+            return data.contributors || data.items || [];
+        };
+
+        const handleAddProject = async (projectId, triggerBtn) => {
+            const normalizedId = String(projectId || '').trim().toUpperCase();
+            if (!normalizedId) {
+                showToast('Invalid project ID', 'warning');
+                return;
+            }
+            if (selectedProjects.has(normalizedId)) {
+                showToast('Project already added', 'info');
+                return;
+            }
+            if (triggerBtn) triggerBtn.disabled = true;
+            try {
+                await loadEmployeeDirectory();
+                const contributors = await fetchProjectContributors(normalizedId);
+                const projectMeta = projectsCache.find(p => String(p.crc6f_projectid || '').toUpperCase() === normalizedId) || { crc6f_projectid: normalizedId };
+                selectedProjects.set(normalizedId, { ...projectMeta, contributors });
+                contributors.forEach((contrib) => {
+                    const empId = String(contrib.employee_id || contrib.crc6f_employeeid || '').trim().toUpperCase();
+                    if (!empId) return;
+                    const directoryMeta = getEmployeeMeta(empId) || {};
+                    const name = contrib.employee_name || directoryMeta.name || empId;
+                    const email = directoryMeta.email || '';
+                    const designation = contrib.designation || directoryMeta.designation || '';
+                    addParticipantSource(empId, makeProjectSource(normalizedId), { name, email, designation });
+                });
+                if (!contributors.length) {
+                    showToast(`No contributors found for ${normalizedId}`, 'warning');
+                } else {
+                    showToast(`Added ${contributors.length} contributors from ${normalizedId}`, 'success');
+                }
+                renderParticipants();
+                renderSelectedProjects();
+                updateCallButtonState();
+                if (projGroup) {
+                    const projIdInput = document.getElementById('meet-project-id');
+                    if (projIdInput) projIdInput.value = normalizedId;
+                }
+            } catch (err) {
+                console.error('Failed to add project', err);
+                showToast(err?.message || 'Failed to add project', 'error');
+            } finally {
+                if (triggerBtn) triggerBtn.disabled = false;
+            }
+        };
+
+        const renderParticipantsEmptyState = () => {
+            if (!participantsContainer || !participantsEmpty) return;
+            participantsContainer.innerHTML = '';
+            participantsEmpty.style.display = '';
+            participantsContainer.appendChild(participantsEmpty);
+        };
+
+        const renderCallList = () => {
+            if (!callList) return;
+            callList.innerHTML = '';
+            const ids = getAllParticipantIds();
+            if (!ids.length) {
+                callList.innerHTML = '<p class="placeholder-text">No participants added.</p>';
+                updateCallBanner('hidden');
+                return;
+            }
+            ids.forEach((id) => {
+                const entry = participantDirectory.get(id) || { name: id };
+                const statusKey = String(serverParticipantStatuses.get(id) || callDecisions.get(id) || '').toLowerCase();
+                const row = document.createElement('div');
+                row.className = 'meet-call-user';
+                const statusHTML = statusKey === 'accepted'
+                    ? '<span class="badge badge-success">Accepted</span>'
+                    : statusKey === 'declined'
+                        ? '<span class="badge badge-danger">Declined</span>'
+                        : '<span class="badge badge-secondary">Ringing...</span>';
+                row.innerHTML = `
+                    <div class="meet-call-user-info">
+                        <strong>${entry.name || id}</strong>
+                        <span style="font-size:12px; color:#4b5563;">${entry.email || id}</span>
+                        ${entry.designation ? `<span style="font-size:12px; color:#6b7280;">${entry.designation}</span>` : ''}
+                    </div>
+                    <div class="meet-call-user-actions">
+                        ${statusHTML}
+                    </div>
+                `;
+                callList.appendChild(row);
+            });
+            syncCallBannerState();
+        };
+
+        const handleCallDecision = (participantId, accepted) => {
+            const entry = participantDirectory.get(participantId) || { name: participantId };
+            callDecisions.set(participantId, accepted ? 'accepted' : 'declined');
+            renderCallList();
+            if (accepted) {
+                openMeetLink(currentMeetInfo);
+            } else {
+                showToast(`${entry.name || participantId} declined the call`, 'warning');
+            }
+            syncCallBannerState();
+        };
+
+        const attachCallListEvents = () => {
+            if (!callList) return;
+        };
+
+        const openCallModal = () => {
+            if (!callModal) return;
+            callModal.classList.remove('hidden');
+            callDecisions = new Map();
+            renderCallList();
+            updateCallBanner('ringing', getAllParticipantIds().length);
+            startRingTone();
+        };
+
+        const closeCallModal = () => {
+            if (!callModal) return;
+            callModal.classList.add('hidden');
+            updateCallBanner('hidden');
+            stopRingTone();
+        };
+
+        const buildEmployeeCards = () => {
+            employeeCards = Array.from(employeesDirectory.entries()).map(([id, meta]) => ({
+                id,
+                name: meta.name || id,
+                email: meta.email || '',
+                designation: meta.designation || '',
+                department: meta.department || ''
+            }));
+            filteredEmployeeCards = employeeCards.slice();
+        };
+
+        const renderEmployeeGrid = () => {
+            if (!employeeGrid) return;
+            employeeGrid.innerHTML = '';
+            if (!filteredEmployeeCards.length) {
+                employeeGrid.innerHTML = `
+                    <div class="placeholder-text" style="grid-column:1 / -1;">
+                        <p>No employees match your search.</p>
+                    </div>
+                `;
+                return;
+            }
+            filteredEmployeeCards.forEach((emp) => {
+                const card = document.createElement('div');
+                card.className = 'meet-employee-card';
+                if (participantDirectory.has(emp.id)) {
+                    card.classList.add('selected');
+                }
+                card.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+                        <div>
+                            <h4>${emp.name || emp.id}</h4>
+                            <p>${emp.id}</p>
+                        </div>
+                        ${emp.department ? `<span class="badge badge-light">${emp.department}</span>` : ''}
+                    </div>
+                    <p>${emp.email || 'No email on file'}</p>
+                    ${emp.designation ? `<p style="color:#6b7280;">${emp.designation}</p>` : ''}
+                `;
+                card.addEventListener('click', () => toggleEmployeeSelection(emp.id));
+                employeeGrid.appendChild(card);
+            });
+        };
+
+        const toggleEmployeeSelection = (employeeId) => {
+            const id = normalizeEmployeeId(employeeId);
+            if (!id) return;
+            const entry = participantDirectory.get(id);
+            const manualKey = makeManualSource(id);
+            if (entry && entry.sources.has(manualKey)) {
+                removeParticipantSource(id, manualKey);
+            } else {
+                const meta = getEmployeeMeta(id) || { name: id, email: '', designation: '' };
+                addParticipantSource(id, manualKey, meta);
+            }
+            renderParticipants();
+            updateCallButtonState();
+            renderEmployeeGrid();
+        };
+
+        const filterEmployeeGrid = (term) => {
+            const q = String(term || '').trim().toLowerCase();
+            if (!q) {
+                filteredEmployeeCards = employeeCards.slice();
+            } else {
+                filteredEmployeeCards = employeeCards.filter((emp) => {
+                    return [emp.name, emp.id, emp.department, emp.designation]
+                        .some(field => String(field || '').toLowerCase().includes(q));
+                });
+            }
+            renderEmployeeGrid();
+        };
+
+        const renderParticipants = () => {
+            if (!participantsContainer) return;
+            participantsContainer.innerHTML = '';
+            const ids = getAllParticipantIds();
+            if (!ids.length) {
+                if (participantsEmpty) {
+                    participantsEmpty.style.display = '';
+                    participantsContainer.appendChild(participantsEmpty);
+                }
+                return;
+            }
+            if (participantsEmpty) {
+                participantsEmpty.style.display = 'none';
+            }
+            ids.forEach(id => {
+                const entry = participantDirectory.get(id) || { name: id };
+                const chip = document.createElement('span');
+                chip.className = 'meet-chip';
+                chip.innerHTML = `
+                    <span style="display:flex; flex-direction:column;">
+                        <strong style="font-size:12px;">${entry.name || id}</strong>
+                        <small style="font-size:11px; color:#4b5563;">${entry.email || id}</small>
+                    </span>
+                    <button type="button" data-role="remove" data-id="${id}">&times;</button>
+                `;
+                const removeBtn = chip.querySelector('[data-role="remove"]');
+                if (removeBtn) {
+                    removeBtn.addEventListener('click', () => {
+                        // Remove all sources (manual + project)
+                        const entrySources = participantDirectory.get(id)?.sources || [];
+                        entrySources.forEach((sourceKey) => removeParticipantSource(id, sourceKey));
+                        renderParticipants();
+                        updateCallButtonState();
+                    });
+                }
+                participantsContainer.appendChild(chip);
+            });
+            updateParticipantCount();
+        };
+
+        const addParticipant = (raw) => {
+            const v = String(raw || '').trim().toUpperCase();
+            if (!v) return;
+            if (participantDirectory.has(v)) {
+                showToast('Participant already added.', 'info');
+                return;
+            }
+            const meta = getEmployeeMeta(v) || { name: v, email: '', designation: '' };
+            addParticipantSource(v, makeManualSource(v), meta);
+            renderParticipants();
+            updateCallButtonState();
+        };
+
+        if (addMemberBtn && empIdInput) {
+            addMemberBtn.addEventListener('click', () => {
+                addParticipant(empIdInput.value);
+                empIdInput.value = '';
+                empIdInput.focus();
+            });
+            empIdInput.addEventListener('keydown', (ev) => {
+                if (ev.key === 'Enter') {
+                    ev.preventDefault();
+                    addParticipant(empIdInput.value);
+                    empIdInput.value = '';
+                }
+            });
+        }
+
+        const updateAudienceVisibility = () => {
+            if (!audienceSelect || !empGroup || !projGroup) return;
+            const val = audienceSelect.value;
+            if (val === 'employees') {
+                empGroup.style.display = '';
+                projGroup.style.display = 'none';
+            } else if (val === 'project') {
+                empGroup.style.display = 'none';
+                projGroup.style.display = '';
+            } else {
+                empGroup.style.display = '';
+                projGroup.style.display = '';
+            }
+        };
+
+        const updateTimeInputs = () => {
+            if (!startNowCheckbox || !startInput || !endInput) return;
+            const disabled = startNowCheckbox.checked;
+            startInput.disabled = disabled;
+            endInput.disabled = disabled;
+        };
+
+        const convertLocalDateTimeToISO = (value) => {
+            if (!value) return null;
+            const dt = new Date(value);
+            if (Number.isNaN(dt.getTime())) return null;
+            return dt.toISOString();
+        };
+
+        const buildMeetPayload = () => {
+            const audience = (audienceSelect?.value || 'employees').toLowerCase();
+            const participantIds = getAllParticipantIds();
+            const participantEmails = participantIds
+                .map((id) => (participantDirectory.get(id)?.email || '').trim())
+                .filter(Boolean);
+            let projectIdValue = null;
+            if (audience !== 'employees') {
+                const manualProject = (projectIdInput?.value || '').trim().toUpperCase();
+                if (manualProject) {
+                    projectIdValue = manualProject;
+                } else if (selectedProjects.size === 1) {
+                    projectIdValue = selectedProjects.keys().next().value;
+                }
+            }
+
+            const payload = {
+                title: (titleInput?.value || 'Team Sync').trim() || 'Team Sync',
+                description: (descriptionInput?.value || '').trim(),
+                audience_type: audience,
+                employee_ids: participantIds,
+                employee_emails: participantEmails,
+                project_id: projectIdValue,
+                start_time: null,
+                end_time: null,
+                timezone: (timezoneInput?.value || tz || 'UTC').trim() || 'UTC',
+                admin_id: (String(state?.user?.id || '').trim() || 'admin'),
+            };
+
+            if (!startNowCheckbox?.checked) {
+                payload.start_time = convertLocalDateTimeToISO(startInput?.value);
+                payload.end_time = convertLocalDateTimeToISO(endInput?.value);
+            }
+
+            return payload;
+        };
+
+        const renderMeetResult = (state, data) => {
+            if (!resultEl) return;
+            if (state === 'loading') {
+                resultEl.innerHTML = `
+                    <div class="placeholder-text">
+                        <i class="fa-solid fa-spinner fa-spin" style="color:#2563eb; margin-bottom:4px;"></i>
+                        <p>Creating Google Meet...</p>
+                    </div>
+                `;
+                return;
+            }
+
+            if (state === 'error') {
+                resultEl.innerHTML = `
+                    <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:12px;">
+                        <strong style="color:#b91c1c;">Failed to create Google Meet.</strong>
+                        <p style="margin:6px 0 0; color:#991b1b; font-size:13px;">${data || 'Something went wrong. Please try again.'}</p>
+                    </div>
+                `;
+                return;
+            }
+
+            if (state === 'success') {
+                const joinLink = data?.meet_url || data?.html_link;
+                resultEl.innerHTML = `
+                    <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:12px;">
+                        <p style="margin:0; font-weight:600; color:#166534;">${data?.title || 'Google Meet is ready'}</p>
+                        ${joinLink ? `<p style="margin:4px 0 0;"><a href="${joinLink}" target="_blank" rel="noopener" style="color:#15803d;">Open meeting link</a></p>` : ''}
+                    </div>
+                `;
+            }
+        };
+
+        const openMeetLink = (info) => {
+            const joinLink = info?.meet_url || info?.html_link;
+            if (!joinLink) {
+                showToast('Meeting link is not available yet.', 'warning');
+                return;
+            }
+            window.open(joinLink, '_blank', 'noopener');
+        };
+
+        const startMeetFlow = async ({ openCallModalAfter = false, triggerBtn = null } = {}) => {
+            const participantIds = getAllParticipantIds();
+            if (!participantIds.length) {
+                showToast('Add at least one participant before starting a call.', 'warning');
+                return;
+            }
+
+            const payload = buildMeetPayload();
+            renderMeetResult('loading');
+            setMeetRequestInFlight(true, triggerBtn);
+            try {
+                const resp = await fetch(`${API_BASE}/api/meet/start`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                const data = await resp.json().catch(() => ({}));
+                if (!resp.ok || data.success === false) {
+                    throw new Error(data.error || `Failed to create Google Meet (${resp.status})`);
+                }
+                currentMeetInfo = data;
+                callDecisions = new Map();
+                renderCallList();
+                renderMeetResult('success', data);
+                showToast('Google Meet created successfully.', 'success');
+                if (openCallModalAfter) {
+                    openMeetLink(data);
+                    openCallModal();
+                    showToast('Ringing participants...', 'info');
+                }
+            } catch (err) {
+                console.error('Failed to start Google Meet', err);
+                showToast(err?.message || 'Failed to create Google Meet', 'error');
+                renderMeetResult('error', err?.message);
+            } finally {
+                setMeetRequestInFlight(false);
+                updateCallButtonState();
+            }
+        };
+
+        if (audienceSelect) {
+            audienceSelect.addEventListener('change', updateAudienceVisibility);
+            updateAudienceVisibility();
+        }
+
+        if (startNowCheckbox) {
+            startNowCheckbox.addEventListener('change', updateTimeInputs);
+            updateTimeInputs();
+        }
+
+        if (!form || !resultEl) return;
+
+        attachCallListEvents();
+        const applyServerParticipantUpdate = (payload) => {
+            try {
+                if (!payload || !Array.isArray(payload.participants)) return;
+                serverParticipantStatuses = new Map();
+                (payload.participants || []).forEach((p) => {
+                    const rawId = normalizeEmployeeId(p.employee_id || '');
+                    const emailKey = String(p.email || '').trim().toUpperCase();
+                    const idKey = rawId || emailKey;
+                    if (!idKey) return;
+                    const status = String(p.status || 'ringing').toLowerCase();
+                    serverParticipantStatuses.set(idKey, status);
+                    if (status === 'accepted' || status === 'declined') {
+                        callDecisions.set(idKey, status);
+                    }
+                });
+                renderCallList();
+                syncCallBannerState();
+            } catch (err) {
+                console.error('Failed to apply participant update', err);
+            }
+        };
+        try {
+            (window).__onParticipantUpdate = applyServerParticipantUpdate;
+        } catch (_) {
+        }
+        if (callCloseBtn) {
+            callCloseBtn.addEventListener('click', closeCallModal);
+        }
+        callModal?.addEventListener('click', (ev) => {
+            if (ev.target === callModal) {
+                closeCallModal();
+            }
+        });
+
+        loadEmployeeDirectory()
+            .then(() => {
+                buildEmployeeCards();
+                renderEmployeeGrid();
+            })
+            .catch(() => {});
+
+        if (form) {
+            form.addEventListener('submit', (ev) => {
+                ev.preventDefault();
+                startMeetFlow({ openCallModalAfter: false, triggerBtn: createMeetBtn });
+            });
+        }
+
+        if (callBtn) {
+            callBtn.addEventListener('click', () => {
+                startMeetFlow({ openCallModalAfter: true, triggerBtn: callBtn });
+            });
+        }
+
+        if (employeeSearchInput) {
+            employeeSearchInput.addEventListener('input', (ev) => {
+                filterEmployeeGrid(ev.target.value);
+            });
+        }
+
+        fetchProjects();
+        renderParticipants();
+        renderSelectedProjects();
+        updateCallButtonState();
+    }, 0);
+};
+
+const loadInboxLeaves = async () => {
+    const isAdmin = isAdminUser();
+    const listContainer = document.querySelector('.inbox-list');
+
+    if (!listContainer) return;
+
+    listContainer.innerHTML = `
+        <div class="placeholder-text">
+            <i class="fa-solid fa-spinner fa-spin fa-3x" style="color:#ddd; margin-bottom: 1rem;"></i>
+            <p>Loading leaves...</p>
+        </div>
+    `;
+
+    try {
+        // Fetch all employees to map IDs to names
+        const allEmployees = await listEmployees(1, 5000);
+        const employeeMap = {};
+        (allEmployees.items || []).forEach(emp => {
+            if (emp.employee_id) {
+                employeeMap[emp.employee_id.toUpperCase()] = `${emp.first_name || ''} ${emp.last_name || ''}`.trim();
+            }
+        });
+
+        let leaves = [];
+        // Pull Comp Off requests from localStorage and normalize into leave-like objects
+        const compAll = JSON.parse(localStorage.getItem('compoff_requests') || '[]');
+        const normalizeComp = (r) => ({
+            leave_id: `CO-${r.id}`,
+            employee_id: r.employeeId,
+            leave_type: 'Comp Off',
+            start_date: r.dateWorked,
+            end_date: r.dateWorked,
+            total_days: 1,
+            status: r.status || 'Pending',
+            paid_unpaid: 'Paid',
+            rejection_reason: r.rejectionReason || '',
+            _source: 'compoff',
+            _raw: r,
+        });
+
+        if (currentInboxTab === 'awaiting' && isAdmin) {
+            // Fetch all pending leaves for admin
+            const pendingLeaves = await fetchPendingLeaves();
+            const compPending = compAll.filter(r => (r.status || 'pending').toLowerCase() === 'pending').map(normalizeComp);
+            leaves = (pendingLeaves || []).concat(compPending);
+            console.log(`📋 Loaded ${leaves.length} pending leave requests`);
+        } else if (currentInboxTab === 'completed' && isAdmin) {
+            // For admin in completed tab, fetch all employees' completed leaves
+            try {
+                const allEmployees = await listEmployees(1, 5000);
+                const employeeIds = (allEmployees.items || []).map(emp => emp.employee_id).filter(Boolean);
+
+                console.log(`📋 Fetching completed leaves for ${employeeIds.length} employees...`);
+
+                const allLeavesPromises = employeeIds.map(empId =>
+                    fetchEmployeeLeaves(empId).catch(err => {
+                        console.warn(`Failed to fetch leaves for ${empId}:`, err);
+                        return [];
+                    })
+                );
+
+                const allLeavesArrays = await Promise.all(allLeavesPromises);
+                const allLeaves = allLeavesArrays.flat();
+                const compCompleted = compAll.filter(r => ['approved', 'rejected'].includes((r.status || '').toLowerCase())).map(normalizeComp);
+
+                // Filter for approved/rejected only
+                leaves = allLeaves.filter(l =>
+                    l.status?.toLowerCase() === 'approved' || l.status?.toLowerCase() === 'rejected'
+                ).concat(compCompleted);
+
+                console.log(`📋 Loaded ${leaves.length} completed leaves from all employees`);
+            } catch (err) {
+                console.error('Error fetching all employees completed leaves:', err);
+                leaves = [];
+            }
+        } else {
+            // Fetch current user's leaves
+            const empId = await resolveCurrentEmployeeId();
+            const allLeaves = await fetchEmployeeLeaves(empId);
+
+            if (currentInboxTab === 'requests') {
+                const compMine = compAll.filter(r => String(r.employeeId).toUpperCase() === String(empId).toUpperCase() && (r.status || 'pending').toLowerCase() === 'pending').map(normalizeComp);
+                leaves = (allLeaves || []).filter(l => l.status?.toLowerCase() === 'pending').concat(compMine);
+            } else if (currentInboxTab === 'completed') {
+                const compMineDone = compAll.filter(r => String(r.employeeId).toUpperCase() === String(empId).toUpperCase() && ['approved', 'rejected'].includes((r.status || '').toLowerCase())).map(normalizeComp);
+                leaves = (allLeaves || []).filter(l =>
+                    l.status?.toLowerCase() === 'approved' || l.status?.toLowerCase() === 'rejected'
+                ).concat(compMineDone);
+            }
+            console.log(`📋 Loaded ${leaves.length} ${currentInboxTab} leaves for user`);
+        }
+
+        // Sort leaves by start_date descending (latest first)
+        leaves.sort((a, b) => {
+            const dateA = new Date(a.start_date || '1900-01-01');
+            const dateB = new Date(b.start_date || '1900-01-01');
+            return dateB - dateA; // Descending order (newest first)
+        });
+        console.log(`✅ Sorted ${leaves.length} leaves by date (latest first)`);
+
+        if (leaves.length === 0) {
+            listContainer.innerHTML = `
+                <div class="placeholder-text">
+                    <i class="fa-solid fa-envelope-open fa-3x" style="color:#ddd; margin-bottom: 1rem;"></i>
+                    <p>No requests found.</p>
+                </div>
+            `;
+            return;
+        }
+
+        // Render leave cards
+        const leaveCards = leaves.map(leave => {
+            const leaveId = leave.leave_id;
+            const employeeId = leave.employee_id;
+            const employeeName = employeeMap[employeeId?.toUpperCase()] || employeeId;
+            const leaveType = leave.leave_type;
+            const startDate = leave.start_date;
+            const endDate = leave.end_date;
+            const totalDays = leave.total_days;
+            const status = leave.status || 'Pending';
+            const paidUnpaid = leave.paid_unpaid || 'Paid';
+            const rejectionReason = leave.rejection_reason || leave.crc6f_rejectionreason || '';
+
+            // Debug logging for rejected leaves
+            if (status.toLowerCase() === 'rejected') {
+                console.log(`🔍 Rejected leave ${leaveId}:`, {
+                    status,
+                    rejection_reason: rejectionReason,
+                    fullLeaveData: leave
+                });
+            }
+
+            const statusClass = status.toLowerCase();
+            const showActions = currentInboxTab === 'awaiting' && isAdmin;
+            const isRejected = status.toLowerCase() === 'rejected';
+            const isCompOff = leave._source === 'compoff' || (String(leaveType).toLowerCase() === 'comp off');
+
+            return `
+                <div class="inbox-item">
+                    <div class="inbox-item-header">
+                        <div>
+                            <h4 style="font-size: 1.25rem; margin-bottom: 4px;">${employeeName}</h4>
+                            <span class="inbox-item-meta" style="font-size: 0.875rem; color: #666;">${leaveType} • ${employeeId}</span>
+                        </div>
+                        <span class="status-badge ${statusClass}">${status}</span>
+                    </div>
+                    <div class="inbox-item-body">
+                        <p><strong>Period:</strong> ${startDate} to ${endDate} (${totalDays} day${totalDays > 1 ? 's' : ''})</p>
+                        <p><strong>Type:</strong> ${paidUnpaid}</p>
+                        <p><strong>Leave ID:</strong> ${leaveId}</p>
+                        ${isRejected && rejectionReason ? `
+                            <div class="rejection-reason-box" style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; margin-top: 12px; border-radius: 4px;">
+                                <strong style="color: #856404;"><i class="fa-solid fa-info-circle"></i> Rejection Reason:</strong>
+                                <p style="margin: 8px 0 0 0; color: #856404;">${rejectionReason}</p>
+                            </div>
+                        ` : ''}
+                    </div>
+                    ${showActions ? `
+                        <div class="inbox-item-actions">
+                            <button class="btn btn-success btn-sm inbox-approve-btn" data-leave-id="${leaveId}" data-source="${isCompOff ? 'compoff' : 'leave'}" data-compoff-id="${isCompOff ? (leave._raw?.id || '') : ''}">
+                                <i class="fa-solid fa-check"></i> Approve
+                            </button>
+                            <button class="btn btn-danger btn-sm inbox-reject-btn" data-leave-id="${leaveId}" data-source="${isCompOff ? 'compoff' : 'leave'}" data-compoff-id="${isCompOff ? (leave._raw?.id || '') : ''}">
+                                <i class="fa-solid fa-times"></i> Reject
+                            </button>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }).join('');
+
+        listContainer.innerHTML = leaveCards;
+
+        // Add event listeners for approve/reject buttons
+        if (currentInboxTab === 'awaiting' && isAdmin) {
+            document.querySelectorAll('.inbox-approve-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const src = e.currentTarget.getAttribute('data-source');
+                    if (src === 'compoff') {
+                        const requestId = e.currentTarget.getAttribute('data-compoff-id');
+                        await handleCompOffApprove(requestId);
+                    } else {
+                        const leaveId = e.currentTarget.getAttribute('data-leave-id');
+                        await handleInboxApprove(leaveId);
+                    }
+                });
+            });
+
+            document.querySelectorAll('.inbox-reject-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const src = e.currentTarget.getAttribute('data-source');
+                    if (src === 'compoff') {
+                        const requestId = e.currentTarget.getAttribute('data-compoff-id');
+                        showCompOffRejectModal(requestId);
+                    } else {
+                        const leaveId = e.currentTarget.getAttribute('data-leave-id');
+                        showInboxRejectModal(leaveId);
+                    }
+                });
+            });
+        }
+
+    } catch (err) {
+        console.error('❌ Error loading inbox leaves:', err);
+        listContainer.innerHTML = `
+            <div class="placeholder-text">
+                <i class="fa-solid fa-exclamation-triangle fa-3x" style="color:#e74c3c; margin-bottom: 1rem;"></i>
+                <p>Error loading leave requests.</p>
+            </div>
+        `;
+    }
+};
+
+const loadInboxTimesheets = async () => {
+    const isAdmin = isAdminUser();
+    const listContainer = document.querySelector('.inbox-list');
+
+    if (!listContainer) return;
+
+    listContainer.innerHTML = `
+        <div class="placeholder-text">
+            <i class="fa-solid fa-spinner fa-spin fa-3x" style="color:#ddd; margin-bottom: 1rem;"></i>
+            <p>Loading timesheet submissions...</p>
+        </div>
+    `;
+
+    try {
+        // Fetch all employees to map IDs to names
+        const allEmployees = await listEmployees(1, 5000);
+        const employeeMap = {};
+        (allEmployees.items || []).forEach(emp => {
+            if (emp.employee_id) {
+                employeeMap[emp.employee_id.toUpperCase()] = `${emp.first_name || ''} ${emp.last_name || ''}`.trim();
+            }
+        });
+
+        // Build query string based on role and tab
+        const params = new URLSearchParams();
+        if (!isAdmin) {
+            const empId = await resolveCurrentEmployeeId();
+            if (!empId) {
+                listContainer.innerHTML = `
+                    <div class="placeholder-text">
+                        <i class="fa-solid fa-user-slash fa-3x" style="color:#ddd; margin-bottom: 1rem;"></i>
+                        <p>Unable to resolve your employee ID.</p>
+                    </div>
+                `;
+                return;
+            }
+            params.set('employee_id', empId);
+            if (currentInboxTab === 'requests') {
+                params.set('status', 'pending');
+            }
+        } else if (currentInboxTab === 'awaiting') {
+            params.set('status', 'pending');
+        }
+
+        const qs = params.toString() ? `?${params.toString()}` : '';
+        const resp = await fetch(`http://localhost:5000/api/time-tracker/timesheet/submissions${qs}`);
+        const data = await resp.json().catch(() => ({ success: false }));
+
+        if (!resp.ok || !data.success) {
+            throw new Error(data.error || `Failed to fetch timesheet submissions (${resp.status})`);
+        }
+
+        let items = data.items || [];
+
+        // For completed tab, keep only Accepted/Rejected
+        if (currentInboxTab === 'completed') {
+            items = items.filter(r => {
+                const s = String(r.status || '').toLowerCase();
+                return s === 'accepted' || s === 'rejected';
+            });
+        }
+
+        // Sort by submitted date (latest first)
+        items.sort((a, b) => new Date(b.submitted_at || 0) - new Date(a.submitted_at || 0));
+
+        if (items.length === 0) {
+            listContainer.innerHTML = `
+                <div class="placeholder-text">
+                    <i class="fa-solid fa-envelope-open fa-3x" style="color:#ddd; margin-bottom: 1rem;"></i>
+                    <p>No timesheet submissions found.</p>
+                </div>
+            `;
+            return;
+        }
+
+        const cards = items.map(entry => {
+            const employeeId = entry.employee_id;
+            const employeeName = employeeMap[employeeId?.toUpperCase()] || entry.employee_name || employeeId;
+            const status = entry.status || 'Pending';
+            const statusClass = String(status).toLowerCase();
+            const showActions = isAdmin && currentInboxTab === 'awaiting';
+            const isRejected = statusClass === 'rejected';
+            const rejectionReason = entry.reject_comment || '';
+            const projectName = entry.project_name || entry.project_id || '-';
+            const taskName = entry.task_name || entry.task_id || '-';
+            const hours = (entry.hours_worked !== undefined && entry.hours_worked !== null)
+                ? Number(entry.hours_worked).toFixed(2)
+                : (entry.seconds ? (entry.seconds / 3600).toFixed(2) : '0.00');
+
+            return `
+                <div class="inbox-item">
+                    <div class="inbox-item-header">
+                        <div>
+                            <h4 style="font-size: 1.25rem; margin-bottom: 4px;">${employeeName}</h4>
+                            <span class="inbox-item-meta" style="font-size: 0.875rem; color: #666;">Timesheet • ${employeeId}</span>
+                        </div>
+                        <span class="status-badge ${statusClass}">${status}</span>
+                    </div>
+                    <div class="inbox-item-body">
+                        <p><strong>Date:</strong> ${entry.date || '-'}</p>
+                        <p><strong>Project:</strong> ${projectName}</p>
+                        <p><strong>Task:</strong> ${taskName}</p>
+                        <p><strong>Hours:</strong> ${hours}</p>
+                        <p><strong>Description:</strong> ${entry.description || '-'}</p>
+                        <p><strong>Submitted:</strong> ${entry.submitted_at || '-'}</p>
+                        ${entry.decided_at ? `<p><strong>Updated:</strong> ${entry.decided_at}</p>` : ''}
+                        ${isRejected && rejectionReason ? `
+                            <div class="rejection-reason-box" style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; margin-top: 12px; border-radius: 4px;">
+                                <strong style="color: #856404;"><i class="fa-solid fa-info-circle"></i> Rejection Reason:</strong>
+                                <p style="margin: 8px 0 0 0; color: #856404;">${rejectionReason}</p>
+                            </div>
+                        ` : ''}
+                    </div>
+                    ${showActions ? `
+                        <div class="inbox-item-actions">
+                            <button class="btn btn-success btn-sm ts-approve-btn" data-id="${entry.id}">
+                                <i class="fa-solid fa-check"></i> Approve
+                            </button>
+                            <button class="btn btn-danger btn-sm ts-reject-btn" data-id="${entry.id}">
+                                <i class="fa-solid fa-times"></i> Reject
+                            </button>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }).join('');
+
+        listContainer.innerHTML = cards;
+
+        if (isAdmin && currentInboxTab === 'awaiting') {
+            document.querySelectorAll('.ts-approve-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const entryId = e.currentTarget.getAttribute('data-id');
+                    await handleTimesheetApprove(entryId);
+                });
+            });
+
+            document.querySelectorAll('.ts-reject-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const entryId = e.currentTarget.getAttribute('data-id');
+                    showTimesheetRejectModal(entryId);
+                });
+            });
+        }
+    } catch (err) {
+        console.error('❌ Error loading timesheet submissions:', err);
+        listContainer.innerHTML = `
+            <div class="placeholder-text">
+                <i class="fa-solid fa-exclamation-triangle fa-3x" style="color:#e74c3c; margin-bottom: 1rem;"></i>
+                <p>Error loading timesheet submissions.</p>
+            </div>
+        `;
+    }
+};
+
+const loadInboxCompOff = async () => {
+    const isAdmin = isAdminUser();
+    const listContainer = document.querySelector('.inbox-list');
+    if (!listContainer) return;
+    listContainer.innerHTML = `
+        <div class="placeholder-text">
+            <i class="fa-solid fa-spinner fa-spin fa-3x" style="color:#ddd; margin-bottom: 1rem;"></i>
+            <p>Loading comp off requests...</p>
+        </div>
+    `;
+
+    try {
+        const empId = await resolveCurrentEmployeeId();
+        const all = JSON.parse(localStorage.getItem('compoff_requests') || '[]');
+        let items = all;
+
+        if (isAdmin) {
+            if (currentInboxTab === 'awaiting') {
+                items = all.filter(r => (r.status || 'pending').toLowerCase() === 'pending');
+            } else if (currentInboxTab === 'completed') {
+                items = all.filter(r => ['approved', 'rejected'].includes((r.status || '').toLowerCase()));
+            }
+        } else {
+            if (currentInboxTab === 'requests') {
+                items = all.filter(r => String(r.employeeId).toUpperCase() === String(empId).toUpperCase() && (r.status || 'pending').toLowerCase() === 'pending');
+            } else if (currentInboxTab === 'completed') {
+                items = all.filter(r => String(r.employeeId).toUpperCase() === String(empId).toUpperCase() && ['approved', 'rejected'].includes((r.status || '').toLowerCase()));
+            }
+        }
+
+        items.sort((a, b) => new Date(b.appliedDate || b.timestamp || 0) - new Date(a.appliedDate || a.timestamp || 0));
+
+        if (items.length === 0) {
+            listContainer.innerHTML = `
+                <div class="placeholder-text">
+                    <i class="fa-solid fa-envelope-open fa-3x" style="color:#ddd; margin-bottom: 1rem;"></i>
+                    <p>No comp off requests found.</p>
+                </div>
+            `;
+            return;
+        }
+
+        const cards = items.map(req => {
+            const status = req.status || 'Pending';
+            const statusClass = status.toLowerCase();
+            const showActions = isAdmin && currentInboxTab === 'awaiting';
+            return `
+                <div class="inbox-item">
+                    <div class="inbox-item-header">
+                        <div>
+                            <h4 style="font-size: 1.25rem; margin-bottom: 4px;">${req.employeeName || req.employeeId}</h4>
+                            <span class="inbox-item-meta" style="font-size: 0.875rem; color: #666;">Comp Off • ${req.employeeId}</span>
+                        </div>
+                        <span class="status-badge ${statusClass}">${status}</span>
+                    </div>
+                    <div class="inbox-item-body">
+                        <p><strong>Date Worked:</strong> ${req.dateWorked}</p>
+                        <p><strong>Reason:</strong> ${req.reason || '-'}</p>
+                        <p><strong>Applied:</strong> ${req.appliedDate || '-'}</p>
+                        ${statusClass === 'rejected' && req.rejectionReason ? `
+                            <div class="rejection-reason-box" style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; margin-top: 12px; border-radius: 4px;">
+                                <strong style="color: #856404;"><i class="fa-solid fa-info-circle"></i> Rejection Reason:</strong>
+                                <p style="margin: 8px 0 0 0; color: #856404;">${req.rejectionReason}</p>
+                            </div>` : ''}
+                    </div>
+                    ${showActions ? `
+                        <div class="inbox-item-actions">
+                            <button class="btn btn-success btn-sm compoff-approve-btn" data-id="${req.id}"><i class="fa-solid fa-check"></i> Grant</button>
+                            <button class="btn btn-danger btn-sm compoff-reject-btn" data-id="${req.id}"><i class="fa-solid fa-times"></i> Reject</button>
+                        </div>` : ''}
+                </div>`;
+        }).join('');
+
+        listContainer.innerHTML = cards;
+
+        if (isAdmin && currentInboxTab === 'awaiting') {
+            document.querySelectorAll('.compoff-approve-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const requestId = e.currentTarget.getAttribute('data-id');
+                    await handleCompOffApprove(requestId);
+                });
+            });
+            document.querySelectorAll('.compoff-reject-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const requestId = e.currentTarget.getAttribute('data-id');
+                    showCompOffRejectModal(requestId);
+                });
+            });
+        }
+    } catch (err) {
+        console.error('❌ Error loading comp off requests:', err);
+        listContainer.innerHTML = `
+            <div class="placeholder-text">
+                <i class="fa-solid fa-exclamation-triangle fa-3x" style="color:#e74c3c; margin-bottom: 1rem;"></i>
+                <p>Error loading comp off requests.</p>
+            </div>
+        `;
+    }
+};
+
+const handleCompOffApprove = async (requestId) => {
+    if (!confirm('Grant this Comp Off request?')) return;
+    try {
+        const list = JSON.parse(localStorage.getItem('compoff_requests') || '[]');
+        const idx = list.findIndex(r => String(r.id) === String(requestId));
+        if (idx >= 0) {
+            const req = { ...list[idx], status: 'Approved' };
+            list[idx] = req;
+            localStorage.setItem('compoff_requests', JSON.stringify(list));
+            try { await notifyEmployeeCompOffGranted(req.id, req.employeeId); } catch { }
+        }
+        alert('✅ Comp Off granted');
+        await loadInboxCompOff();
+    } catch (err) {
+        console.error('❌ Error granting comp off:', err);
+        alert('❌ Failed to grant comp off');
+    }
+};
+
+const showCompOffRejectModal = (requestId) => {
+    const formHTML = `
+        <div class="form-group">
+            <label for="compoffRejectionReason">Rejection Reason (Optional)</label>
+            <textarea id="compoffRejectionReason" name="rejectionReason" rows="4" placeholder="Enter reason for rejection..."></textarea>
+        </div>
+        <input type="hidden" id="compoffRejectId" value="${requestId}">
+    `;
+    renderModal('Reject Comp Off Request', formHTML, 'compoff-submit-reject-btn', 'normal', 'Reject');
+};
+
+export const handleCompOffReject = async (e) => {
+    e.preventDefault();
+    const requestId = document.getElementById('compoffRejectId').value;
+    const reason = document.getElementById('compoffRejectionReason')?.value || '';
+    if (!requestId) { alert('Error: Request ID not found'); return; }
+    try {
+        const list = JSON.parse(localStorage.getItem('compoff_requests') || '[]');
+        const idx = list.findIndex(r => String(r.id) === String(requestId));
+        if (idx >= 0) {
+            const req = { ...list[idx], status: 'Rejected', rejectionReason: reason };
+            list[idx] = req;
+            localStorage.setItem('compoff_requests', JSON.stringify(list));
+            try { await notifyEmployeeCompOffRejected(req.id, req.employeeId, reason); } catch { }
+        }
+        closeModal();
+        alert('✅ Comp Off rejected');
+        await loadInboxCompOff();
+    } catch (err) {
+        console.error('❌ Error rejecting comp off:', err);
+        alert('❌ Failed to reject comp off');
+    }
+};
+
+const handleTimesheetApprove = async (entryId) => {
+    if (!confirm('Are you sure you want to APPROVE this timesheet entry?')) {
+        return;
+    }
+
+    try {
+        const adminId = await resolveCurrentEmployeeId();
+        const resp = await fetch(
+            `http://localhost:5000/api/time-tracker/timesheet/${encodeURIComponent(entryId)}/approve`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ decided_by: adminId }),
+            }
+        );
+        const data = await resp.json().catch(() => ({}));
+
+        if (!resp.ok || !data.success) {
+            throw new Error(data.error || resp.status);
+        }
+
+        alert('✅ Timesheet entry approved successfully!');
+        await loadInboxTimesheets();
+    } catch (err) {
+        console.error('❌ Error approving timesheet entry:', err);
+        alert(`❌ Failed to approve timesheet entry: ${err.message || err}`);
+    }
+};
+
+const showTimesheetRejectModal = (entryId) => {
+    const formHTML = `
+        <div class="form-group">
+            <label for="timesheetRejectionReason">Rejection Reason (Optional)</label>
+            <textarea id="timesheetRejectionReason" name="rejectionReason" rows="4" placeholder="Enter reason for rejection..."></textarea>
+        </div>
+        <input type="hidden" id="timesheetRejectId" value="${entryId}">
+    `;
+    renderModal('Reject Timesheet Entry', formHTML, 'timesheet-submit-reject-btn', 'normal', 'Reject Timesheet');
+};
+
+export const handleTimesheetReject = async (e) => {
+    e.preventDefault();
+
+    const entryId = document.getElementById('timesheetRejectId')?.value;
+    const reason = document.getElementById('timesheetRejectionReason')?.value || '';
+
+    if (!entryId) {
+        alert('Error: Timesheet entry ID not found');
+        return;
+    }
+
+    try {
+        const adminId = await resolveCurrentEmployeeId();
+        const resp = await fetch(
+            `http://localhost:5000/api/time-tracker/timesheet/${encodeURIComponent(entryId)}/reject`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ decided_by: adminId, comment: reason }),
+            }
+        );
+        const data = await resp.json().catch(() => ({}));
+
+        if (!resp.ok || !data.success) {
+            throw new Error(data.error || resp.status);
+        }
+
+        closeModal();
+        alert('✅ Timesheet entry rejected successfully!');
+        await loadInboxTimesheets();
+    } catch (err) {
+        console.error('❌ Error rejecting timesheet entry:', err);
+        alert(`❌ Failed to reject timesheet entry: ${err.message || err}`);
+    }
+};
+
+const loadInboxAttendance = async () => {
+    const isAdmin = isAdminUser();
+    const listContainer = document.querySelector('.inbox-list');
+
+    if (!listContainer) return;
+
+    listContainer.innerHTML = `
+        <div class="placeholder-text">
+            <i class="fa-solid fa-spinner fa-spin fa-3x" style="color:#ddd; margin-bottom: 1rem;"></i>
+            <p>Loading attendance reports...</p>
+        </div>
+    `;
+
+    try {
+        // Build query for submissions based on current tab
+        let qs = '';
+        if (currentInboxTab === 'awaiting' && isAdmin) {
+            qs = '?status=pending';
+        } else if (currentInboxTab === 'completed') {
+            // Completed = approved or rejected. We'll fetch all and client-filter.
+            qs = '';
+        }
+        const response = await fetch(`http://localhost:5000/api/attendance/submissions${qs}`);
+        const data = await response.json();
+
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to fetch attendance submissions');
+        }
+
+        // Fetch all employees to map IDs to names
+        const allEmployees = await listEmployees(1, 5000);
+        const employeeMap = {};
+        (allEmployees.items || []).forEach(emp => {
+            if (emp.employee_id) {
+                employeeMap[emp.employee_id.toUpperCase()] = `${emp.first_name || ''} ${emp.last_name || ''}`.trim();
+            }
+        });
+
+        // Data format: [{ marker_id, employee_id, year, month, status, rejection_reason, created_date }]
+        let attendanceReports = data.items || [];
+        // Client-side filter for requests/completed when not admin
+        if (!isAdmin) {
+            const empId = await resolveCurrentEmployeeId();
+            if (currentInboxTab === 'requests') {
+                attendanceReports = attendanceReports.filter(r => r.employee_id === empId && r.status === 'pending');
+            } else if (currentInboxTab === 'completed') {
+                attendanceReports = attendanceReports.filter(r => r.employee_id === empId && (r.status === 'approved' || r.status === 'rejected'));
+            }
+        } else if (currentInboxTab === 'completed') {
+            attendanceReports = attendanceReports.filter(r => r.status === 'approved' || r.status === 'rejected');
+        }
+
+        console.log(`📋 Loaded ${attendanceReports.length} attendance reports for ${currentInboxTab} tab`);
+
+        if (attendanceReports.length === 0) {
+            listContainer.innerHTML = `
+                <div class="placeholder-text">
+                    <i class="fa-solid fa-envelope-open fa-3x" style="color:#ddd; margin-bottom: 1rem;"></i>
+                    <p>No attendance reports found.</p>
+                </div>
+            `;
+            return;
+        }
+
+        // Render attendance report cards
+        const reportCards = attendanceReports.map(report => {
+            const employeeId = report.employee_id;
+            const employeeName = employeeMap[employeeId?.toUpperCase()] || employeeId;
+            const status = (report.status || 'Pending');
+            const statusClass = status.toLowerCase();
+            const showActions = currentInboxTab === 'awaiting' && isAdmin;
+            const isRejected = status.toLowerCase() === 'rejected';
+            const rejectionReason = report.rejection_reason || '';
+            const year = report.year;
+            const month = report.month;
+            const monthName = month ? new Date(year, month - 1).toLocaleString('default', { month: 'long' }) : 'Unknown';
+
+            return `
+                <div class="inbox-item">
+                    <div class="inbox-item-header">
+                        <div>
+                            <h4 style="font-size: 1.25rem; margin-bottom: 4px;">${employeeName}</h4>
+                            <span class="inbox-item-meta" style="font-size: 0.875rem; color: #666;">Attendance Report • ${employeeId}</span>
+                        </div>
+                        <span class="status-badge ${statusClass}">${status}</span>
+                    </div>
+                    <div class="inbox-item-body">
+                        <p><strong>Period:</strong> ${monthName} ${year}</p>
+                        <p><strong>Submitted:</strong> ${report.created_date || ''}</p>
+                        <p><strong>Marker:</strong> ${report.marker_id}</p>
+                        <div style="margin-top: 8px;">
+                            <p style="margin: 4px 0;"><strong>No. of days checked in:</strong> ${report.days_checked_in ?? '—'}</p>
+                            <p style="margin: 4px 0;"><strong>Halfdays:</strong> ${report.halfdays ?? '—'}</p>
+                            <div style="margin: 4px 0;">
+                                <strong>Leave types:</strong>
+                                ${Array.isArray(report.leave_types) && report.leave_types.length > 0 ? `
+                                    <ul style="margin: 6px 0 0 16px;">
+                                        ${report.leave_types.map(function (l) { return '<li>' + l.type + ': ' + l.days + '</li>'; }).join('')}
+                                    </ul>
+                                ` : `<span> None</span>`}
+                            </div>
+                        </div>
+                        ${isRejected && rejectionReason ? `
+                            <div class="rejection-reason-box" style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 12px; margin-top: 12px; border-radius: 4px;">
+                                <strong style="color: #856404;"><i class="fa-solid fa-info-circle"></i> Rejection Reason:</strong>
+                                <p style="margin: 8px 0 0 0; color: #856404;">${rejectionReason}</p>
+                            </div>
+                        ` : ''}
+                    </div>
+                    ${showActions ? `
+                        <div class="inbox-item-actions">
+                            <button class="btn btn-success btn-sm attendance-approve-btn" data-marker-id="${report.marker_id}">
+                                <i class="fa-solid fa-check"></i> Approve
+                            </button>
+                            <button class="btn btn-danger btn-sm attendance-reject-btn" data-marker-id="${report.marker_id}">
+                                <i class="fa-solid fa-times"></i> Reject
+                            </button>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }).join('');
+
+        listContainer.innerHTML = reportCards;
+
+        // Add event listeners for approve/reject buttons
+        if (currentInboxTab === 'awaiting' && isAdmin) {
+            document.querySelectorAll('.attendance-approve-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const markerId = e.currentTarget.getAttribute('data-marker-id');
+                    await handleAttendanceApprove(markerId);
+                });
+            });
+
+            document.querySelectorAll('.attendance-reject-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const markerId = e.currentTarget.getAttribute('data-marker-id');
+                    showAttendanceRejectModal(markerId);
+                });
+            });
+        }
+
+    } catch (err) {
+        console.error('❌ Error loading attendance reports:', err);
+        listContainer.innerHTML = `
+            <div class="placeholder-text">
+                <i class="fa-solid fa-exclamation-triangle fa-3x" style="color:#e74c3c; margin-bottom: 1rem;"></i>
+                <p>Error loading attendance reports.</p>
+            </div>
+        `;
+    }
+};
+
+const handleInboxApprove = async (leaveId) => {
+    if (!confirm(`Are you sure you want to APPROVE leave request ${leaveId}?`)) {
+        return;
+    }
+
+    try {
+        // Find the leave details before approval
+        const leaves = await fetchPendingLeaves();
+        const leave = leaves.find(l => l.leave_id === leaveId);
+
+        const adminId = await resolveCurrentEmployeeId();
+        await approveLeave(leaveId, adminId);
+
+        // Send notification to employee
+        if (leave) {
+            try {
+                await notifyEmployeeLeaveApproval(
+                    leaveId,
+                    leave.employee_id,
+                    leave.leave_type
+                );
+            } catch (notifErr) {
+                console.warn('⚠️ Failed to send approval notification:', notifErr);
+            }
+        }
+
+        alert(`✅ Leave ${leaveId} approved successfully!`);
+        await loadInboxLeaves();
+    } catch (err) {
+        console.error('❌ Error approving leave:', err);
+        alert(`❌ Failed to approve leave: ${err.message}`);
+    }
+};
+
+const showInboxRejectModal = (leaveId) => {
+    const formHTML = `
+        <div class="form-group">
+            <label for="inboxRejectionReason">Rejection Reason (Optional)</label>
+            <textarea id="inboxRejectionReason" name="rejectionReason" rows="4" placeholder="Enter reason for rejection..."></textarea>
+        </div>
+        <input type="hidden" id="inboxRejectLeaveId" value="${leaveId}">
+    `;
+
+    renderModal('Reject Leave Request', formHTML, 'inbox-submit-reject-btn', 'normal', 'Reject Leave');
+};
+
+export const handleInboxRejectLeave = async (e) => {
+    e.preventDefault();
+
+    const leaveId = document.getElementById('inboxRejectLeaveId').value;
+    const reason = document.getElementById('inboxRejectionReason')?.value || '';
+
+    if (!leaveId) {
+        alert('Error: Leave ID not found');
+        return;
+    }
+
+    try {
+        // Find the leave details before rejection
+        const leaves = await fetchPendingLeaves();
+        const leave = leaves.find(l => l.leave_id === leaveId);
+
+        const adminId = await resolveCurrentEmployeeId();
+        await rejectLeave(leaveId, adminId, reason);
+
+        // Send notification to employee
+        if (leave) {
+            try {
+                await notifyEmployeeLeaveRejection(
+                    leaveId,
+                    leave.employee_id,
+                    leave.leave_type,
+                    reason
+                );
+            } catch (notifErr) {
+                console.warn('⚠️ Failed to send rejection notification:', notifErr);
+            }
+        }
+
+        closeModal();
+        alert(`✅ Leave ${leaveId} rejected successfully!`);
+        await loadInboxLeaves();
+    } catch (err) {
+        console.error('❌ Error rejecting leave:', err);
+        alert(`❌ Failed to reject leave: ${err.message}`);
+    }
+};
+
+const handleAttendanceApprove = async (markerId) => {
+    if (!confirm(`Are you sure you want to APPROVE this attendance report?`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`http://localhost:5000/api/attendance/submissions/${markerId}/approve`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        const data = await response.json();
+
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to approve attendance report');
+        }
+
+        alert(`✅ Attendance report approved successfully!`);
+        await loadInboxAttendance();
+    } catch (err) {
+        console.error('❌ Error approving attendance report:', err);
+        alert(`❌ Failed to approve attendance report: ${err.message}`);
+    }
+};
+
+const showAttendanceRejectModal = (markerId) => {
+    const formHTML = `
+        <div class="form-group">
+            <label for="attendanceRejectionReason">Rejection Reason (Optional)</label>
+            <textarea id="attendanceRejectionReason" name="rejectionReason" rows="4" placeholder="Enter reason for rejection..."></textarea>
+        </div>
+        <input type="hidden" id="rejectReportId" value="${markerId}">
+    `;
+
+    renderModal('Reject Attendance Report', formHTML, 'attendance-submit-reject-btn', 'normal', 'Reject Report');
+};
+
+export const handleAttendanceRejectReport = async (e) => {
+    e.preventDefault();
+
+    const reportId = document.getElementById('rejectReportId').value;
+    const reason = document.getElementById('attendanceRejectionReason')?.value || '';
+
+    if (!reportId) {
+        alert('Error: Report ID not found');
+        return;
+    }
+
+    try {
+        const response = await fetch(`http://localhost:5000/api/attendance/submissions/${reportId}/reject`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason })
+        });
+
+        const data = await response.json();
+
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to reject attendance report');
+        }
+
+        closeModal();
+        alert(`✅ Attendance report rejected successfully!`);
+        await loadInboxAttendance();
+    } catch (err) {
+        console.error('❌ Error rejecting attendance report:', err);
+        alert(`❌ Failed to reject attendance report: ${err.message}`);
+    }
+};
+
+export const renderProjectsPage = () => {
+    const content = `
+        <div class="card">
+            <div class="table-container">
+                <table class="table">
+                    <thead><tr><th>Work item id & name</th><th>Project</th><th>Client</th><th>Status</th><th>Due date</th><th>Priority</th><th>Time spent</th></tr></thead>
+                    <tbody><tr><td colspan="7" class="placeholder-text">No tasks assigned.</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+    `;
+    document.getElementById('app-content').innerHTML = getPageContentHTML('My tasks', content);
+};

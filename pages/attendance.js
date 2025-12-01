@@ -1,0 +1,948 @@
+
+import { state } from '../state.js';
+import { fetchMonthlyAttendance } from '../features/attendanceApi.js';
+import { getHolidays } from '../features/holidaysApi.js';
+import { renderModal, closeModal } from '../components/modal.js';
+
+// Check if current user is admin (EMP001 or bala.t@vtab.com)
+const isAdminUser = () => {
+    const empId = String(state.user?.id || '').trim().toUpperCase();
+    const email = String(state.user?.email || '').trim().toLowerCase();
+    return empId === 'EMP001' || email === 'bala.t@vtab.com';
+};
+
+const isManagerUserAttendance = () => {
+    try {
+        const desig = String(state.user?.designation || '').toLowerCase();
+        const role = String(state.user?.role || '').toLowerCase();
+        return desig.includes('manager') || role === 'l2';
+    } catch { return false; }
+};
+
+// Store holidays globally for the current page
+let currentMonthHolidays = [];
+
+// Helper function to check if a date is a holiday
+const isHolidayDate = (year, month, day) => {
+    const checkDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return currentMonthHolidays.some(holiday => {
+        const holidayDate = new Date(holiday.crc6f_date);
+        const holidayDateStr = `${holidayDate.getFullYear()}-${String(holidayDate.getMonth() + 1).padStart(2, '0')}-${String(holidayDate.getDate()).padStart(2, '0')}`;
+        return holidayDateStr === checkDate;
+    });
+};
+
+const renderAttendanceTrackerPage = (mode) => {
+    const date = state.currentAttendanceDate;
+    const monthName = date.toLocaleString('default', { month: 'long' });
+    const year = date.getFullYear();
+
+    const getStatusCellHTML = (dayData, isHoliday = false) => {
+        if (!dayData) {
+            // If it's a holiday but no attendance data, show INL
+            if (isHoliday) {
+                return `
+                    <div class="status-cell status-inl">INL</div>
+                `;
+            }
+            return '';
+        }
+        const { status, isLate, isManual, isPending, half, EOP, leaveType, compensationType, leaveStart, leaveEnd } = dayData;
+
+        const normalizedStatus = status === 'H' ? 'HL' : status;
+        let content = normalizedStatus;
+        // Overlay leave markers with short codes and colored letters (no filled boxes)
+        if (leaveType) {
+            const lt = String(leaveType).toLowerCase();
+            let code = '';
+
+            if (lt.includes('casual')) {
+                code = 'CL';
+            } else if (lt.includes('sick')) {
+                code = 'SL';
+            } else if (lt.includes('comp')) {
+                code = 'CO';
+            }
+
+            const isPaid = String(compensationType || '').toLowerCase() === 'paid';
+            const tooltip = `${leaveType} (${isPaid ? 'Paid' : 'Unpaid'})${leaveStart ? ` | ${leaveStart}` : ''}${leaveEnd ? ` → ${leaveEnd}` : ''}`;
+
+            // Show LOP in red for unpaid leave
+            const lopLine = isPaid
+                ? ''
+                : '<div class="leave-lop-text">(LOP)</div>';
+
+            content = `
+                <div class="leave-code" title="${tooltip}">
+                    <div class="leave-code-symbol leave-${String(code).toLowerCase()}">${code}</div>
+                    ${lopLine}
+                </div>`;
+        }
+        if (status === 'HL' || status === 'H') {
+            const halfText = half ? String(half) : '';
+            const extraParts = [];
+            if (halfText) extraParts.push(halfText);
+            if (EOP) extraParts.push('(EOP)');
+            const extraLine = extraParts.length
+                ? `<div class="status-hl-half">${extraParts.join(' ')}</div>`
+                : '';
+            content = `<div class="status-hl-text">HL</div>${extraLine}`;
+        } else if (EOP) {
+            content = `${status} (EOP)`;
+        }
+
+        return `
+            <div class="status-cell status-${normalizedStatus.toLowerCase()}">
+                ${content}
+                ${isLate ? '<i class="fa-solid fa-clock-rotate-left late-icon" title="Late entry"></i>' : ''}
+                ${isManual ? '<i class="fa-solid fa-hand manual-icon" title="Manual entry"></i>' : ''}
+                ${isPending ? '<i class="fa-solid fa-triangle-exclamation pending-icon" title="Pending"></i>' : ''}
+            </div>
+        `;
+    }
+
+    const daysInMonth = new Date(year, date.getMonth() + 1, 0).getDate();
+
+    const getTeamViewHTML = () => {
+        const daysHeader = Array.from({ length: daysInMonth }, (_, i) => {
+            const day = i + 1;
+            const dayName = new Date(year, date.getMonth(), day).toLocaleString('default', { weekday: 'short' }).toUpperCase();
+            return `<th class="attendance-day-header"><div class="day-name">${dayName}</div><div class="day-number">${String(day).padStart(2, '0')}</div></th>`;
+        }).join('');
+
+        // Get all employee IDs from the attendance data
+        const employeeIds = Object.keys(state.attendanceData);
+        console.log('📊 Rendering team attendance for employees:', employeeIds);
+
+        // Calculate stats from all attendance data for the entire month
+        let totalPresent = 0;
+        let totalLate = 0;
+        let totalLeaves = 0;
+        let totalAbsent = 0;
+
+        employeeIds.forEach(empId => {
+            const empData = state.attendanceData[empId] || {};
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dayData = empData[day];
+                if (dayData) {
+                    if (dayData.leaveType) {
+                        totalLeaves++;
+                    } else if (dayData.status === 'P') {
+                        totalPresent++;
+                        if (dayData.isLate) totalLate++;
+                    } else if (dayData.status === 'A') {
+                        totalAbsent++;
+                    }
+                }
+            }
+        });
+
+        // Generate rows for each employee
+        const employeeRows = employeeIds.map(empId => {
+            const empData = state.attendanceData[empId] || {};
+            const employeeName = empData.employeeName || empId;
+
+            // Get initials for avatar
+            const nameParts = employeeName.split(' ');
+            const initials = nameParts.length >= 2
+                ? `${nameParts[0][0]}${nameParts[1][0]}`.toUpperCase()
+                : employeeName.substring(0, 2).toUpperCase();
+
+            // Generate cells for each day of the month
+            const dayCells = Array.from({ length: daysInMonth }, (_, i) => {
+                const dayNum = i + 1;
+                const dayData = empData[dayNum];
+                const isHoliday = isHolidayDate(year, date.getMonth(), dayNum);
+                const cellHTML = getStatusCellHTML(dayData, isHoliday);
+                return `<td class="team-day-cell" data-emp-id="${empId}" data-day="${dayNum}">${cellHTML}</td>`;
+            }).join('');
+
+            return `
+                <tr class="employee-row">
+                    <td class="employee-name-cell">
+                        <div class="employee-avatar">${initials}</div>
+                        <div class="employee-details">
+                            <div class="employee-name">${employeeName}</div>
+                            <div class="employee-role">UI/UX Designer</div>
+                        </div>
+                    </td>
+                    ${dayCells}
+                </tr>
+            `;
+        }).join('');
+
+        return `
+            <!-- Summary Cards -->
+            <div class="attendance-summary-cards">
+                <div class="summary-card">
+                    <div class="summary-label">Late Entry</div>
+                    <div class="summary-value">${totalLate}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="summary-label">No. of Leaves</div>
+                    <div class="summary-value">${totalLeaves}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="summary-label">Present</div>
+                    <div class="summary-value">${totalPresent}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="summary-label">Absent</div>
+                    <div class="summary-value">${totalAbsent}</div>
+                </div>
+            </div>
+
+            <div class="clean-attendance-table">
+                <div class="table-scroll-wrapper">
+                    <table class="team-attendance-table">
+                        <thead>
+                            <tr>
+                                <th class="employee-column-header">EMPLOYEE</th>
+                                ${daysHeader}
+                            </tr>
+                        </thead>
+                        <tbody>${employeeRows || `<tr><td colspan="${daysInMonth + 1}" class="placeholder-text">No active employees to display.</td></tr>`}</tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="attendance-legend">
+                <div class="legend-item"><span class="legend-code legend-code-p">P</span><span>Present</span></div>
+                <div class="legend-item"><span class="legend-code legend-code-a">A</span><span>Absent</span></div>
+                <div class="legend-item"><span class="legend-code legend-code-hl">HL</span><span>Half day / Holiday</span></div>
+                <div class="legend-item"><span class="legend-code legend-code-cl">CL</span><span>Casual leave</span></div>
+                <div class="legend-item"><span class="legend-code legend-code-sl">SL</span><span>Sick leave</span></div>
+                <div class="legend-item"><span class="legend-code legend-code-co">CO</span><span>Comp off</span></div>
+                <div class="legend-item"><span class="legend-code legend-code-inl">INL</span><span>Indian national holiday</span></div>
+            </div>
+            
+            <!-- Holiday section will be loaded dynamically -->
+            <div id="holiday-section" class="holiday-section"></div>
+        `;
+    };
+
+    const getMyViewHTML = () => {
+        const myAttendance = state.attendanceData[state.user.id] || {};
+        const month = date.getMonth();
+        const firstDayIndex = new Date(year, month, 1).getDay(); // Sunday = 0
+
+        const calendarCells = [];
+
+        for (let i = 0; i < firstDayIndex; i++) {
+            calendarCells.push('<div class="calendar-day empty"></div>');
+        }
+
+        for (let i = 1; i <= daysInMonth; i++) {
+            const dayData = myAttendance[i];
+            const isSelected = i === state.selectedAttendanceDay;
+            const isHoliday = isHolidayDate(year, month, i);
+            const statusHTML = getStatusCellHTML(dayData, isHoliday);
+
+            calendarCells.push(`
+                <div class="calendar-day ${isSelected ? 'selected' : ''}" data-day="${i}">
+                    <div class="day-header">${i}</div>
+                    <div class="day-content">${statusHTML ? statusHTML.replace('status-cell', '') : '&nbsp;'}</div>
+                </div>
+            `);
+        }
+
+        const yearMonth = `${year}-${String(month + 1).padStart(2, '0')}`;
+
+        // Get ONLY TODAY's data for current day login details
+        const todayDate = new Date();
+        const isCurrentMonth = year === todayDate.getFullYear() && month === todayDate.getMonth();
+        const todayDay = isCurrentMonth ? todayDate.getDate() : null;
+
+        const todayLogData = todayDay && myAttendance[todayDay] ? [myAttendance[todayDay]] : [];
+
+        // Get filtered attendance data based on current filter for week/month box
+        const currentFilter = state.attendanceFilter || 'week';
+        let filteredAttendanceData = [];
+
+        if (currentFilter === 'week') {
+            // Get current week data
+            const today = new Date();
+            const startOfWeek = new Date(today);
+            startOfWeek.setDate(today.getDate() - today.getDay());
+            const endOfWeek = new Date(startOfWeek);
+            endOfWeek.setDate(startOfWeek.getDate() + 6);
+
+            filteredAttendanceData = Object.values(myAttendance)
+                .filter(d => d && (d.checkIn && d.checkOut || d.leaveType))
+                .filter(d => {
+                    const dayDate = new Date(year, month, d.day);
+                    return dayDate >= startOfWeek && dayDate <= endOfWeek;
+                })
+                .sort((a, b) => (b.day || 0) - (a.day || 0));
+        } else if (currentFilter === 'month') {
+            // Get current month data
+            filteredAttendanceData = Object.values(myAttendance)
+                .filter(d => d && (d.checkIn && d.checkOut || d.leaveType))
+                .sort((a, b) => (b.day || 0) - (a.day || 0));
+        }
+
+        // Generate table rows for filtered week/month data
+        let entryExitDetailsHTML = '';
+        if (filteredAttendanceData.length > 0) {
+            entryExitDetailsHTML = filteredAttendanceData.map(d => {
+                const dayStr = String(d.day || 1).padStart(2, '0');
+                const start = new Date(`${yearMonth}-${dayStr}T${d.checkIn}`);
+                const end = new Date(`${yearMonth}-${dayStr}T${d.checkOut}`);
+                const totalMs = end.getTime() - start.getTime();
+                const totalHours = isNaN(totalMs) ? '00' : String(Math.floor(totalMs / 3600000)).padStart(2, '0');
+                const totalMins = isNaN(totalMs) ? '00' : String(Math.floor((totalMs % 3600000) / 60000)).padStart(2, '0');
+
+                return `
+                <tr>
+                    <td>${d.day} ${date.toLocaleString('default', { month: 'short' })} ${year}</td>
+                    <td>${d.checkIn}</td>
+                    <td>${d.checkOut}</td>
+                    <td>${totalHours}h ${totalMins}m</td>
+                </tr>`;
+            }).join('');
+        } else {
+            entryExitDetailsHTML = `<tr><td colspan="4" class="placeholder-text">No attendance data for selected ${currentFilter}</td></tr>`;
+        }
+
+        const recentLogDays = todayLogData;
+
+        const firstLastOutRows = recentLogDays.map(d => {
+            const dayStr = String(d.day || 1).padStart(2, '0');
+            const start = new Date(`${yearMonth}-${dayStr}T${d.checkIn}`);
+            const end = new Date(`${yearMonth}-${dayStr}T${d.checkOut}`);
+            const totalMs = end.getTime() - start.getTime();
+            const totalHours = isNaN(totalMs) ? '00' : String(Math.floor(totalMs / 3600000)).padStart(2, '0');
+            const totalMins = isNaN(totalMs) ? '00' : String(Math.floor((totalMs % 3600000) / 60000)).padStart(2, '0');
+
+            return `
+            <tr>
+                <td>${d.day} ${date.toLocaleString('default', { month: 'short' })} ${year}</td>
+                <td>${d.checkIn}</td>
+                <td>${d.checkOut}</td>
+                <td>${totalHours}h ${totalMins}m</td>
+            </tr>`
+        }).join('') || `<tr><td colspan="4" class="placeholder-text">No recent check-in data</td></tr>`;
+
+        return `
+            <div class="my-attendance-grid">
+                <div class="calendar-header">Sun</div>
+                <div class="calendar-header">Mon</div>
+                <div class="calendar-header">Tue</div>
+                <div class="calendar-header">Wed</div>
+                <div class="calendar-header">Thu</div>
+                <div class="calendar-header">Fri</div>
+                <div class="calendar-header">Sat</div>
+                ${calendarCells.join('')}
+            </div>
+            <div class="attendance-legend">
+                <div class="legend-item"><span class="legend-code legend-code-p">P</span><span>Present</span></div>
+                <div class="legend-item"><span class="legend-code legend-code-a">A</span><span>Absent</span></div>
+                <div class="legend-item"><span class="legend-code legend-code-hl">HL</span><span>Half day / Holiday</span></div>
+                <div class="legend-item"><span class="legend-code legend-code-cl">CL</span><span>Casual leave</span></div>
+                <div class="legend-item"><span class="legend-code legend-code-sl">SL</span><span>Sick leave</span></div>
+                <div class="legend-item"><span class="legend-code legend-code-co">CO</span><span>Comp off</span></div>
+                <div class="legend-item"><span class="legend-code legend-code-inl">INL</span><span>Indian national holiday</span></div>
+            </div>
+            
+            <!-- Holiday section will be loaded dynamically -->
+            <div id="holiday-section" class="holiday-section"></div>
+            
+            <!-- Login Details Grid -->
+            <div class="login-details-grid">
+                <div class="login-details-card">
+                    <h4 class="login-details-title">Current Day Login Details</h4>
+                    <div class="table-container">
+                        <table class="table">
+                        <thead><tr><th>Date</th><th>First in</th><th>Last out</th><th>Total in-time</th></tr></thead>
+                        <tbody>${firstLastOutRows}</tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="login-details-card">
+                    <div class="login-details-header">
+                        <h4 class="login-details-title">Current Week / Month Login Details</h4>
+                        <div class="filter-dropdown">
+                            <select id="time-filter" class="filter-select">
+                                <option value="week">Week</option>
+                                <option value="month">Month</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="table-container">
+                        <table class="table">
+                        <thead><tr><th>Date</th><th>First in</th><th>Last out</th><th>Total in-time</th></tr></thead>
+                        <tbody>${entryExitDetailsHTML}</tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+    };
+
+    const myControls = `
+        <div class="page-header-actions">
+            <button class="btn btn-success" id="submit-attendance-btn"><i class="fa-solid fa-paper-plane"></i> Submit Attendance</button>
+        </div>
+    `;
+
+    const headerHTML = `
+        <div class="attendance-header page-header">
+            <div class="page-header-title">
+                <h1>${mode === 'my' ? 'My Attendance' : 'My Team Attendance'}</h1>
+            </div>
+            <div class="month-navigator">
+                <button class="month-nav-btn" data-direction="prev"><i class="fa-solid fa-chevron-left"></i></button>
+                <span>${monthName} ${year}</span>
+                <button class="month-nav-btn" data-direction="next"><i class="fa-solid fa-chevron-right"></i></button>
+            </div>
+            ${mode === 'my' ? myControls : ''}
+        </div>
+    `;
+
+    const content = `
+        ${headerHTML}
+        <div class="card attendance-card">
+            ${mode === 'my' ? getMyViewHTML() : getTeamViewHTML()}
+        </div>
+    `;
+
+    document.getElementById('app-content').innerHTML = content;
+
+    // Set up event listeners
+    const timeFilter = document.getElementById('time-filter');
+    if (timeFilter) {
+        timeFilter.value = state.attendanceFilter || 'week';
+        timeFilter.addEventListener('change', (e) => {
+            state.attendanceFilter = e.target.value;
+            renderAttendanceTrackerPage(mode);
+        });
+    }
+
+    // Set up submit attendance button listener
+    const submitBtn = document.getElementById('submit-attendance-btn');
+    if (submitBtn) {
+        submitBtn.addEventListener('click', handleSubmitAttendance);
+
+        // Check if attendance already submitted for this month
+        checkAttendanceSubmissionStatus(submitBtn, year, date.getMonth() + 1);
+    }
+
+    // Load and display holidays for current month
+    loadHolidaysForMonth(date.getMonth(), year);
+
+    if (mode === 'team' && (isAdminUser() || isManagerUserAttendance())) {
+        const monthIndex = date.getMonth();
+        document.querySelectorAll('.team-day-cell').forEach((cell) => {
+            cell.addEventListener('click', () => {
+                const empId = cell.getAttribute('data-emp-id');
+                const dayStr = cell.getAttribute('data-day') || '0';
+                const day = parseInt(dayStr, 10);
+                if (!empId || !day) return;
+                openTeamAttendanceEditModal(empId, day, year, monthIndex);
+            });
+        });
+    }
+}
+
+const openTeamAttendanceEditModal = (employeeId, day, year, monthIndex) => {
+    const container = state.attendanceData[employeeId] || {};
+    const dayData = container[day] || {};
+    const employeeName = container.employeeName || employeeId;
+    const d = new Date(year, monthIndex, day);
+    const status = String(dayData.status || '').toUpperCase();
+    let initialCode = 'A';
+    if (status === 'P') initialCode = 'P';
+    else if (status === 'H' || status === 'HL') initialCode = 'HL';
+    const dateLabel = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    const body = `
+        <div class="modal-form modern-form" style="padding-top:4px;">
+            <div class="form-section" style="padding:16px 18px; border-radius:18px;">
+                <div class="form-section-header" style="margin-bottom:12px;">
+                    <div>
+                        <p class="form-eyebrow">Attendance</p>
+                        <h3>Edit status</h3>
+                    </div>
+                    <div style="text-align:right; font-size:13px; color:var(--text-muted); min-width:160px;">
+                        <div><strong>${employeeName}</strong> (${employeeId})</div>
+                        <div>${dateLabel}</div>
+                    </div>
+                </div>
+
+                <div class="form-grid">
+                    <div class="form-field">
+                        <label class="form-label" for="att-code-select">Attendance status</label>
+                        <select class="input-control" id="att-code-select">
+                            <option value="P" ${initialCode === 'P' ? 'selected' : ''}>Full day | P – 09:00 hours (Present)</option>
+                            <option value="HL" ${initialCode === 'HL' ? 'selected' : ''}>Half day | HL – 04:00–09:00 hours</option>
+                            <option value="A" ${initialCode === 'A' ? 'selected' : ''}>Absent | A – Below 04:00 hours</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    renderModal('Edit attendance', body, [
+        { id: 'att-edit-cancel', text: 'Cancel', className: 'btn btn-secondary', type: 'button' },
+        { id: 'att-edit-save', text: 'Save', className: 'btn btn-primary', type: 'button' }
+    ]);
+    setTimeout(() => {
+        const cancelBtn = document.getElementById('att-edit-cancel');
+        const saveBtn = document.getElementById('att-edit-save');
+        if (cancelBtn) cancelBtn.addEventListener('click', () => closeModal());
+        if (saveBtn) {
+            saveBtn.addEventListener('click', async () => {
+                const selectEl = document.getElementById('att-code-select');
+                if (!selectEl) return;
+                const code = selectEl.value;
+                try {
+                    const res = await fetch('http://localhost:5000/api/attendance/manual-edit', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ employee_id: employeeId, year, month: monthIndex + 1, day, code })
+                    });
+                    const data = await res.json().catch(() => ({ success: false }));
+                    if (!res.ok || !data.success) {
+                        alert(data.error || 'Failed to update attendance');
+                        return;
+                    }
+                    closeModal();
+                    await renderTeamAttendancePage();
+                } catch (err) {
+                    console.error('manual-edit failed', err);
+                    alert('Failed to update attendance');
+                }
+            });
+        }
+    }, 30);
+};
+
+// Helper function to load and render holidays for the current month
+async function loadHolidaysForMonth(month, year) {
+    try {
+        const holidays = await getHolidays();
+        const holidaySection = document.getElementById('holiday-section');
+
+        if (!holidaySection) return;
+
+        // Filter holidays for the current month
+        const currentMonthHolidays = holidays.filter(h => {
+            const holidayDate = new Date(h.crc6f_date);
+            return holidayDate.getMonth() === month && holidayDate.getFullYear() === year;
+        });
+
+        if (currentMonthHolidays.length === 0) {
+            holidaySection.innerHTML = `
+                <div class="holiday-info-card">
+                    <div class="holiday-header">
+                        <i class="fa-solid fa-calendar-day holiday-info-icon"></i>
+                        <h4>Holidays this month</h4>
+                    </div>
+                    <p class="no-holidays-text">No holidays in this month</p>
+                </div>
+            `;
+        } else {
+            const holidaysList = currentMonthHolidays.map(h => {
+                const date = new Date(h.crc6f_date);
+                const dayName = date.toLocaleString('default', { weekday: 'short' });
+                const dayNum = date.getDate();
+                return `
+                    <div class="holiday-item">
+                        <div class="holiday-date">
+                            <span class="holiday-day">${dayNum}</span>
+                            <span class="holiday-weekday">${dayName}</span>
+                        </div>
+                        <div class="holiday-name">
+                            <i class="fa-solid fa-umbrella-beach holiday-beach-icon"></i>
+                            ${h.crc6f_holidayname}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            holidaySection.innerHTML = `
+                <div class="holiday-info-card">
+                    <div class="holiday-header">
+                        <i class="fa-solid fa-calendar-day holiday-info-icon"></i>
+                        <h4>Holidays this month (${currentMonthHolidays.length})</h4>
+                    </div>
+                    <div class="holiday-list">
+                        ${holidaysList}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Inject holiday styles if not already present
+        if (!document.getElementById('holiday-styles')) {
+            const style = document.createElement('style');
+            style.id = 'holiday-styles';
+            style.innerHTML = `
+                .holiday-section {
+                    margin-top: 20px;
+                }
+                
+                .holiday-info-card {
+                    background: #f8f9fa;
+                    border-radius: 12px;
+                    padding: 20px;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+                }
+                
+                .holiday-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    margin-bottom: 15px;
+                    padding-bottom: 10px;
+                    border-bottom: 2px solid #e0e0e0;
+                }
+                
+                .holiday-header h4 {
+                    margin: 0;
+                    font-size: 18px;
+                    font-weight: 600;
+                    color: #2c3e50;
+                }
+                
+                .holiday-header i {
+                    font-size: 20px;
+                }
+                
+                .no-holidays-text {
+                    text-align: center;
+                    color: #7f8c8d;
+                    font-style: italic;
+                    margin: 10px 0;
+                }
+                
+                .holiday-list {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                }
+                
+                .holiday-item {
+                    display: flex;
+                    align-items: center;
+                    background: white;
+                    padding: 12px 16px;
+                    border-radius: 8px;
+                    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+                    transition: transform 0.2s, box-shadow 0.2s;
+                }
+                
+                .holiday-item:hover {
+                    transform: translateX(4px);
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+                }
+                
+                .holiday-date {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    border-radius: 8px;
+                    padding: 8px 12px;
+                    min-width: 60px;
+                    margin-right: 16px;
+                }
+                
+                .holiday-day {
+                    font-size: 24px;
+                    font-weight: 700;
+                    line-height: 1;
+                }
+                
+                .holiday-weekday {
+                    font-size: 11px;
+                    font-weight: 500;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                    margin-top: 2px;
+                    opacity: 0.9;
+                }
+                
+                .holiday-name {
+                    display: flex;
+                    align-items: center;
+                    font-size: 15px;
+                    font-weight: 500;
+                    color: #2c3e50;
+                    flex: 1;
+                }
+            `;
+            document.head.appendChild(style);
+        }
+    } catch (error) {
+        console.error('Error loading holidays:', error);
+        const holidaySection = document.getElementById('holiday-section');
+        if (holidaySection) {
+            holidaySection.innerHTML = `
+                <div class="holiday-info-card">
+                    <div class="holiday-header">
+                        <i class="fa-solid fa-calendar-day holiday-error-icon"></i>
+                        <h4>Unable to load holidays</h4>
+                    </div>
+                    <p class="no-holidays-text">Error: ${error.message}</p>
+                </div>
+            `;
+        }
+    }
+}
+
+export const renderMyAttendancePage = async () => {
+    const date = state.currentAttendanceDate;
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+
+    // Lightweight skeleton while holidays and monthly attendance are loading
+    try {
+        const monthLabel = date.toLocaleString('default', { month: 'long', year: 'numeric' });
+        const skeleton = `
+            <div class="card" style="padding: 16px 20px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem;">
+                    <div>
+                        <div class="skeleton skeleton-heading-md" style="width: 200px;"></div>
+                        <div class="skeleton skeleton-text" style="margin-top: 0.4rem; width: 180px;"></div>
+                    </div>
+                    <div class="skeleton skeleton-pill" style="width: 160px; height: 32px;"></div>
+                </div>
+                <div class="skeleton skeleton-chart-line"></div>
+            </div>
+        `;
+        const app = document.getElementById('app-content');
+        if (app) app.innerHTML = skeleton;
+    } catch { }
+
+    try {
+        // Load holidays for the current month
+        const allHolidays = await getHolidays();
+        currentMonthHolidays = allHolidays.filter(h => {
+            const hDate = new Date(h.crc6f_date);
+            return hDate.getFullYear() === year && hDate.getMonth() + 1 === month;
+        });
+        console.log(`📅 Loaded ${currentMonthHolidays.length} holidays for ${year}-${month}`);
+
+        const uid = String(state.user.id || '').toUpperCase();
+        const records = await fetchMonthlyAttendance(uid, year, month);
+        const attendanceMap = {};
+        records.forEach(rec => {
+            if (rec.day) {
+                attendanceMap[rec.day] = {
+                    day: rec.day,
+                    status: rec.status,
+                    checkIn: rec.checkIn,
+                    checkOut: rec.checkOut,
+                    duration: rec.duration,
+                    // pass-through leave fields if provided by backend overlay
+                    leaveType: rec.leaveType,
+                    compensationType: rec.paid_unpaid,
+                    leaveStart: rec.leaveStart,
+                    leaveEnd: rec.leaveEnd,
+                };
+            }
+        });
+        state.attendanceData[state.user.id] = attendanceMap;
+    } catch (err) {
+        console.error('Failed to fetch attendance:', err);
+    }
+
+    renderAttendanceTrackerPage('my');
+};
+
+export const renderTeamAttendancePage = async () => {
+    // Check if user has access
+    if (!(isAdminUser() || isManagerUserAttendance())) {
+        console.warn('⚠️ Access denied: Only administrators and managers can view team attendance');
+        document.getElementById('app-content').innerHTML = `
+            <div class="card access-denied-card">
+                <i class="fa-solid fa-lock access-denied-icon"></i>
+                <h2>Access Denied</h2>
+                <p>You don't have permission to view team attendance.</p>
+                <p>Only administrators and managers can access this page.</p>
+                <button class="btn btn-primary" onclick="window.location.hash='#/attendance-my'" style="margin-top: 16px;">
+                    <i class="fa-solid fa-arrow-left"></i> Go to My Attendance
+                </button>
+            </div>
+        `;
+        return;
+    }
+
+    // Skeleton for team attendance while logs are loading
+    try {
+        const date = state.currentAttendanceDate;
+        const monthLabel = date.toLocaleString('default', { month: 'long', year: 'numeric' });
+        const skeleton = `
+            <div class="card" style="padding: 16px 20px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem;">
+                    <div>
+                        <div class="skeleton skeleton-heading-md" style="width: 220px;"></div>
+                        <div class="skeleton skeleton-text" style="margin-top: 0.4rem; width: 200px;"></div>
+                    </div>
+                    <div class="skeleton skeleton-pill" style="width: 180px; height: 32px;"></div>
+                </div>
+                <div class="skeleton skeleton-chart-line"></div>
+            </div>
+        `;
+        const app = document.getElementById('app-content');
+        if (app) app.innerHTML = skeleton;
+    } catch { }
+
+    const date = state.currentAttendanceDate;
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+
+    // Get current user's employee ID
+    const currentEmpId = String(state.user?.id || '').toUpperCase();
+    console.log('🔍 Current employee ID for team attendance:', currentEmpId);
+
+    // For emp001 (admin), fetch all employees from Dataverse
+    // For other employees, use the filtered list as before
+    let employeesToFetch = [];
+
+    try {
+        // Load holidays for the current month
+        const allHolidays = await getHolidays();
+        currentMonthHolidays = allHolidays.filter(h => {
+            const hDate = new Date(h.crc6f_date);
+            return hDate.getFullYear() === year && hDate.getMonth() + 1 === month;
+        });
+        console.log(`📅 Loaded ${currentMonthHolidays.length} holidays for ${year}-${month}`);
+
+        // Admin always sees all employees
+        console.log('✅ Admin user detected. Fetching attendance for ALL employees from Dataverse');
+        // Import the listEmployees function if not already imported
+        const { listEmployees } = await import('../features/employeeApi.js');
+        const allEmployees = await listEmployees(1, 5000);
+        employeesToFetch = allEmployees.items || [];
+        console.log(`📊 Fetched ${employeesToFetch.length} employees from Dataverse`);
+
+        // Clear previous attendance data to avoid stale records
+        state.attendanceData = {};
+
+        // Fetch attendance for each employee
+        await Promise.all(employeesToFetch.map(async (emp) => {
+            const empId = String(emp.employee_id || emp.id || '').toUpperCase();
+            if (!empId) {
+                console.warn('⚠️ Skipping employee with no ID:', emp);
+                return;
+            }
+
+            console.log(`🔄 Fetching attendance for employee: ${empId}`);
+            const records = await fetchMonthlyAttendance(empId, year, month);
+            console.log(`📊 Fetched ${records.length} attendance records for ${empId}`);
+
+            const attendanceMap = {};
+            records.forEach(rec => {
+                if (rec.day) {
+                    attendanceMap[rec.day] = {
+                        status: rec.status,
+                        checkIn: rec.checkIn,
+                        checkOut: rec.checkOut,
+                        duration: rec.duration,
+                        // pass-through leave fields if provided by backend overlay
+                        leaveType: rec.leaveType,
+                        compensationType: rec.paid_unpaid,
+                        leaveStart: rec.leaveStart,
+                        leaveEnd: rec.leaveEnd,
+                    };
+                }
+            });
+
+            // Store employee name for display
+            const empName = `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || emp.name || empId;
+
+            // Store both attendance data and employee info
+            state.attendanceData[empId] = {
+                ...attendanceMap,
+                employeeName: empName,
+                employeeId: empId
+            };
+        }));
+
+        console.log(`✅ Team attendance loaded for ${Object.keys(state.attendanceData).length} employees`);
+    } catch (err) {
+        console.error('❌ Failed to fetch team attendance:', err);
+    }
+
+    renderAttendanceTrackerPage('team');
+};
+
+export const handleAttendanceNav = (direction) => {
+    const currentDate = state.currentAttendanceDate;
+    currentDate.setDate(1); // Avoid month skipping issues
+    if (direction === 'next') {
+        currentDate.setMonth(currentDate.getMonth() + 1);
+    } else {
+        currentDate.setMonth(currentDate.getMonth() - 1);
+    }
+};
+
+// Check if attendance has been submitted for the current month
+async function checkAttendanceSubmissionStatus(submitBtn, year, month) {
+    try {
+        const employeeId = String(state.user.id || '').toUpperCase();
+        const response = await fetch(`http://localhost:5000/api/attendance/submission-status/${employeeId}/${year}/${month}`);
+        const data = await response.json();
+
+        if (data.success && data.submitted) {
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fa-solid fa-check"></i> Submitted';
+            submitBtn.classList.remove('btn-success');
+            submitBtn.classList.add('btn-secondary');
+            submitBtn.style.cursor = 'not-allowed';
+        }
+    } catch (error) {
+        console.error('Error checking submission status:', error);
+    }
+}
+
+// Handle attendance submission
+async function handleSubmitAttendance() {
+    const date = state.currentAttendanceDate;
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+    const employeeId = String(state.user.id || '').toUpperCase();
+
+    if (!confirm(`Are you sure you want to submit your attendance for ${date.toLocaleString('default', { month: 'long' })} ${year}?\n\nOnce submitted, you cannot modify it until next month.`)) {
+        return;
+    }
+
+    try {
+        console.log(`📤 Submitting attendance for ${employeeId} - ${year}/${month}`);
+
+        const response = await fetch('http://localhost:5000/api/attendance/submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                employee_id: employeeId,
+                year: year,
+                month: month
+            })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+            throw new Error(data.error || 'Failed to submit attendance');
+        }
+
+        alert('✅ Attendance submitted successfully! It has been sent to admin for review.');
+        console.log('✅ Attendance submitted to admin inbox');
+
+        // Disable the submit button
+        const submitBtn = document.getElementById('submit-attendance-btn');
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fa-solid fa-check"></i> Submitted';
+            submitBtn.classList.remove('btn-success');
+            submitBtn.classList.add('btn-secondary');
+            submitBtn.style.cursor = 'not-allowed';
+        }
+
+    } catch (error) {
+        console.error('❌ Failed to submit attendance:', error);
+        alert(`❌ Failed to submit attendance: ${error.message || error}`);
+    }
+}
