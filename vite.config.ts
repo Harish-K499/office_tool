@@ -1,7 +1,6 @@
 import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 
-
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
@@ -13,6 +12,16 @@ export default defineConfig(({ mode }) => {
       define: {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
         'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
+      },
+      build: {
+        rollupOptions: {
+          input: {
+            main: path.resolve(__dirname, 'index.html'),
+            login: path.resolve(__dirname, 'login.html'),
+            forgot_password: path.resolve(__dirname, 'forgot_password.html'),
+            create_new_password: path.resolve(__dirname, 'create_new_password.html'),
+          },
+        },
       },
       resolve: {
         alias: {
