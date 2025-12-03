@@ -22,3 +22,22 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# secrets and tokens
+*.env
+.env
+id.env
+/backend/id.env
+/backend/*.env
+/backend/*.json
+/backend/storage/*.json
+/backend/Googlemeet token.json
+/backend/storage/*
+/.env.local
+/.env.*.local
+
+# Python caches and token database
+*.pyc
+__pycache__/
+backend/__pycache__/
+backend/google_tokens.db

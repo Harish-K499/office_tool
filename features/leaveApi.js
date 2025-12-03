@@ -1,6 +1,7 @@
 // features/leaveApi.js
+import { API_BASE_URL } from '../config.js';
 
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = API_BASE_URL.replace(/\/$/, '');
 
 export async function fetchEmployeeLeaves(employeeId) {
   try {

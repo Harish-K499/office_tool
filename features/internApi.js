@@ -1,4 +1,6 @@
-const BASE_URL = 'http://localhost:5000';
+import { API_BASE_URL } from '../config.js';
+
+const BASE_URL = API_BASE_URL.replace(/\/$/, '');
 
 export async function listInterns(page = 1, pageSize = 10) {
   const url = new URL(`${BASE_URL}/api/interns`);

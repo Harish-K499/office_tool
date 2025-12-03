@@ -1,4 +1,6 @@
-const BASE_URL = 'http://localhost:5000';
+import { API_BASE_URL } from '../config.js';
+
+const BASE_URL = API_BASE_URL.replace(/\/$/, '');
 
 const buildQueryString = (params = {}) => {
   const url = new URL(`${BASE_URL}/api/clients`);

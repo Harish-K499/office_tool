@@ -1,5 +1,6 @@
 import { state } from '../state.js';
 import { checkIn, checkOut } from './attendanceApi.js';
+import { API_BASE_URL } from '../config.js';
 import { renderMyAttendancePage } from '../pages/attendance.js';
 
 export const updateTimerDisplay = () => {
@@ -242,7 +243,8 @@ export const loadTimerState = async () => {
         if (!uid) return;
         try {
             console.log(`🔍 Verifying check-in status for: ${uid}`);
-            const response = await fetch(`http://localhost:5000/api/status/${uid}`);
+            const base = (API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
+            const response = await fetch(`${base}/api/status/${uid}`);
             const statusData = await response.json();
 
             if (statusData.checked_in) {

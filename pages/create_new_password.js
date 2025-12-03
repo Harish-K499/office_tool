@@ -1,4 +1,5 @@
 // console.log("Create new password loaded");
+import { API_BASE_URL } from '../config.js';
 
 // document
 //   .getElementById("new-password-form")
@@ -123,7 +124,8 @@ npForm.addEventListener("submit", async (e) => {
   npBtn.classList.add("btn-loading");
 
   try {
-    const res = await fetch("http://localhost:5000/api/reset-password", {
+    const base = (API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
+    const res = await fetch(`${base}/api/reset-password`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

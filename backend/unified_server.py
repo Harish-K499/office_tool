@@ -29,6 +29,7 @@ from project_tasks import tasks_bp
 from project_column import columns_bp
 
 from time_tracking import bp_time as time_bp
+from google_token_store import save_google_token, load_google_token
 
 
 
@@ -40,9 +41,13 @@ app.register_blueprint(tasks_bp)
 app.register_blueprint(columns_bp)
 app.register_blueprint(time_bp)
 
-
-CORS(app)
-app.config['DEBUG'] = True
+allowed_origins = os.getenv("CORS_ORIGINS", "")
+origins = [o.strip() for o in allowed_origins.split(",") if o.strip()]
+if origins:
+    CORS(app, origins=origins)
+else:
+    CORS(app)
+app.config['DEBUG'] = os.getenv("FLASK_DEBUG", "false").lower() == "true"
 app.url_map.strict_slashes = False
 
 # [MAIL] Mail server configuration (used for sending emails)
@@ -61,8 +66,10 @@ mail = Mail(app)
 
 
 # Load environment variables
-load_dotenv("id.env")
-load_dotenv()  # Also try .env in current directory
+if os.getenv("FLASK_ENV", "development").lower() != "production":
+    if os.path.exists("id.env"):
+        load_dotenv("id.env")
+    load_dotenv()  # Also try .env in current directory
 
 # Allow insecure (HTTP) transport for Google OAuth when not running in production.
 if os.getenv("FLASK_ENV", "development").lower() != "production":
@@ -787,22 +794,20 @@ def _fetch_employee_by_employee_id(token: str, employee_id: str, select_fields=N
 
 def _save_google_credentials(creds: Credentials):
     try:
-        _ensure_storage_dir()
         if not creds:
             return
-        with open(GOOGLE_TOKEN_FILE, 'w', encoding='utf-8') as fh:
-            fh.write(creds.to_json())
+        token_json = creds.to_json()
+        save_google_token(token_json)
     except Exception as e:
         print(f"[WARN] Failed to persist Google OAuth credentials: {e}")
 
 
 def _load_google_credentials():
     try:
-        _ensure_storage_dir()
-        if not os.path.exists(GOOGLE_TOKEN_FILE):
+        token_json = load_google_token()
+        if not token_json:
             return None
-        with open(GOOGLE_TOKEN_FILE, 'r', encoding='utf-8') as fh:
-            data = json.load(fh)
+        data = json.loads(token_json)
         creds = Credentials.from_authorized_user_info(data, GOOGLE_SCOPES)
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
@@ -10273,9 +10278,11 @@ if __name__ == '__main__':
     print("=" * 80)
     print("Server Configuration:")
     print("=" * 80)
+    port = int(os.getenv("PORT", "5000"))
+    debug_flag = bool(app.config.get('DEBUG', False))
     print(f"  Host: 0.0.0.0 (accessible from network)")
-    print(f"  Port: 5000")
-    print(f"  Debug Mode: ON")
+    print(f"  Port: {port}")
+    print(f"  Debug Mode: {'ON' if debug_flag else 'OFF'}")
     print("=" * 80)
     print("\nAvailable Services:")
     print("  [OK] Attendance Management (Check-in/Check-out)")
@@ -10287,15 +10294,16 @@ if __name__ == '__main__':
     print("  [OK] Deleted Employees Management (CSV)")
     print("=" * 80)
     print("\nEndpoints:")
-    print("  -> http://localhost:5000/ping - Health check")
-    print("  -> http://localhost:5000/api/info - API documentation")
-    print("  -> http://localhost:5000/api/checkin - Check-in")
-    print("  -> http://localhost:5000/api/checkout - Check-out")
-    print("  -> http://localhost:5000/apply_leave - Apply leave")
-    print("  -> http://localhost:5000/assets - Asset management")
-    print("  -> http://localhost:5000/api/employees - Employee management")
-    print("  -> http://localhost:5000/api/onboarding - Employee onboarding")
-    print("  -> http://localhost:5000/api/holidays - Holiday management")
+    base = f"http://localhost:{port}"
+    print(f"  -> {base}/ping - Health check")
+    print(f"  -> {base}/api/info - API documentation")
+    print(f"  -> {base}/api/checkin - Check-in")
+    print(f"  -> {base}/api/checkout - Check-out")
+    print(f"  -> {base}/apply_leave - Apply leave")
+    print(f"  -> {base}/assets - Asset management")
+    print(f"  -> {base}/api/employees - Employee management")
+    print(f"  -> {base}/api/onboarding - Employee onboarding")
+    print(f"  -> {base}/api/holidays - Holiday management")
     print("=" * 80 + "\n")
     
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=debug_flag, host='0.0.0.0', port=port)

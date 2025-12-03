@@ -5,18 +5,26 @@ const { Server } = require('socket.io');
 const { v4: uuidv4 } = require('uuid');
 
 const PORT = process.env.PORT || 4000;
+const allowedOrigins = (process.env.SOCKET_ORIGINS || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
 
 const app = express();
-app.use(cors({ origin: '*', methods: ['GET', 'POST'], credentials: true }));
+app.use(cors({
+  origin: allowedOrigins.length ? allowedOrigins : '*',
+  methods: ['GET', 'POST'],
+  credentials: true,
+}));
 app.use(express.json());
 
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: '*',
+    origin: allowedOrigins.length ? allowedOrigins : '*',
     methods: ['GET', 'POST'],
-    credentials: true
-  }
+    credentials: true,
+  },
 });
 
 const activeCalls = {};
@@ -190,7 +198,8 @@ io.on('connection', (socket) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`[SOCKET-SERVER] listening on http://localhost:${PORT}`);
+  const originLog = allowedOrigins.length ? allowedOrigins.join(', ') : '*';
+  console.log(`[SOCKET-SERVER] listening on port ${PORT} (CORS origins: ${originLog})`);
 });
 
 module.exports = { activeCalls };

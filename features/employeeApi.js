@@ -1,6 +1,7 @@
 // features/employeeApi.js
+import { API_BASE_URL } from '../config.js';
 
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = API_BASE_URL.replace(/\/$/, '');
 
 export async function listEmployees(page = 1, pageSize = 5) {
   const url = new URL(`${BASE_URL}/api/employees`);

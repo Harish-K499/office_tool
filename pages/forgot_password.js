@@ -1,4 +1,5 @@
 // console.log("Forgot password script loaded");
+import { API_BASE_URL } from '../config.js';
 
 // document
 //   .getElementById("forgot-password-form")
@@ -61,7 +62,8 @@ fpForm.addEventListener("submit", async (e) => {
   fpBtn.classList.add("btn-loading");
 
   try {
-    const res = await fetch("http://localhost:5000/api/forgot-password", {
+    const base = (API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
+    const res = await fetch(`${base}/api/forgot-password`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email }),

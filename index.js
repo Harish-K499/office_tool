@@ -15,16 +15,65 @@ import {
 import { handleAttendanceNav, renderMyAttendancePage, renderTeamAttendancePage } from './pages/attendance.js';
 import { state } from './state.js';
 import { listEmployees } from './features/employeeApi.js';
-import {
-  showAssetModal,
-  handleSaveAsset,
-  showDeleteConfirmModal,
-  handleDeleteAsset,
-} from "./pages/assets.js";
+import { showAssetModal, handleSaveAsset, showDeleteConfirmModal, handleDeleteAsset, handleDeleteAsset as handleAssetDelete } from "./pages/assets.js";
 import { renderAssetsPage, fetchAssets } from './pages/assets.js'; // adjust path
 import { handleInboxRejectLeave, handleAttendanceRejectReport, handleCompOffReject, handleTimesheetReject } from './pages/shared.js';
 import { updateNotificationBadge, handleNotificationBellClick, startNotificationPolling } from './features/notificationApi.js';
 import { connectSocket } from './src/socket.js';
+
+const API_BASE_URL =
+  (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE_URL)
+    ? import.meta.env.VITE_API_BASE_URL
+    : 'http://localhost:5000';
+
+if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = (input, init) => {
+    try {
+      let urlString = null;
+      let isStringInput = false;
+      let isRequestInput = false;
+      let isURLInput = false;
+
+      if (typeof input === 'string') {
+        urlString = input;
+        isStringInput = true;
+      } else if (input && typeof input === 'object') {
+        if (typeof input.url === 'string') {
+          urlString = input.url;
+          isRequestInput = true;
+        } else if (typeof input.href === 'string') {
+          urlString = input.href;
+          isURLInput = true;
+        }
+      }
+
+      if (urlString && (urlString.startsWith('http://localhost:5000') || urlString.startsWith('http://127.0.0.1:5000'))) {
+        const normalizedBase = String(API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
+        const path = urlString.replace(/^https?:\/\/(localhost|127\.0\.0\.1):5000/, '');
+        const resolved = normalizedBase + path;
+
+        if (isStringInput) {
+          input = resolved;
+        } else if (isURLInput) {
+          input.href = resolved;
+        } else if (isRequestInput && typeof Request !== 'undefined') {
+          input = new Request(resolved, input);
+        }
+      }
+    } catch (e) {
+      // ignore rewrite errors and fall back to original fetch
+    }
+    return originalFetch(input, init);
+  };
+
+  try {
+    window.API_BASE_URL = API_BASE_URL;
+  } catch {
+    // ignore if window is not writable
+  }
+}
+
 // --- EVENT HANDLERS ---
 
 const handleNavClick = (e) => {

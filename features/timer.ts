@@ -1,5 +1,6 @@
 
 import { state } from '../state.js';
+import { API_BASE_URL } from '../config.js';
 
 export const updateTimerDisplay = () => {
     const timerDisplay = document.getElementById('timer-display');
@@ -122,7 +123,8 @@ export const loadTimerState = async () => {
             // Check with backend if user is actually checked in
             try {
                 const uid = String(state.user.id || '').toUpperCase();
-                const response = await fetch(`http://localhost:5000/api/status/${uid}`);
+                const base = (API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
+                const response = await fetch(`${base}/api/status/${uid}`);
                 const statusData = await response.json();
                 
                 if (statusData.checked_in) {

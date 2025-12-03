@@ -1,6 +1,7 @@
 // features/loginSettingsApi.js - API functions for managing login accounts (Dataverse login table)
+import { API_BASE_URL } from '../config.js';
 
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = API_BASE_URL.replace(/\/$/, '');
 
 export async function listLoginAccounts() {
   const res = await fetch(`${BASE_URL}/api/login-accounts`);

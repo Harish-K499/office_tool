@@ -1,8 +1,9 @@
 // features/leaveQuotaApi.js - API functions for leave quota management (frontend)
 
 import { state } from '../state.js';
+import { API_BASE_URL } from '../config.js';
 
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = API_BASE_URL.replace(/\/$/, '');
 
 // Map friendly types to canonical labels used across the app
 const CANONICAL_TYPES = {

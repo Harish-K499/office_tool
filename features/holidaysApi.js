@@ -1,5 +1,9 @@
+import { API_BASE_URL } from '../config.js';
+
+const BASE_URL = API_BASE_URL.replace(/\/$/, '');
+
 export async function getHolidays() {
-  const res = await fetch("http://127.0.0.1:5000/api/holidays");
+  const res = await fetch(`${BASE_URL}/api/holidays`);
   const data = await res.json();
   console.log("📦 API raw data:", data);
 
@@ -8,25 +12,22 @@ export async function getHolidays() {
   if (data && Array.isArray(data.value)) return data.value;
   return [];
 }
-
 export async function createHoliday(payload) {
-  await fetch("http://127.0.0.1:5000/api/holidays", {
+  await fetch(`${BASE_URL}/api/holidays`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
 }
-
 export async function updateHoliday(id, payload) {
-  await fetch(`http://127.0.0.1:5000/api/holidays/${id}`, {
+  await fetch(`${BASE_URL}/api/holidays/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
 }
-
 export async function deleteHoliday(id) {
-  const res = await fetch(`http://127.0.0.1:5000/api/holidays/${id}`, {
+  const res = await fetch(`${BASE_URL}/api/holidays/${id}`, {
     method: "DELETE",
   });
   if (!res.ok) {

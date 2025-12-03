@@ -424,6 +424,7 @@
 // import { state } from '../state.js';
 // import { listEmployees } from '../features/employeeApi.js';
 // import { startNotificationPolling } from '../features/notificationApi.js';
+import { API_BASE_URL } from '../config.js';
 
 // export const renderLoginPage = () => {
 //     const content = `
@@ -764,7 +765,8 @@
 //         loader.classList.remove('hidden');
 
 //         try {
-//           const res = await fetch("http://localhost:5000/api/login", {
+//           const base = (API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
+//           const res = await fetch(`${base}/api/login`, {
 //             method: "POST",
 //             headers: { "Content-Type": "application/json" },
 //             body: JSON.stringify({ username: email, password }),
@@ -802,7 +804,6 @@
 
 //           // NORMAL SUCCESS (existing logic preserved)
 //           handleSuccess();
-
 
 //           const u = data.user || {};
 //           const displayName = u.name || u.full_name || u.username || email;
@@ -855,12 +856,12 @@
 //             }, 900);
 //           }, 1000);
 //         } catch (ex) {
-//             loginBtn.disabled = false;
-//             btnText.classList.remove('hidden');
-//             loader.classList.add('hidden');
-//             err.textContent = ex.message || 'Unexpected error';
-//             err.style.display = 'block';
-//             handleError();
+//           loginBtn.disabled = false;
+//           btnText.classList.remove('hidden');
+//           loader.classList.add('hidden');
+//           err.textContent = ex.message || 'Unexpected error';
+//           err.style.display = 'block';
+//           handleError();
 //         }
 //     });
 
@@ -1392,7 +1393,8 @@ export const renderLoginPage = () => {
     loader.classList.remove("hidden");
 
     try {
-      const res = await fetch("http://localhost:5000/api/login", {
+      const base = (API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
+      const res = await fetch(`${base}/api/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: email, password }),
@@ -1583,7 +1585,8 @@ export const renderLoginPage = () => {
     }
 
     try {
-      const res = await fetch("http://localhost:5000/api/reset-password", {
+      const base = (API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
+      const res = await fetch(`${base}/api/reset-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, new_password }),
@@ -1613,7 +1616,8 @@ export const renderLoginPage = () => {
 
         // Try auto-login with new password (optional). If it works, proceed to app; otherwise instruct user.
         try {
-          const loginResp = await fetch("http://localhost:5000/api/login", {
+          const base = (API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
+          const loginResp = await fetch(`${base}/api/login`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ username, password: new_password }),
