@@ -12,3 +12,6 @@ SQLAlchemy==2.0.36
 psycopg[binary]
 
 gunicorn==21.2.0
+google-auth
+google-auth-oauthlib
+google-api-python-client
