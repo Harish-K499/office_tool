@@ -2,10 +2,7 @@ from flask import Flask, jsonify, request, session, current_app
 from flask_mail import Mail, Message
 import os
 import traceback
-import smtplib
-import socket
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import requests as http_requests  # renamed to avoid conflict
 from dotenv import load_dotenv
 
 # Load env for local dev
@@ -13,7 +10,7 @@ if os.path.exists("id.env"):
     load_dotenv("id.env")
 load_dotenv()
 
-# Standalone app for backward compatibility (not used when imported)
+# Standalone app for backward compatibility
 app = Flask(__name__)
 app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
 app.config['MAIL_PORT'] = 587
@@ -21,7 +18,6 @@ app.config['MAIL_USE_TLS'] = True
 app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
 app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER', app.config['MAIL_USERNAME'])
-app.config['MAIL_TIMEOUT'] = 10  # 10 second timeout
 mail = Mail(app)
 
 print("DEBUG: MAIL_USERNAME =", os.getenv("MAIL_USERNAME"))
@@ -29,74 +25,70 @@ print("DEBUG: MAIL_DEFAULT_SENDER =", os.getenv("MAIL_DEFAULT_SENDER"))
 
 
 # ------------------------------
-# ✉️ Email Send Function
+# ✉️ Email Send via Resend API
 # ------------------------------
-def send_email_smtp_direct(subject, recipients, body, html=None):
+def send_email_resend(subject, recipients, body, html=None):
     """
-    Send email using direct SMTP with timeout.
-    Fallback method that doesn't rely on Flask-Mail.
+    Send email using Resend API (HTTP-based, works on Render free tier).
+    Requires RESEND_API_KEY env var.
     """
-    mail_server = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
-    mail_port = int(os.getenv('MAIL_PORT', 587))
-    mail_username = os.getenv('MAIL_USERNAME')
-    mail_password = os.getenv('MAIL_PASSWORD')
-    mail_sender = os.getenv('MAIL_DEFAULT_SENDER', mail_username)
+    api_key = os.getenv('RESEND_API_KEY')
+    from_email = os.getenv('RESEND_FROM_EMAIL', 'onboarding@resend.dev')
     
-    print(f"[MAIL-SMTP] Connecting to {mail_server}:{mail_port}", flush=True)
+    if not api_key:
+        print("[MAIL-RESEND] No RESEND_API_KEY configured", flush=True)
+        return False
     
-    # Create message
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = subject
-    msg['From'] = mail_sender
-    msg['To'] = ', '.join(recipients) if isinstance(recipients, list) else recipients
+    print(f"[MAIL-RESEND] Sending to {recipients} from {from_email}", flush=True)
     
-    # Attach text and HTML parts
-    msg.attach(MIMEText(body, 'plain'))
+    # Prepare recipients list
+    to_list = recipients if isinstance(recipients, list) else [recipients]
+    
+    payload = {
+        "from": from_email,
+        "to": to_list,
+        "subject": subject,
+        "text": body,
+    }
     if html:
-        msg.attach(MIMEText(html, 'html'))
-    
-    # Set socket timeout
-    socket.setdefaulttimeout(15)
+        payload["html"] = html
     
     try:
-        server = smtplib.SMTP(mail_server, mail_port, timeout=15)
-        server.ehlo()
-        server.starttls()
-        server.ehlo()
-        print(f"[MAIL-SMTP] Logging in as {mail_username}", flush=True)
-        server.login(mail_username, mail_password)
-        print("[MAIL-SMTP] Sending message...", flush=True)
-        server.sendmail(mail_sender, recipients, msg.as_string())
-        server.quit()
-        print(f"[MAIL-SMTP] Email sent successfully -> {recipients}", flush=True)
-        return True
-    except smtplib.SMTPAuthenticationError as e:
-        print(f"[MAIL-SMTP] Authentication failed: {e}", flush=True)
-        return False
-    except socket.timeout:
-        print("[MAIL-SMTP] Connection timed out", flush=True)
-        return False
+        response = http_requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            },
+            json=payload,
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            print(f"[MAIL-RESEND] Email sent successfully: {response.json()}", flush=True)
+            return True
+        else:
+            print(f"[MAIL-RESEND] Failed: {response.status_code} - {response.text}", flush=True)
+            return False
     except Exception as e:
-        print(f"[MAIL-SMTP] Error: {e}", flush=True)
+        print(f"[MAIL-RESEND] Error: {e}", flush=True)
         traceback.print_exc()
         return False
-    finally:
-        socket.setdefaulttimeout(None)
 
 
 def send_email(subject, recipients, body, html=None, cc=None, attachments=None):
     """
-    Send email - uses direct SMTP with timeout to avoid worker death.
+    Send email - uses Resend API (HTTP) since Render blocks SMTP.
+    Falls back to Flask-Mail for local dev or attachments.
     """
     print(f"[MAIL] send_email called: to={recipients}, subject={subject}", flush=True)
     
-    # Use direct SMTP method with proper timeout handling
-    # This avoids Flask-Mail's potential hanging issues
-    if not attachments:
-        return send_email_smtp_direct(subject, recipients, body, html)
+    # Try Resend API first (works on Render)
+    if os.getenv('RESEND_API_KEY') and not attachments:
+        return send_email_resend(subject, recipients, body, html)
     
-    # Fall back to Flask-Mail for attachments
-    print("[MAIL] Using Flask-Mail for attachments", flush=True)
+    # Fall back to Flask-Mail (for local dev or attachments)
+    print("[MAIL] Using Flask-Mail fallback", flush=True)
     try:
         flask_app = current_app._get_current_object()
         mail_instance = flask_app.extensions.get('mail')
