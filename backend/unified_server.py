@@ -1837,20 +1837,27 @@ def forgot_password():
         reset_link = f"{FRONTEND_BASE_URL}/create_new_password.html?token={token}"
         print(f"[FORGOT-PWD] Reset link: {reset_link}", flush=True)
 
-        # Step 5: Send email
+        # Step 5: Send email (plain text only to avoid Brevo link tracking)
         print("[FORGOT-PWD] Step 5: Sending email...", flush=True)
-        subject = "Reset Your Password"
-        text_body = f"Hello,\n\nClick the link below to reset your password (expires in 28 minutes):\n\n{reset_link}\n\nIf you did not request this, ignore this message."
-        html_body = (
-            f"<p>Hello,</p>"
-            f"<p>Click the link below to reset your password (link expires soon):</p>"
-            f"<p><a href='{reset_link}'>Reset password</a></p>"
-            f"<p>If you did not request this, ignore this message.</p>"
-        )
+        subject = "Reset Your Password - VTab Office Tool"
+        text_body = f"""Hello,
+
+You requested a password reset for your VTab Office Tool account.
+
+Copy and paste this link into your browser to reset your password:
+
+{reset_link}
+
+This link expires in 28 minutes.
+
+If you did not request this, please ignore this message.
+
+- VTab Office Tool Team"""
 
         sent = False
         try:
-            sent = send_email(subject=subject, recipients=[user_email], body=text_body, html=html_body)
+            # Send plain text only (no HTML) to prevent Brevo from tracking/wrapping links
+            sent = send_email(subject=subject, recipients=[user_email], body=text_body, html=None)
             print(f"[FORGOT-PWD] send_email returned: {sent}", flush=True)
         except Exception as mail_err:
             print(f"[FORGOT-PWD] Email send exception: {mail_err}", flush=True)
