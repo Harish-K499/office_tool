@@ -23,7 +23,7 @@ export default defineConfig(({ mode }) => {
         input: {
           main: path.resolve(__dirname, 'index.html'),
           login: path.resolve(__dirname, 'login.html'),
-          create_new_password: path.resolve(__dirname, 'create_new_password.html'),
+          // create_new_password page is now served from public/create_new_password.html
         },
       },
     },
