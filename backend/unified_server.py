@@ -8679,41 +8679,12 @@ def update_interview_status(record_id):
         except Exception:
             pass
 
-        status_lc = (interview_status or '').strip().lower()
-        email_triggered = False
-        message_suffix = ''
-
-        if status_lc == 'failed' and previous_status != 'failed':
-            if send_interview_rejection_email(candidate_data):
-                email_triggered = True
-                message_suffix = ' Rejection email sent.'
-                try:
-                    create_progress_log_row(token, record_id, "Interview Result - Failed", 2, _now_iso())
-                except Exception:
-                    pass
-        elif status_lc == 'passed' and previous_status != 'passed':
-            offer_sent = send_offer_letter_email(candidate_data)
-            email_triggered = offer_sent
-            if offer_sent:
-                message_suffix = ' Offer letter sent.'
-            try:
-                offer_payload = {
-                    'crc6f_offerpmail': 'Sent',
-                    'crc6f_progresssteps': 'Offer Acceptance'
-                }
-                current_reply = (candidate.get('crc6f_offerpmailreply') or '').strip().lower()
-                if current_reply not in ('yes', 'no'):
-                    offer_payload['crc6f_offerpmailreply'] = 'Pending'
-                update_record(entity_set, record_id, offer_payload)
-                if offer_sent:
-                    create_progress_log_row(token, record_id, "Offer Acceptance", 3, _now_iso())
-            except Exception as upd_err:
-                print(f"[WARN] Failed to update offer progression after interview pass: {upd_err}")
+        # Note: Email sending is now handled by the combined /update-result-send-mail endpoint
+        # This endpoint only updates the interview status without sending emails
 
         return jsonify({
             'success': True,
-            'email_triggered': email_triggered,
-            'message': f"Interview status updated successfully.{message_suffix}"
+            'message': 'Interview status updated successfully.'
         }), 200
     except Exception as e:
         print(f"[ERROR] Error updating interview status: {e}")
@@ -8832,6 +8803,79 @@ def send_offer_letter(record_id):
         return jsonify({'success': True, 'message': 'Offer letter sent' if ok else 'Offer send attempted'}), 200
     except Exception as e:
         print(f"[ERROR] Error sending offer letter: {e}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# Combined: Update interview result AND send appropriate email (single button action)
+@app.route('/api/onboarding/<record_id>/update-result-send-mail', methods=['POST'])
+def update_result_and_send_mail(record_id):
+    """Combined endpoint: Update interview result and send appropriate email based on status"""
+    try:
+        data = request.get_json() or {}
+        interview_status = data.get('interview_status', 'Pending')
+        
+        token = get_access_token()
+        entity_set = get_onboarding_entity_set(token)
+
+        # Fetch candidate details
+        url = f"{BASE_URL}/{entity_set}({record_id})"
+        response = requests.get(url, headers={"Authorization": f"Bearer {token}"})
+        if response.status_code != 200:
+            return jsonify({'success': False, 'message': 'Onboarding record not found'}), 404
+        candidate = response.json()
+
+        candidate_data = {
+            'email': candidate.get('crc6f_email'),
+            'firstname': candidate.get('crc6f_firstname'),
+            'lastname': candidate.get('crc6f_lastname'),
+            'designation': candidate.get('crc6f_designation'),
+            'department': candidate.get('crc6f_department'),
+            'doj': candidate.get('crc6f_doj')
+        }
+
+        # Update interview status first
+        update_payload = {
+            'crc6f_interviewstatus': interview_status
+        }
+
+        status_lc = (interview_status or '').strip().lower()
+        email_sent = False
+        message = 'Interview result updated.'
+
+        if status_lc == 'passed':
+            # Send offer letter and update progress
+            email_sent = send_offer_letter_email(candidate_data)
+            update_payload['crc6f_offerpmail'] = 'Sent'
+            update_payload['crc6f_progresssteps'] = 'Offer Acceptance'
+            current_reply = (candidate.get('crc6f_offerpmailreply') or '').strip().lower()
+            if current_reply not in ('yes', 'no'):
+                update_payload['crc6f_offerpmailreply'] = 'Pending'
+            message = 'Interview passed. Offer letter sent!' if email_sent else 'Interview passed. Offer send attempted.'
+            try:
+                create_progress_log_row(token, record_id, "Offer Acceptance", 3, _now_iso())
+            except Exception:
+                pass
+
+        elif status_lc == 'failed':
+            # Send rejection email
+            email_sent = send_interview_rejection_email(candidate_data)
+            message = 'Interview failed. Rejection email sent.' if email_sent else 'Interview failed. Rejection send attempted.'
+            try:
+                create_progress_log_row(token, record_id, "Interview Result - Failed", 2, _now_iso())
+            except Exception:
+                pass
+
+        # Apply updates to Dataverse
+        update_record(entity_set, record_id, update_payload)
+
+        return jsonify({
+            'success': True,
+            'email_sent': email_sent,
+            'message': message
+        }), 200
+
+    except Exception as e:
+        print(f"[ERROR] Error in combined update-result-send-mail: {e}")
         traceback.print_exc()
         return jsonify({'success': False, 'message': str(e)}), 500
 

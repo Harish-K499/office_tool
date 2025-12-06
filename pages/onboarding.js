@@ -910,6 +910,11 @@ const renderStage1PersonalInfo = (record, currentStage) => {
                 <p><strong>Contact:</strong> ${record?.contact || '—'}</p>
                 <p><strong>Address:</strong> ${record?.address || '—'}</p>
                 <p><strong>Date of Joining:</strong> ${record?.doj || '—'}</p>
+                <div class="form-actions" style="margin-top:16px;">
+                    <button type="button" class="btn btn-secondary" onclick="window.toggleStage1Edit(true)">
+                        <i class="fa-solid fa-pen"></i> Edit Personal Details
+                    </button>
+                </div>
             </div>
         `;
     }
@@ -963,6 +968,11 @@ const renderStage1PersonalInfo = (record, currentStage) => {
                 <button type="submit" class="btn btn-primary">
                     <i class="fa-solid fa-save"></i> ${hasRecord ? 'Save Changes' : 'Save & Continue'}
                 </button>
+                ${hasRecord ? `
+                <button type="button" class="btn btn-secondary" onclick="window.toggleStage1Edit(false)">
+                    <i class="fa-solid fa-xmark"></i> Cancel
+                </button>
+                ` : ''}
             </div>
         </form>
     `;
@@ -1018,9 +1028,8 @@ const renderStage2Interview = (record, currentStage) => {
                     </div>
                 </div>
                 <div class="form-actions">
-                    <button type="submit" class="btn btn-secondary" ${scheduled ? '' : 'disabled'}><i class="fa-solid fa-save"></i> Update Result</button>
-                    <button type="button" id="send-offer-btn" class="btn btn-success" ${record?.interview_status === 'Passed' ? '' : 'disabled'}>
-                        <i class="fa-solid fa-envelope"></i> Send Mail
+                    <button type="submit" id="send-result-btn" class="btn btn-success" ${scheduled ? '' : 'disabled'}>
+                        <i class="fa-solid fa-envelope"></i> Update Result & Send Mail
                     </button>
                 </div>
             </form>
@@ -1211,18 +1220,7 @@ const attachStageEventListeners = (stage, record) => {
             break;
         case 2:
             document.getElementById('schedule-interview-form')?.addEventListener('submit', handleScheduleInterviewSubmit);
-            document.getElementById('interview-result-form')?.addEventListener('submit', handleInterviewResultSubmit);
-            document.getElementById('send-offer-btn')?.addEventListener('click', handleSendOfferLetter);
-            // Toggle offer button enablement when result changes
-            try {
-                const sel = document.getElementById('interview-status-select');
-                const btn = document.getElementById('send-offer-btn');
-                if (sel && btn) {
-                    sel.addEventListener('change', () => {
-                        btn.disabled = sel.value !== 'Passed';
-                    });
-                }
-            } catch (_) { }
+            document.getElementById('interview-result-form')?.addEventListener('submit', handleCombinedResultSubmit);
             break;
         case 3:
             document.getElementById('check-email-btn')?.addEventListener('click', handleCheckEmail);
@@ -1403,20 +1401,53 @@ const handleInterviewResultSubmit = async (e) => {
     }
 };
 
-const handleSendOfferLetter = async () => {
+// Combined handler: Update Result & Send Mail (single button for Stage 2)
+const handleCombinedResultSubmit = async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const data = Object.fromEntries(formData.entries());
+    const interviewStatus = data.interview_status;
+
     if (!currentOnboardingRecord?.id) {
         showToast('No onboarding record found', 'error');
         return;
     }
+
+    const btn = document.getElementById('send-result-btn');
+    const original = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing...';
+    }
+
     try {
-        const res = await fetch(`${API_BASE}/onboarding/${currentOnboardingRecord.id}/send-offer`, { method: 'POST' });
+        // Call combined endpoint that updates status and sends appropriate email
+        const res = await fetch(`${API_BASE}/onboarding/${currentOnboardingRecord.id}/update-result-send-mail`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ interview_status: interviewStatus })
+        });
         const json = await res.json();
         if (!res.ok || !json.success) throw new Error(json.message || `HTTP ${res.status}`);
-        showToast('Offer letter sent!', 'success');
-        setTimeout(() => showOnboardingForm(currentOnboardingRecord.id, 3), 800);
+
+        // Show appropriate message based on result
+        if (interviewStatus === 'Passed') {
+            showToast('Result updated & Offer letter sent!', 'success');
+            setTimeout(() => showOnboardingForm(currentOnboardingRecord.id, 3), 800);
+        } else if (interviewStatus === 'Failed') {
+            showToast('Result updated & Rejection email sent.', 'info');
+            setTimeout(() => showOnboardingForm(currentOnboardingRecord.id, 2), 800);
+        } else {
+            showToast('Interview result updated.', 'success');
+            setTimeout(() => showOnboardingForm(currentOnboardingRecord.id, 2), 800);
+        }
     } catch (err) {
-        console.error('Send offer failed', err);
-        showToast('Failed to send offer letter', 'error');
+        console.error('Combined result/mail failed', err);
+        showToast('Failed to update result', 'error');
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = original;
+        }
     }
 };
 
