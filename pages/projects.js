@@ -3600,7 +3600,7 @@ async function openTaskDetailsPage(projectId, taskId) {
   const t = data.task || {};
 
   app.innerHTML = `
-    <div class="card" style="max-width:900px; margin:0 auto; padding:20px;">
+    <div class="card" style="max-width:900px; margin:24px auto 32px; padding:24px;">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <h2>${escapeHtml(t.task_name || "")}</h2>
         <button id="tk-back" class="btn btn-light">← Back</button>
