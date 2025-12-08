@@ -30,11 +30,22 @@ const handleNavClick = (e: Event) => {
     }
 };
 
+type ThemeName = 'light' | 'dark' | 'sunset';
+
 const THEME_STORAGE_KEY = 'theme';
 
-const applyAppTheme = (theme: 'light' | 'dark') => {
+const getTimeBasedTheme = (): ThemeName => {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) return 'light';      // Morning
+    if (hour >= 17 && hour < 20) return 'sunset';    // Evening (warm light orange)
+    if (hour >= 20 || hour < 5) return 'dark';       // Night
+    return 'light';                                  // Afternoon default
+};
+
+const applyAppTheme = (theme: ThemeName) => {
     const body = document.body;
     body.classList.toggle('dark-theme', theme === 'dark');
+    body.classList.toggle('sunset-theme', theme === 'sunset');
     body.setAttribute('data-theme', theme);
 
     const toggle = document.getElementById('theme-toggle');
@@ -49,23 +60,14 @@ const applyAppTheme = (theme: 'light' | 'dark') => {
 };
 
 const initTheme = () => {
-    let storedTheme: string | null = null;
-    try {
-        storedTheme = localStorage.getItem(THEME_STORAGE_KEY);
-    } catch {
-        storedTheme = null;
-    }
-
-    const theme: 'light' | 'dark' =
-        storedTheme === 'dark' || storedTheme === 'light' ? storedTheme : 'light';
-
+    const theme = getTimeBasedTheme();
     applyAppTheme(theme);
 
     const toggle = document.getElementById('theme-toggle');
     if (toggle) {
         toggle.addEventListener('click', () => {
-            const currentIsDark = document.body.classList.contains('dark-theme');
-            const nextTheme: 'light' | 'dark' = currentIsDark ? 'light' : 'dark';
+            const currentTheme = (document.body.getAttribute('data-theme') as ThemeName) || 'light';
+            const nextTheme: ThemeName = currentTheme === 'dark' ? 'light' : 'dark';
             applyAppTheme(nextTheme);
             try {
                 localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
