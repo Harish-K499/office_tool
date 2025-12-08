@@ -152,9 +152,10 @@ const getGreeting = () => {
 };
 
 export const getHeaderHTML = (user, timer) => `
-    <div class="header-greeting" style="font-size:1.1rem; font-weight:600; color:var(--text-primary); margin-right:auto; display:flex; align-items:center;">
+    <div class="header-greeting header-visible" style="font-size:1.1rem; font-weight:600; color:var(--text-primary); margin-right:auto; display:flex; align-items:center;">
         ${getGreeting()}, ${user.name ? user.name.split(' ')[0] : 'User'}!
     </div>
+
     <div class="header-search">
         <i class="fa-solid fa-search"></i>
         <input type="text" placeholder="Search for an employee name or ID (Ctrl + E)">
