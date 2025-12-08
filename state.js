@@ -35,6 +35,12 @@ export const state = {
   currentAttendanceDate: new Date(),
   attendanceData: {},
   attendanceFilter: "week",
+  // Lightweight client-side caches to avoid repeated network calls
+  cache: {
+    employees: {},   // key: `${page}|${pageSize}` -> { data, fetchedAt }
+    leaves: {},      // key: employeeId -> { data, fetchedAt }
+    attendance: {},  // key: `${employeeId}|${year}|${month}` -> { data, fetchedAt }
+  },
   compOffs: [
     // { employeeId: "EMP001", employeeName: "Vigneshraja S", availableDays: 2.5 },
     // { employeeId: "EMP002", employeeName: "Jane Smith", availableDays: 3 },

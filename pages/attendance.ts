@@ -311,9 +311,8 @@ export const renderTeamAttendancePage = async () => {
     try {
         if (currentEmpId === 'EMP001') {
             console.log('✅ Admin user detected. Fetching attendance for ALL employees from Dataverse');
-            // Import the listEmployees function if not already imported
             const { listEmployees } = await import('../features/employeeApi.js');
-            const allEmployees = await listEmployees(1, 5000);
+            const allEmployees = await listEmployees(1, 1000);
             employeesToFetch = allEmployees.items || [];
             console.log(`📊 Fetched ${employeesToFetch.length} employees from Dataverse`);
         } else {
@@ -324,39 +323,59 @@ export const renderTeamAttendancePage = async () => {
         // Clear previous attendance data to avoid stale records
         state.attendanceData = {};
         
-        // Import the fetchMonthlyAttendance function
-        const { fetchMonthlyAttendance } = await import('../features/attendanceApi.js');
-        
-        // Fetch attendance for each employee
-        await Promise.all(employeesToFetch.map(async (emp) => {
-            const empId = String(emp.employee_id || emp.id || '').toUpperCase();
-            if (!empId) {
-                console.warn('⚠️ Skipping employee with no ID:', emp);
-                return;
+        const { fetchMonthlyAttendance, fetchTeamMonthlyAttendance } = await import('../features/attendanceApi.js');
+        const ids = employeesToFetch
+            .map(emp => String(emp.employee_id || emp.id || '').toUpperCase())
+            .filter(Boolean);
+
+        let batchFailed = false;
+        if (ids.length) {
+            try {
+                const batchRecords = await fetchTeamMonthlyAttendance(ids, year, month);
+                Object.entries(batchRecords || {}).forEach(([empId, recs]) => {
+                    const attendanceMap = {};
+                    (recs as any[]).forEach(rec => {
+                        if (rec.day) {
+                            attendanceMap[rec.day] = {
+                                status: rec.status,
+                                checkIn: rec.checkIn,
+                                checkOut: rec.checkOut,
+                                duration: rec.duration
+                            };
+                        }
+                    });
+                    state.attendanceData[empId] = attendanceMap;
+                });
+                console.log(`✅ Team attendance loaded via batch for ${Object.keys(batchRecords || {}).length} employees`);
+            } catch (err) {
+                console.warn('⚠️ Batch team attendance failed, falling back:', err);
+                batchFailed = true;
             }
-            
-            console.log(`🔄 Fetching attendance for employee: ${empId}`);
-            const records = await fetchMonthlyAttendance(empId, year, month);
-            console.log(`📊 Fetched ${records.length} attendance records for ${empId}`);
-            
-            const attendanceMap = {};
-            records.forEach(rec => {
-                if (rec.day) {
-                    attendanceMap[rec.day] = {
-                        status: rec.status,
-                        checkIn: rec.checkIn,
-                        checkOut: rec.checkOut,
-                        duration: rec.duration
-                    };
+        }
+
+        if (batchFailed || Object.keys(state.attendanceData).length === 0) {
+            await Promise.all(employeesToFetch.map(async (emp) => {
+                const empId = String(emp.employee_id || emp.id || '').toUpperCase();
+                if (!empId) {
+                    console.warn('⚠️ Skipping employee with no ID:', emp);
+                    return;
                 }
-            });
-            
-            // Store employee name for display
-            const empName = `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || emp.name || empId;
-            
-            // Store both attendance data and employee info
-            state.attendanceData[empId] = attendanceMap;
-        }));
+                
+                const records = await fetchMonthlyAttendance(empId, year, month);
+                const attendanceMap = {};
+                records.forEach(rec => {
+                    if (rec.day) {
+                        attendanceMap[rec.day] = {
+                            status: rec.status,
+                            checkIn: rec.checkIn,
+                            checkOut: rec.checkOut,
+                            duration: rec.duration
+                        };
+                    }
+                });
+                state.attendanceData[empId] = attendanceMap;
+            }));
+        }
         
         console.log(`✅ Team attendance loaded for ${Object.keys(state.attendanceData).length} employees`);
     } catch (err) {

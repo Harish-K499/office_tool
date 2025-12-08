@@ -5,6 +5,7 @@ import { renderModal, closeModal } from "../components/modal.js";
 import {
   fetchEmployeeLeaves,
   fetchLeaveBalance,
+  fetchTeamLeavesBatch,
 } from "../features/leaveApi.js";
 import {
   fetchLeaveQuota,
@@ -22,6 +23,23 @@ import { showLeaveApplicationToast } from "../components/toast.js";
 let leaveCurrentPage = 1;
 const LEAVE_PAGE_SIZE = 10;
 let leaveViewMode = "my"; // 'my' | 'team'
+
+// Simple async pool to cap concurrent network calls
+const runWithConcurrency = async (items, limit, worker) => {
+  const results = [];
+  let index = 0;
+  const runners = Array(Math.min(limit, items.length))
+    .fill(0)
+    .map(async () => {
+      while (true) {
+        const current = index++;
+        if (current >= items.length) break;
+        await worker(items[current], current, results);
+      }
+    });
+  await Promise.all(runners);
+  return results;
+};
 
 // Check if current user is admin (EMP001 or bala.t@vtab.com)
 const isAdminUser = () => {
@@ -126,30 +144,52 @@ const fetchTeamLeavesByDepartment = async (currentEmpId) => {
     }
 
     const leaves = [];
-    for (const tm of teammates) {
+    const ids = teammates
+      .map((tm) => String(tm.employee_id || tm.id || "").toUpperCase())
+      .filter(Boolean);
+
+    // Prefer aggregated endpoint; fallback to per-employee fetch pool
+    let batchFailed = false;
+    if (ids.length) {
       try {
-        console.log(
-          `🔍 Fetching leaves for employee: ${tm.employee_id} (${tm.first_name} ${tm.last_name})`
-        );
-        const tmLeaves = await fetchEmployeeLeaves(tm.employee_id);
-        console.log(
-          `📊 Found ${tmLeaves?.length || 0} leaves for ${tm.employee_id}`
-        );
-        (tmLeaves || []).forEach((l) =>
+        const batchLeaves = await fetchTeamLeavesBatch(ids);
+        (batchLeaves || []).forEach((l) => {
+          const tm = teammates.find(
+            (t) =>
+              String(t.employee_id || t.id || "").toUpperCase() ===
+              String(l.employee_id || "").toUpperCase()
+          );
           leaves.push({
             ...l,
-            employee_id: tm.employee_id,
-            _employee_name: `${tm.first_name || ""} ${tm.last_name || ""
-              }`.trim(),
-          })
-        );
+            _employee_name: `${tm?.first_name || ""} ${tm?.last_name || ""}`.trim(),
+          });
+        });
       } catch (err) {
-        console.warn(
-          "Failed to fetch leaves for teammate",
-          tm.employee_id,
-          err
-        );
+        console.warn("⚠️ Batch team leaves failed, falling back:", err);
+        batchFailed = true;
       }
+    }
+
+    if (batchFailed || leaves.length === 0) {
+      await runWithConcurrency(teammates, 8, async (tm) => {
+        try {
+          const tmLeaves = await fetchEmployeeLeaves(tm.employee_id);
+          (tmLeaves || []).forEach((l) =>
+            leaves.push({
+              ...l,
+              employee_id: tm.employee_id,
+              _employee_name: `${tm.first_name || ""} ${tm.last_name || ""
+                }`.trim(),
+            })
+          );
+        } catch (err) {
+          console.warn(
+            "Failed to fetch leaves for teammate",
+            tm.employee_id,
+            err
+          );
+        }
+      });
     }
 
     console.log(

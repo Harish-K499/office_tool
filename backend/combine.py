@@ -37,6 +37,9 @@ FIELD_RECORD_ID = "crc6f_table13id"
 
 # ================== LEAVE TRACKER CONFIGURATION ==================
 LEAVE_ENTITY = "crc6f_table14s"
+# Common leave date fields
+FIELD_START_DATE = "crc6f_startdate"
+FIELD_END_DATE = "crc6f_enddate"
 
 # ================== EMPLOYEE MASTER CONFIGURATION ==================
 # Prefer ENV override if provided; otherwise we'll auto-resolve between common sets
@@ -78,6 +81,14 @@ EMPLOYEE_ENTITY_RESOLVED = None
 
 # Store active check-in sessions (in production, use Redis or database)
 active_sessions = {}
+
+# ================== SMALL HELPERS ==================
+def _build_in_filter(field: str, values: list[str]) -> str:
+    safe_vals = [v.replace("'", "''") for v in values if v]
+    if not safe_vals:
+        return ""
+    ors = [f"{field} eq '{v}'" for v in safe_vals]
+    return "(" + " or ".join(ors) + ")"
 
 
 # ================== HELPER FUNCTIONS ==================
@@ -233,13 +244,176 @@ def checkin():
                 "success": False,
                 "error": "Failed to create record"
             }), 500
-            
     except Exception as e:
         print(f"\n❌ CHECK-IN ERROR: {str(e)}\n")
         return jsonify({
             "success": False,
             "error": str(e)
         }), 500
+
+
+# ================== AGGREGATED ENDPOINTS ==================
+@app.route('/api/leaves/on-leave-today', methods=['GET'])
+def on_leave_today():
+    """Return active leaves for today, optionally limited to a set of employee IDs."""
+    try:
+        token = get_access_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "OData-MaxVersion": "4.0",
+            "OData-Version": "4.0"
+        }
+        today = datetime.now().date().isoformat()
+
+        employee_ids = request.args.get('employee_ids', '')
+        ids_list = [v.strip().upper() for v in employee_ids.split(',') if v.strip()]
+
+        date_filter = (f"{FIELD_START_DATE} le '{today}' and "
+                       f"{FIELD_END_DATE} ge '{today}' and "
+                       f"crc6f_status eq 'Approved'")
+        emp_filter = _build_in_filter("crc6f_employeeid", ids_list)
+        filter_parts = [date_filter]
+        if emp_filter:
+            filter_parts.append(emp_filter)
+        filter_query = "?$filter=" + " and ".join(filter_parts)
+
+        url = f"{RESOURCE}/api/data/v9.2/{LEAVE_ENTITY}{filter_query}&$top=5000"
+        resp = requests.get(url, headers=headers)
+        if resp.status_code != 200:
+            return jsonify({"success": False, "error": f"Failed to fetch: {resp.status_code}", "details": resp.text}), 500
+        records = resp.json().get("value", [])
+        leaves = []
+        for r in records:
+            leaves.append({
+                "employee_id": r.get("crc6f_employeeid"),
+                "leave_type": r.get("crc6f_leavetype"),
+                "start_date": r.get("crc6f_startdate"),
+                "end_date": r.get("crc6f_enddate"),
+                "status": r.get("crc6f_status"),
+                "total_days": r.get("crc6f_totaldays"),
+            })
+        return jsonify({"success": True, "leaves": leaves, "count": len(leaves)})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/leaves/team', methods=['GET'])
+def leaves_team():
+    """Return all leaves for a batch of employee IDs."""
+    try:
+        token = get_access_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "OData-MaxVersion": "4.0",
+            "OData-Version": "4.0"
+        }
+        employee_ids = request.args.get('employee_ids', '')
+        ids_list = [v.strip().upper() for v in employee_ids.split(',') if v.strip()]
+        if not ids_list:
+            return jsonify({"success": True, "leaves": [], "count": 0})
+
+        emp_filter = _build_in_filter("crc6f_employeeid", ids_list)
+        filter_query = "?$filter=" + emp_filter if emp_filter else ""
+        url = f"{RESOURCE}/api/data/v9.2/{LEAVE_ENTITY}{filter_query}&$top=5000"
+        resp = requests.get(url, headers=headers)
+        if resp.status_code != 200:
+            return jsonify({"success": False, "error": f"Failed to fetch: {resp.status_code}", "details": resp.text}), 500
+        records = resp.json().get("value", [])
+        leaves = []
+        for r in records:
+            leaves.append({
+                "leave_id": r.get("crc6f_leaveid"),
+                "leave_type": r.get("crc6f_leavetype"),
+                "start_date": r.get("crc6f_startdate"),
+                "end_date": r.get("crc6f_enddate"),
+                "total_days": r.get("crc6f_totaldays"),
+                "paid_unpaid": r.get("crc6f_paidunpaid"),
+                "status": r.get("crc6f_status"),
+                "approved_by": r.get("crc6f_approvedby"),
+                "employee_id": r.get("crc6f_employeeid")
+            })
+        return jsonify({"success": True, "leaves": leaves, "count": len(leaves)})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/attendance/team-month', methods=['GET'])
+def attendance_team_month():
+    """Batch attendance for multiple employees for a given month."""
+    try:
+        year = int(request.args.get('year'))
+        month = int(request.args.get('month'))
+        employee_ids = request.args.get('employee_ids', '')
+        ids_list = [v.strip().upper() for v in employee_ids.split(',') if v.strip()]
+        if not ids_list:
+            return jsonify({"success": True, "records": {}, "count": 0})
+
+        token = get_access_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "OData-MaxVersion": "4.0",
+            "OData-Version": "4.0"
+        }
+
+        _, last_day = monthrange(year, month)
+        start_date = f"{year}-{str(month).zfill(2)}-01"
+        end_date = f"{year}-{str(month).zfill(2)}-{str(last_day).zfill(2)}"
+
+        emp_filter = _build_in_filter(FIELD_EMPLOYEE_ID, ids_list)
+        date_filter = (f"{FIELD_DATE} ge '{start_date}' and "
+                       f"{FIELD_DATE} le '{end_date}'")
+        filter_parts = [emp_filter, date_filter]
+        filter_query = "?$filter=" + " and ".join([p for p in filter_parts if p])
+
+        url = f"{RESOURCE}/api/data/v9.2/{ATTENDANCE_ENTITY}{filter_query}&$top=5000"
+        resp = requests.get(url, headers=headers)
+        if resp.status_code != 200:
+            return jsonify({"success": False, "error": f"Failed to fetch: {resp.status_code}", "details": resp.text}), 500
+        rows = resp.json().get("value", [])
+
+        records = {}
+        for r in rows:
+            emp_id = (r.get(FIELD_EMPLOYEE_ID) or "").upper()
+            date_str = r.get(FIELD_DATE)
+            checkin = r.get(FIELD_CHECKIN)
+            checkout = r.get(FIELD_CHECKOUT)
+            duration_str = r.get(FIELD_DURATION) or "0"
+            try:
+                duration_hours = float(duration_str)
+            except ValueError:
+                duration_hours = 0
+
+            if duration_hours >= 9:
+                status = "P"
+            elif 5 <= duration_hours < 9:
+                status = "H"
+            else:
+                status = "A"
+
+            day_num = None
+            if date_str:
+                try:
+                    day_num = int(date_str.split("-")[-1])
+                except Exception:
+                    pass
+
+            rec = {
+                "date": date_str,
+                "day": day_num,
+                "checkIn": checkin,
+                "checkOut": checkout,
+                "duration": duration_hours,
+                "duration_text": r.get(FIELD_DURATION_INTEXT),
+                "status": status
+            }
+            records.setdefault(emp_id, []).append(rec)
+
+        return jsonify({"success": True, "records": records, "count": len(rows)})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 # ================== LOGIN ROUTE ==================
 @app.route("/api/login", methods=["POST"])

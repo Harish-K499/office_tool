@@ -1,6 +1,6 @@
 import { getPageContentHTML } from '../utils.js';
 import { checkForNewLeaveNotifications } from '../features/notificationApi.js';
-import { fetchEmployeeLeaves, fetchPendingLeaves } from '../features/leaveApi.js';
+import { fetchEmployeeLeaves, fetchPendingLeaves, fetchOnLeaveToday } from '../features/leaveApi.js';
 import { listEmployees } from '../features/employeeApi.js';
 import { getHolidays } from '../features/holidaysApi.js';
 import { fetchMonthlyAttendance } from '../features/attendanceApi.js';
@@ -156,7 +156,6 @@ const buildLineChart = (points = []) => {
 
 const fetchPeopleOnLeave = async (employees = []) => {
     const isAdmin = isAdminUser();
-    const today = new Date().toISOString().slice(0, 10);
     const currentEmpId = String(state.user?.id || '').toUpperCase();
     let sourceEmployees = employees;
     if (!isAdmin) {
@@ -164,7 +163,27 @@ const fetchPeopleOnLeave = async (employees = []) => {
         const myDept = (me?.department || '').trim().toLowerCase();
         sourceEmployees = employees.filter(emp => (emp.department || '').trim().toLowerCase() === myDept);
     }
-    const limited = sourceEmployees.slice(0, 25);
+    const limited = sourceEmployees.slice(0, 50);
+    const ids = limited
+        .map(emp => String(emp.employee_id || emp.id || '').toUpperCase())
+        .filter(id => id && id !== currentEmpId);
+
+    // Prefer aggregated endpoint; fallback to per-employee fetch if it fails
+    try {
+        const leaves = await fetchOnLeaveToday(ids);
+        return leaves.slice(0, 4).map(l => {
+            const emp = limited.find(e => String(e.employee_id || e.id || '').toUpperCase() === l.employee_id);
+            return {
+                name: `${emp?.first_name || ''} ${emp?.last_name || ''}`.trim() || l.employee_id,
+                leaveType: l.leave_type || 'Leave',
+                range: `${formatDate(l.start_date)} - ${formatDate(l.end_date || l.start_date)}`
+            };
+        });
+    } catch (err) {
+        console.warn('⚠️ Falling back to per-employee leave fetch (on-leave-today failed):', err);
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
     const results = [];
     for (const emp of limited) {
         const empId = String(emp.employee_id || emp.id || '').toUpperCase();
@@ -636,7 +655,8 @@ const loadDashboardData = async () => {
     const employeeId = String(user.id || '').toUpperCase();
 
     const [employeesResponse, holidays, attendanceRecords, pendingLeaves] = await Promise.all([
-        listEmployees(1, 500).catch(err => {
+        // Smaller page size to reduce payload; cache will keep it warm
+        listEmployees(1, 200).catch(err => {
             console.warn('⚠️ Failed to fetch employees:', err);
             return { items: [] };
         }),

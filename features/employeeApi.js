@@ -1,71 +1,91 @@
 // features/employeeApi.js
 import { API_BASE_URL } from '../config.js';
+import { state } from '../state.js';
+import { timedFetch } from './timedFetch.js';
 
 const BASE_URL = API_BASE_URL.replace(/\/$/, '');
+const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
 
 export async function listEmployees(page = 1, pageSize = 5) {
+  const cacheKey = `${page}|${pageSize}`;
+  const now = Date.now();
+  const cached = state?.cache?.employees?.[cacheKey];
+  if (cached && now - cached.fetchedAt < CACHE_TTL_MS) {
+    return cached.data;
+  }
+
   const url = new URL(`${BASE_URL}/api/employees`);
   url.searchParams.set('page', String(page));
   url.searchParams.set('pageSize', String(pageSize));
-  const res = await fetch(url);
+  const res = await timedFetch(url.toString(), {}, 'listEmployees');
   const data = await res.json();
   if (!res.ok || !data.success) {
     throw new Error(data.error || 'Failed to fetch employees');
   }
-  return {
+  const shaped = {
     items: data.employees || [],
     total: typeof data.total === 'number' ? data.total : undefined,
     page: data.page || page,
     pageSize: data.pageSize || pageSize
   };
+  try {
+    if (state?.cache?.employees) {
+      state.cache.employees[cacheKey] = { data: shaped, fetchedAt: now };
+    }
+  } catch { /* ignore cache errors */ }
+  return shaped;
 }
 
 export async function createEmployee(payload) {
-  const res = await fetch(`${BASE_URL}/api/employees`, {
+  const res = await timedFetch(`${BASE_URL}/api/employees`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
-  });
+  }, 'createEmployee');
   const data = await res.json();
   if (!res.ok || !data.success) {
     throw new Error(data.error || 'Failed to create employee');
   }
+  try { if (state?.cache?.employees) state.cache.employees = {}; } catch { }
   return data.employee;
 }
 
 export async function updateEmployee(employeeId, payload) {
-  const res = await fetch(`${BASE_URL}/api/employees/${encodeURIComponent(employeeId)}`, {
+  const res = await timedFetch(`${BASE_URL}/api/employees/${encodeURIComponent(employeeId)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
-  });
+  }, 'updateEmployee');
   const data = await res.json();
   if (!res.ok || !data.success) {
     throw new Error(data.error || 'Failed to update employee');
   }
+  try { if (state?.cache?.employees) state.cache.employees = {}; } catch { }
   return data.employee;
 }
 
 export async function deleteEmployee(employeeId) {
-  const res = await fetch(`${BASE_URL}/api/employees/${encodeURIComponent(employeeId)}`, {
+  const res = await timedFetch(`${BASE_URL}/api/employees/${encodeURIComponent(employeeId)}`, {
     method: 'DELETE'
-  });
+  }, 'deleteEmployee');
   const data = await res.json();
   if (!res.ok || !data.success) {
     throw new Error(data.error || 'Failed to delete employee');
   }
+  try { if (state?.cache?.employees) state.cache.employees = {}; } catch { }
   return true;
 }
 
 export async function bulkCreateEmployees(employees) {
-  const res = await fetch(`${BASE_URL}/api/employees/bulk`, {
+  const res = await timedFetch(`${BASE_URL}/api/employees/bulk`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ employees })
-  });
+  }, 'bulkCreateEmployees');
   const data = await res.json();
   if (!res.ok || !data.success) {
     throw new Error(data.error || 'Failed to bulk upload employees');
   }
+  try { if (state?.cache?.employees) state.cache.employees = {}; } catch { }
   return data;
 }

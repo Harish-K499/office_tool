@@ -1,20 +1,4 @@
-
-import { renderHomePage } from './pages/home.js';
-import { renderEmployeesPage, renderBulkUploadPage, renderBulkDeletePage } from './pages/employees.js';
-import { renderInternsPage } from './pages/interns.js';
-import { renderInternDetailPage } from './pages/internDetail.js';
-import { renderTeamManagementPage } from './pages/teamManagement.js';
-import { renderLeaveTrackerPage } from './pages/leaveTracker.js';
-import { renderLeaveSettingsPage } from './pages/leaveSettings.js';
-import { renderLoginSettingsPage } from './pages/loginSettings.js';
-import { renderMyAttendancePage, renderTeamAttendancePage } from './pages/attendance.js';
-import { renderInboxPage, renderTimeTrackerPage, renderMyTasksPage, renderMyTimesheetPage, renderTeamTimesheetPage, renderTTClientsPage, renderMeetPage } from './pages/shared.js';
-import { renderProjectsRoute } from './pages/projects.js';
-import { renderAssetsPage } from "./pages/assets.js";
-import { renderHolidaysPage } from './pages/holidays.js';
 import { state } from './state.js';
-import { renderCompOffPage } from "./pages/comp_off.js";
-import { renderOnboardingPage } from './pages/onboarding.js';
 
 // Check if current user is admin
 const isAdminUser = () => {
@@ -52,119 +36,92 @@ const renderAccessDenied = (redirectPath = '#/') => {
   `;
 };
 
-const routes = {
-  "/": renderHomePage,
-  "/employees": async () => {
-    if (!isManagerOrAdmin()) {
-      renderAccessDenied("#/");
-      return;
-    }
-    await renderEmployeesPage();
-  },
-  "/interns": async () => {
-    if (!isManagerOrAdmin()) {
-      renderAccessDenied("#/" );
-      return;
-    }
-    await renderInternsPage();
-  },
-  "/employees/bulk-upload": async () => {
-    if (!isManagerOrAdmin()) {
-      renderAccessDenied("#/");
-      return;
-    }
-    await renderBulkUploadPage();
-  },
-  "/employees/bulk-delete": async () => {
-    if (!isManagerOrAdmin()) {
-      renderAccessDenied("#/");
-      return;
-    }
-    await renderBulkDeletePage();
-  },
-  "/team-management": async () => {
-    if (!isManagerOrAdmin()) {
-      renderAccessDenied("#/");
-      return;
-    }
-    await renderTeamManagementPage();
-  },
-  "/inbox": renderInboxPage,
-  "/meet": renderMeetPage,
-  "/time-tracker": renderTimeTrackerPage,
-  "/time-my-tasks": renderMyTasksPage,
-  "/time-my-timesheet": renderMyTimesheetPage,
-  "/time-team-timesheet": async () => {
-    if (!isManagerOrAdmin()) {
-      renderAccessDenied("#/time-my-timesheet");
-      return;
-    }
-    await renderTeamTimesheetPage();
-  },
-  "/time-clients": async () => {
-    if (!isManagerOrAdmin()) {
-      renderAccessDenied("#/time-my-timesheet");
-      return;
-    }
-    await renderTTClientsPage();
-  },
-  "/time-projects": renderProjectsRoute,
-  "/leave-tracker": renderLeaveTrackerPage,
-  "/leave-my": async () => {
-    window.__leaveViewMode = "my";
-    await renderLeaveTrackerPage(1, true);
-  },
-  "/leave-team": async () => {
-    if (!isAdminUser()) {
-      console.warn("⚠️ Access denied: Only admin can view team leaves");
-      renderAccessDenied("#/leave-my");
-      return;
-    }
-    window.__leaveViewMode = "team";
-    await renderLeaveTrackerPage(1, true);
-  },
-  "/leave-settings": renderLeaveSettingsPage,
-  "/login-settings": async () => {
-    if (!isAdminUser()) {
-      renderAccessDenied("#/");
-      return;
-    }
-    await renderLoginSettingsPage();
-  },
-  "/compoff": renderCompOffPage,
-  "/attendance-my": renderMyAttendancePage,
-  "/attendance-team": async () => {
-    if (!isAdminUser()) {
-      console.warn("⚠️ Access denied: Only admin can view team attendance");
-      renderAccessDenied("#/attendance-my");
-      return;
-    }
-    await renderTeamAttendancePage();
-  },
-  "/assets": renderAssetsPage,
-  "/attendance-holidays": renderHolidaysPage,
-  "/onboarding": async () => {
-    if (!isL3User()) {
-      console.warn("⚠️ Access denied: Only L3 users can access onboarding");
-      renderAccessDenied("#/");
-      return;
-    }
-    await renderOnboardingPage();
-  },
+const loaders = {
+  "/": async () => (await import('./pages/home.js')).renderHomePage,
+  "/employees": async () => (await import('./pages/employees.js')).renderEmployeesPage,
+  "/interns": async () => (await import('./pages/interns.js')).renderInternsPage,
+  "/employees/bulk-upload": async () => (await import('./pages/employees.js')).renderBulkUploadPage,
+  "/employees/bulk-delete": async () => (await import('./pages/employees.js')).renderBulkDeletePage,
+  "/team-management": async () => (await import('./pages/teamManagement.js')).renderTeamManagementPage,
+  "/inbox": async () => (await import('./pages/shared.js')).renderInboxPage,
+  "/meet": async () => (await import('./pages/shared.js')).renderMeetPage,
+  "/time-tracker": async () => (await import('./pages/shared.js')).renderTimeTrackerPage,
+  "/time-my-tasks": async () => (await import('./pages/shared.js')).renderMyTasksPage,
+  "/time-my-timesheet": async () => (await import('./pages/shared.js')).renderMyTimesheetPage,
+  "/time-team-timesheet": async () => (await import('./pages/shared.js')).renderTeamTimesheetPage,
+  "/time-clients": async () => (await import('./pages/shared.js')).renderTTClientsPage,
+  "/time-projects": async () => (await import('./pages/projects.js')).renderProjectsRoute,
+  "/leave-tracker": async () => (await import('./pages/leaveTracker.js')).renderLeaveTrackerPage,
+  "/leave-my": async () => (await import('./pages/leaveTracker.js')).renderLeaveTrackerPage,
+  "/leave-team": async () => (await import('./pages/leaveTracker.js')).renderLeaveTrackerPage,
+  "/leave-settings": async () => (await import('./pages/leaveSettings.js')).renderLeaveSettingsPage,
+  "/login-settings": async () => (await import('./pages/loginSettings.js')).renderLoginSettingsPage,
+  "/compoff": async () => (await import('./pages/comp_off.js')).renderCompOffPage,
+  "/attendance-my": async () => (await import('./pages/attendance.js')).renderMyAttendancePage,
+  "/attendance-team": async () => (await import('./pages/attendance.js')).renderTeamAttendancePage,
+  "/assets": async () => (await import('./pages/assets.js')).renderAssetsPage,
+  "/attendance-holidays": async () => (await import('./pages/holidays.js')).renderHolidaysPage,
+  "/onboarding": async () => (await import('./pages/onboarding.js')).renderOnboardingPage,
+  "/interns/detail": async () => (await import('./pages/internDetail.js')).renderInternDetailPage,
 };
 
 export const router = async () => {
   const full = window.location.hash.slice(1) || '/';
   const path = full.split('?')[0] || '/';
+  // Special-case intern detail
   if (path.startsWith('/interns/')) {
     const internId = decodeURIComponent(path.substring('/interns/'.length));
+    const renderInternDetailPage = await loaders['/interns/detail']();
     await renderInternDetailPage(internId);
     updateActiveNav('/interns');
     return;
   }
-  const pageRenderer = routes[path] || renderHomePage; // Default to home
 
-  await pageRenderer();
+  const loadFn = loaders[path] || loaders['/'];
+  const renderer = await loadFn();
+
+  // Access checks
+  if (path.startsWith('/employees') || path === '/interns' || path === '/team-management') {
+    if (!isManagerOrAdmin()) {
+      renderAccessDenied("#/");
+      return;
+    }
+  }
+  if (path === '/time-team-timesheet' || path === '/time-clients') {
+    if (!isManagerOrAdmin()) {
+      renderAccessDenied("#/time-my-timesheet");
+      return;
+    }
+  }
+  if (path === '/leave-team') {
+    if (!isAdminUser()) {
+      renderAccessDenied("#/leave-my");
+      return;
+    }
+    window.__leaveViewMode = "team";
+  } else if (path === '/leave-my') {
+    window.__leaveViewMode = "my";
+  }
+  if (path === '/login-settings') {
+    if (!isAdminUser()) {
+      renderAccessDenied("#/");
+      return;
+    }
+  }
+  if (path === '/attendance-team') {
+    if (!isAdminUser()) {
+      renderAccessDenied("#/attendance-my");
+      return;
+    }
+  }
+  if (path === '/onboarding') {
+    if (!isL3User()) {
+      renderAccessDenied("#/");
+      return;
+    }
+  }
+
+  await renderer();
   updateActiveNav(path);
 };
 

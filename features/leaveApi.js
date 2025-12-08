@@ -1,19 +1,27 @@
 // features/leaveApi.js
 import { API_BASE_URL } from '../config.js';
+import { state } from '../state.js';
+import { timedFetch } from './timedFetch.js';
 
 const BASE_URL = API_BASE_URL.replace(/\/$/, '');
+const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
+const toKey = (id) => String(id || '').toUpperCase();
 
 export async function fetchEmployeeLeaves(employeeId) {
   try {
-    // Add cache-busting timestamp to ensure fresh data
-    const timestamp = new Date().getTime();
-    const res = await fetch(`${BASE_URL}/api/leaves/${employeeId}?_t=${timestamp}`, {
-      cache: 'no-cache',
+    const key = toKey(employeeId);
+    const now = Date.now();
+    const cached = state?.cache?.leaves?.[key];
+    if (cached && now - cached.fetchedAt < CACHE_TTL_MS) {
+      return cached.data;
+    }
+
+    const res = await timedFetch(`${BASE_URL}/api/leaves/${key}`, {
       headers: {
         'Cache-Control': 'no-cache',
         'Pragma': 'no-cache'
       }
-    });
+    }, 'fetchEmployeeLeaves');
     if (!res.ok) {
       console.error(`❌ HTTP Error: ${res.status} ${res.statusText}`);
       throw new Error(`Failed to fetch leaves: ${res.status} ${res.statusText}`);
@@ -23,8 +31,14 @@ export async function fetchEmployeeLeaves(employeeId) {
       console.error('❌ API returned error:', data.error);
       throw new Error(data.error || 'Failed to fetch leaves');
     }
-    console.log(`✅ Successfully fetched ${data.leaves?.length || 0} leave records`);
-    return data.leaves || [];
+    const leaves = data.leaves || [];
+    try {
+      if (state?.cache?.leaves) {
+        state.cache.leaves[key] = { data: leaves, fetchedAt: now };
+      }
+    } catch { /* ignore cache errors */ }
+    console.log(`✅ Successfully fetched ${leaves.length} leave records`);
+    return leaves;
   } catch (error) {
     console.error('❌ Error in fetchEmployeeLeaves:', error);
     throw error;
@@ -41,7 +55,39 @@ export async function applyLeave(leaveData) {
   if (!res.ok) {
     throw new Error(data.error || 'Failed to apply leave');
   }
+  try {
+    const key = toKey(leaveData?.employee_id || leaveData?.employeeId || leaveData?.employeeID);
+    if (key && state?.cache?.leaves) {
+      delete state.cache.leaves[key];
+    }
+  } catch { /* ignore cache errors */ }
   return data;
+}
+
+// Aggregated team leaves endpoint
+export async function fetchTeamLeavesBatch(employeeIds = []) {
+  const ids = employeeIds.filter(Boolean).map(toKey);
+  if (!ids.length) return [];
+  const qs = new URLSearchParams();
+  qs.set('employee_ids', ids.join(','));
+  const res = await timedFetch(`${BASE_URL}/api/leaves/team?${qs.toString()}`, {}, 'fetchTeamLeavesBatch');
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to fetch team leaves');
+  }
+  return data.leaves || [];
+}
+
+export async function fetchOnLeaveToday(employeeIds = []) {
+  const ids = employeeIds.filter(Boolean).map(toKey);
+  const qs = new URLSearchParams();
+  if (ids.length) qs.set('employee_ids', ids.join(','));
+  const res = await timedFetch(`${BASE_URL}/api/leaves/on-leave-today?${qs.toString()}`, {}, 'fetchOnLeaveToday');
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to fetch on-leave-today');
+  }
+  return data.leaves || [];
 }
 
 export async function fetchLeaveBalance(employeeId, leaveType) {
