@@ -344,9 +344,19 @@ const setupRealtimeCallClient = () => {
 
 const THEME_STORAGE_KEY = 'theme';
 
+// Time-based theme selection: light (day), sunset (evening), dark (night)
+const getTimeBasedTheme = () => {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 12) return 'light';      // Morning
+  if (hour >= 17 && hour < 20) return 'sunset';    // Evening (warm)
+  if (hour >= 20 || hour < 5) return 'dark';       // Night
+  return 'light';                                  // Afternoon default
+};
+
 const applyAppTheme = (theme) => {
   const body = document.body;
   body.classList.toggle('dark-theme', theme === 'dark');
+  body.classList.toggle('sunset-theme', theme === 'sunset');
   body.setAttribute('data-theme', theme);
 
   const toggle = document.getElementById('theme-toggle');
@@ -354,30 +364,22 @@ const applyAppTheme = (theme) => {
     const icon = toggle.querySelector('i');
     if (icon) {
       icon.classList.remove('fa-sun', 'fa-moon');
-      // Dark theme → show moon icon inside the knob; Light theme → sun icon
+      // Dark theme → moon icon; Light/sunset → sun icon
       icon.classList.add(theme === 'dark' ? 'fa-moon' : 'fa-sun');
     }
   }
 };
 
 const initTheme = () => {
-  let storedTheme = null;
-  try {
-    storedTheme = localStorage.getItem(THEME_STORAGE_KEY);
-  } catch {
-    storedTheme = null;
-  }
-
-  const theme =
-    storedTheme === 'dark' || storedTheme === 'light' ? storedTheme : 'light';
-
+  // Always pick theme from current time when app loads
+  const theme = getTimeBasedTheme();
   applyAppTheme(theme);
 
   const toggle = document.getElementById('theme-toggle');
   if (toggle) {
     toggle.addEventListener('click', () => {
-      const currentIsDark = document.body.classList.contains('dark-theme');
-      const nextTheme = currentIsDark ? 'light' : 'dark';
+      const current = document.body.getAttribute('data-theme') || 'light';
+      const nextTheme = current === 'dark' ? 'light' : 'dark';
       applyAppTheme(nextTheme);
       try {
         localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
