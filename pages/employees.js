@@ -164,12 +164,12 @@ export const renderEmployeesPage = async (filter = '', page = empCurrentPage) =>
             </div>` : '';
         const phoneRow = e.contactNumber ? `
             <div class="employee-card-detail">
-                <i class="fa-solid fa-phone"></i>
+                <i class="fa-solid fa-location-dot"></i>
                 <span>${e.contactNumber}</span>
             </div>` : '';
         const locationRow = e.location ? `
             <div class="employee-card-detail">
-                <i class="fa-solid fa-location-dot"></i>
+                <i class="fa-solid fa-phone"></i>
                 <span>${e.location}</span>
             </div>` : '';
 

@@ -3455,6 +3455,7 @@ body.dark-theme .icon-btn.header-theme-toggle i {
   display: flex;
   flex-direction: column;
   gap: 1.1rem;
+  height: 100%;
   transition: transform 0.25s ease, box-shadow 0.25s ease;
 }
 
@@ -3553,6 +3554,7 @@ body.dark-theme .user-avatar {
 .employee-card-footer {
   display: flex;
   justify-content: center;
+  margin-top: auto;
   gap: 0.65rem;
 }
 

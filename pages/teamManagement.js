@@ -850,21 +850,32 @@ export const renderTeamManagementPage = async (page = 1) => {
         
         /* Ultra-compact filter section */
         .tm-filter-shell { 
-          padding: 8px 12px; 
-          border: 1px solid rgba(15,23,42,0.3); 
-          border-radius: 8px; 
-          background: linear-gradient(to bottom, var(--surface-alt), var(--surface-color)); 
-          box-shadow: 0 1px 4px rgba(15,23,42,0.4); 
-          margin-bottom: 10px; 
+          padding: 10px 14px; 
+          border: 1px solid var(--border-color); 
+          border-radius: 14px; 
+          background: var(--surface-color); 
+          box-shadow: 0 10px 30px rgba(15,23,42,0.06); 
+          margin-bottom: 12px; 
         }
         .team-management-filters { 
           display: grid; 
-          grid-template-columns: 2fr 0.9fr 0.9fr auto; 
-          gap: 8px; 
-          align-items: end; 
+          grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.1fr); 
+          gap: 12px; 
+          align-items: flex-end; 
         }
-        .team-management-filters .filter-field { display: flex; flex-direction: column; gap: 2px; }
-        .team-management-filters label { font-weight: 600; color: var(--text-secondary); font-size: 0.7rem; margin-bottom: 1px; text-transform: uppercase; letter-spacing: 0.02em; }
+        .team-management-filters .filter-field { display: flex; flex-direction: column; gap: 3px; }
+        .team-management-filters label { font-weight: 600; color: var(--text-secondary); font-size: 0.7rem; margin-bottom: 0; text-transform: uppercase; letter-spacing: 0.04em; }
+        .team-management-filters .filter-search .inline-search {
+          width: 100%;
+          max-width: 420px;
+        }
+        .team-management-filters .inline-search input {
+          height: 34px;
+          font-size: 0.82rem;
+        }
+        .team-management-filters .inline-search i {
+          font-size: 0.78rem;
+        }
         .team-management-filters .input-with-icon { 
           display: flex; 
           align-items: center; 
@@ -911,9 +922,9 @@ export const renderTeamManagementPage = async (page = 1) => {
           gap: 6px; 
           font-size: 0.75rem; 
           color: var(--text-secondary); 
-          padding: 6px 10px;
+          padding: 4px 10px;
           background: var(--surface-alt);
-          border-radius: 6px;
+          border-radius: 999px;
         }
         .filter-checkbox input { 
           margin: 0; 
@@ -921,12 +932,13 @@ export const renderTeamManagementPage = async (page = 1) => {
           height: 16px; 
           cursor: pointer;
         }
-        .filter-toggle label { margin-bottom: 0; }
+        .filter-toggle label { margin-bottom: 2px; }
         .tm-view-toggle {
           display: inline-flex;
           align-items: center;
+          justify-content: flex-end;
           gap: 6px;
-          margin-top: 6px;
+          margin-top: 4px;
           flex-wrap: wrap;
         }
         .view-toggle-btn {
@@ -951,7 +963,21 @@ export const renderTeamManagementPage = async (page = 1) => {
         .view-toggle-btn i {
           font-size: 0.7rem;
         }
-        
+
+        @media (max-width: 1024px) {
+          .team-management-filters {
+            grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+          }
+          .team-management-filters .filter-toggle {
+            grid-column: 1 / -1;
+          }
+        }
+        @media (max-width: 640px) {
+          .team-management-filters {
+            grid-template-columns: 1fr;
+          }
+        }
+
         /* Ultra-compact table with optimized columns */
         .table-container { 
           overflow-x: auto; 
