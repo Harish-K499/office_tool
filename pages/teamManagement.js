@@ -943,7 +943,7 @@ export const renderTeamManagementPage = async (page = 1) => {
           display: inline-flex;
           align-items: center;
           justify-content: flex-end;
-          gap: 8px;
+          gap: 4px;
           flex-wrap: nowrap;
           max-width: 100%;
           flex-shrink: 1;
@@ -953,15 +953,15 @@ export const renderTeamManagementPage = async (page = 1) => {
           background: var(--surface-color);
           color: var(--text-secondary);
           border-radius: 999px;
-          padding: 6px 12px;
-          font-size: 0.72rem;
+          padding: 3px 8px;
+          font-size: 0.68rem;
           display: inline-flex;
           align-items: center;
           gap: 4px;
           cursor: pointer;
           transition: all 0.15s ease;
-          min-width: 80px;
-          height: 36px;
+          min-width: 0;
+          height: 26px;
         }
         .view-toggle-btn.active {
           background: var(--primary-color);
