@@ -786,18 +786,22 @@ export const renderTeamManagementPage = async (page = 1) => {
             <select id="tm-filter-department">${getDepartmentOptionsHTML(filters.department || '')}</select>
           </div>
           <div class="filter-field filter-toggle">
-            <label for="tm-group-toggle">Group by Manager</label>
-            <label class="filter-checkbox">
-              <input type="checkbox" id="tm-group-toggle" ${filters.groupByManager ? 'checked' : ''} ${viewMode === 'tree' ? 'disabled' : ''}>
-              <span>Enable grouping</span>
-            </label>
-            <div class="tm-view-toggle">
-              <button type="button" id="tm-view-table" class="view-toggle-btn ${viewMode === 'table' ? 'active' : ''}">
-                <i class="fa-solid fa-list"></i><span>List</span>
-              </button>
-              <button type="button" id="tm-view-tree" class="view-toggle-btn ${viewMode === 'tree' ? 'active' : ''}">
-                <i class="fa-solid fa-sitemap"></i><span>Tree</span>
-              </button>
+            <div class="filter-toggle-top">
+              <div class="filter-toggle-label">
+                <label for="tm-group-toggle">Group by Manager</label>
+                <label class="filter-checkbox">
+                  <input type="checkbox" id="tm-group-toggle" ${filters.groupByManager ? 'checked' : ''} ${viewMode === 'tree' ? 'disabled' : ''}>
+                  <span>Enable grouping</span>
+                </label>
+              </div>
+              <div class="tm-view-toggle" role="group" aria-label="Select view">
+                <button type="button" id="tm-view-table" class="view-toggle-btn ${viewMode === 'table' ? 'active' : ''}">
+                  <i class="fa-solid fa-list"></i><span>List</span>
+                </button>
+                <button type="button" id="tm-view-tree" class="view-toggle-btn ${viewMode === 'tree' ? 'active' : ''}">
+                  <i class="fa-solid fa-sitemap"></i><span>Tree</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -848,7 +852,7 @@ export const renderTeamManagementPage = async (page = 1) => {
         .team-management-controls { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; margin-bottom: 10px; }
         .team-management-controls .btn { padding: 6px 12px; font-size: 0.8rem; }
         
-        /* Ultra-compact filter section */
+        /* Filter section */
         .tm-filter-shell { 
           padding: 10px 14px; 
           border: 1px solid var(--border-color); 
@@ -859,11 +863,11 @@ export const renderTeamManagementPage = async (page = 1) => {
         }
         .team-management-filters { 
           display: grid; 
-          grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.1fr); 
-          gap: 12px; 
-          align-items: flex-end; 
+          grid-template-columns: minmax(0, 1.5fr) repeat(2, minmax(0, 1.05fr)) minmax(0, 1.25fr); 
+          gap: 14px; 
+          align-items: stretch; 
         }
-        .team-management-filters .filter-field { display: flex; flex-direction: column; gap: 3px; }
+        .team-management-filters .filter-field { display: flex; flex-direction: column; gap: 6px; }
         .team-management-filters label { font-weight: 600; color: var(--text-secondary); font-size: 0.7rem; margin-bottom: 0; text-transform: uppercase; letter-spacing: 0.04em; }
         .team-management-filters .filter-search .inline-search {
           width: 100%;
@@ -916,43 +920,40 @@ export const renderTeamManagementPage = async (page = 1) => {
           box-shadow: 0 0 0 2px rgba(59,130,246,0.12); 
           outline: none; 
         }
-        .filter-checkbox { 
-          display: inline-flex; 
-          align-items: center; 
-          gap: 6px; 
-          font-size: 0.75rem; 
-          color: var(--text-secondary); 
-          padding: 4px 10px;
+        .filter-toggle-top {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 8px 10px;
           background: var(--surface-alt);
-          border-radius: 999px;
+          border: 1px solid var(--border-color);
+          border-radius: 12px;
         }
-        .filter-checkbox input { 
-          margin: 0; 
-          width: 16px; 
-          height: 16px; 
-          cursor: pointer;
-        }
-        .filter-toggle label { margin-bottom: 2px; }
+        .filter-toggle-label { display: flex; flex-direction: column; gap: 6px; }
+        .filter-checkbox { display: inline-flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--text-secondary); padding: 0; background: transparent; border-radius: 8px; }
+        .filter-checkbox input { margin: 0; width: 16px; height: 16px; cursor: pointer; }
+        .filter-toggle label { margin-bottom: 0; }
         .tm-view-toggle {
           display: inline-flex;
           align-items: center;
           justify-content: flex-end;
-          gap: 6px;
-          margin-top: 4px;
-          flex-wrap: wrap;
+          gap: 8px;
+          flex-wrap: nowrap;
         }
         .view-toggle-btn {
           border: 1px solid #4b5563;
           background: var(--surface-alt);
           color: var(--text-secondary);
           border-radius: 999px;
-          padding: 4px 10px;
+          padding: 6px 12px;
           font-size: 0.7rem;
           display: inline-flex;
           align-items: center;
           gap: 4px;
           cursor: pointer;
           transition: all 0.15s ease;
+          min-width: 78px;
         }
         .view-toggle-btn.active {
           background: var(--primary-color);
@@ -971,11 +972,20 @@ export const renderTeamManagementPage = async (page = 1) => {
           .team-management-filters .filter-toggle {
             grid-column: 1 / -1;
           }
+          .filter-toggle-top {
+            flex-wrap: wrap;
+          }
+          .tm-view-toggle {
+            width: 100%;
+            justify-content: flex-start;
+          }
         }
         @media (max-width: 640px) {
           .team-management-filters {
             grid-template-columns: 1fr;
           }
+          .filter-toggle-top { align-items: flex-start; }
+          .tm-view-toggle { justify-content: flex-start; flex-wrap: wrap; }
         }
 
         /* Ultra-compact table with optimized columns */
