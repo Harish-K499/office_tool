@@ -2222,13 +2222,11 @@ export const renderMeetPage = async () => {
         /* Keep the participant panel anchored near the call area without full-page blur */
         .meet-call-modal {
             position: fixed;
-            top: 96px;
-            right: 24px;
-            left: auto;
-            bottom: auto;
+            inset: 0;
+            padding: 16px;
             display: flex;
-            align-items: flex-start;
-            justify-content: flex-end;
+            align-items: center;
+            justify-content: center;
             z-index: 9999;
             background: transparent;
             backdrop-filter: none;
@@ -2249,10 +2247,9 @@ export const renderMeetPage = async () => {
         }
         @media (max-width: 768px) {
             .meet-call-modal {
-                top: auto;
-                right: 12px;
-                left: 12px;
-                bottom: 16px;
+                inset: 0;
+                padding: 12px;
+                align-items: flex-end;
                 justify-content: center;
             }
             .meet-call-modal-card {
