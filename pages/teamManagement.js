@@ -854,7 +854,7 @@ export const renderTeamManagementPage = async (page = 1) => {
         
         /* Filter section */
         .tm-filter-shell { 
-          padding: 10px 14px; 
+          padding: 16px 18px; 
           border: 1px solid var(--border-color); 
           border-radius: 14px; 
           background: var(--surface-color); 
@@ -863,18 +863,20 @@ export const renderTeamManagementPage = async (page = 1) => {
         }
         .team-management-filters { 
           display: grid; 
-          grid-template-columns: minmax(0, 1.5fr) repeat(2, minmax(0, 1.05fr)) minmax(0, 1.25fr); 
-          gap: 14px; 
+          grid-template-columns: minmax(240px, 1.6fr) minmax(180px, 1fr) minmax(180px, 1fr) minmax(240px, 1.1fr); 
+          column-gap: 20px; 
+          row-gap: 16px;
           align-items: stretch; 
         }
-        .team-management-filters .filter-field { display: flex; flex-direction: column; gap: 6px; }
+        .team-management-filters .filter-field { display: flex; flex-direction: column; gap: 10px; height: 100%; }
         .team-management-filters label { font-weight: 600; color: var(--text-secondary); font-size: 0.7rem; margin-bottom: 0; text-transform: uppercase; letter-spacing: 0.04em; }
         .team-management-filters .filter-search .inline-search {
           width: 100%;
           max-width: 420px;
+          height: 42px;
         }
         .team-management-filters .inline-search input {
-          height: 34px;
+          height: 42px;
           font-size: 0.82rem;
         }
         .team-management-filters .inline-search i {
@@ -883,11 +885,11 @@ export const renderTeamManagementPage = async (page = 1) => {
         .team-management-filters .input-with-icon { 
           display: flex; 
           align-items: center; 
-          gap: 6px; 
-          padding: 0 8px; 
+          gap: 10px; 
+          padding: 0 12px; 
           border: 1px solid #d1d5db; 
-          border-radius: 6px; 
-          height: 30px; 
+          border-radius: 10px; 
+          height: 42px; 
           background: var(--surface-color); 
           transition: all 0.2s ease; 
         }
@@ -906,11 +908,11 @@ export const renderTeamManagementPage = async (page = 1) => {
         }
         .team-management-filters select { 
           width: 100%; 
-          height: 30px; 
-          border-radius: 6px; 
+          height: 42px; 
+          border-radius: 10px; 
           border: 1px solid #d1d5db; 
-          padding: 0 8px; 
-          font-size: 0.8rem; 
+          padding: 0 12px; 
+          font-size: 0.82rem; 
           background: var(--surface-color); 
           transition: all 0.2s ease; 
           color: var(--text-primary);
@@ -921,39 +923,42 @@ export const renderTeamManagementPage = async (page = 1) => {
           outline: none; 
         }
         .filter-toggle-top {
-          display: flex;
+          display: grid;
+          grid-template-columns: 1fr auto;
+          column-gap: 16px;
+          row-gap: 10px;
           align-items: center;
-          justify-content: space-between;
-          gap: 12px;
-          padding: 8px 10px;
-          background: var(--surface-alt);
+          padding: 12px 14px;
+          background: #f8fafc;
           border: 1px solid var(--border-color);
-          border-radius: 12px;
+          border-radius: 14px;
+          min-height: 42px;
         }
-        .filter-toggle-label { display: flex; flex-direction: column; gap: 6px; }
-        .filter-checkbox { display: inline-flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--text-secondary); padding: 0; background: transparent; border-radius: 8px; }
+        .filter-field.filter-toggle { height: 100%; }
+        .filter-toggle-label { display: grid; row-gap: 6px; align-content: start; }
+        .filter-checkbox { display: inline-flex; align-items: center; gap: 8px; font-size: 0.75rem; color: var(--text-secondary); padding: 0; background: transparent; border-radius: 8px; }
         .filter-checkbox input { margin: 0; width: 16px; height: 16px; cursor: pointer; }
         .filter-toggle label { margin-bottom: 0; }
         .tm-view-toggle {
           display: inline-flex;
           align-items: center;
           justify-content: flex-end;
-          gap: 8px;
+          gap: 10px;
           flex-wrap: nowrap;
         }
         .view-toggle-btn {
-          border: 1px solid #4b5563;
-          background: var(--surface-alt);
+          border: 1px solid #cbd5e1;
+          background: var(--surface-color);
           color: var(--text-secondary);
           border-radius: 999px;
-          padding: 6px 12px;
-          font-size: 0.7rem;
+          padding: 8px 16px;
+          font-size: 0.72rem;
           display: inline-flex;
           align-items: center;
           gap: 4px;
           cursor: pointer;
           transition: all 0.15s ease;
-          min-width: 78px;
+          min-width: 96px;
         }
         .view-toggle-btn.active {
           background: var(--primary-color);
