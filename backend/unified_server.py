@@ -10681,8 +10681,8 @@ def get_login_events():
             summary["events"].append(event)
             
             if event.get("event_type") == "check_in":
-                # Use the earliest check-in
-                if not summary["check_in_time"] or event.get("server_time_utc", "") < summary["check_in_time"]:
+                # Use the latest check-in for the day
+                if not summary["check_in_time"] or event.get("server_time_utc", "") > summary["check_in_time"]:
                     summary["check_in_time"] = event.get("server_time_utc")
                     # Store full location details (city + coords) for transparency
                     summary["check_in_location"] = {
