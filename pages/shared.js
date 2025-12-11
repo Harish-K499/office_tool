@@ -2230,20 +2230,10 @@ export const renderMeetPage = async () => {
             align-items: center;
             justify-content: center;
             z-index: 9999;
-            background: rgba(0, 0, 0, 0.5);
         }
         .meet-call-modal.hidden { display: none !important; }
         .meet-call-modal-card {
             position: relative;
-            width: min(400px, 90vw);
-            background: linear-gradient(160deg, #0f172a, #111827);
-            border-radius: 16px;
-            padding: 20px 20px 16px;
-            box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
-            max-height: 72vh;
-            overflow-y: auto;
-            border: 1px solid rgba(148, 163, 184, 0.4);
-            color: #e5e7eb;
         }
         #meet-call-close {
             cursor: pointer;
@@ -2266,7 +2256,6 @@ export const renderMeetPage = async () => {
         @media (max-width: 768px) {
             .meet-call-modal-card {
                 width: min(420px, 94vw);
-                max-height: 68vh;
             }
         }
         .meet-call-banner {
@@ -2438,8 +2427,8 @@ export const renderMeetPage = async () => {
             </div>
         </div>
     </div>
-    <div id="meet-call-modal" class="meet-call-modal hidden">
-        <div class="meet-call-modal-card">
+    <div id="meet-call-modal" class="meet-call-modal incoming-call-overlay hidden">
+        <div class="meet-call-modal-card incoming-call-modal">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
                 <div>
                     <h3 style="margin:0; font-size:18px;">Call participants</h3>
@@ -2459,8 +2448,8 @@ export const renderMeetPage = async () => {
                 </div>
             </div>
             <div id="meet-call-list"></div>
-            <div class="meet-call-footer">
-                <button type="button" id="meet-call-cancel" class="btn btn-outline-light btn-sm">
+            <div class="meet-call-footer incoming-call-actions">
+                <button type="button" id="meet-call-cancel" class="incoming-call-btn incoming-call-btn-decline">
                     <i class="fa-solid fa-phone-slash"></i> Cancel call
                 </button>
             </div>
