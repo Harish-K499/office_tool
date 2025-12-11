@@ -10414,15 +10414,27 @@ def ai_query():
                 "isAutomation": True
             }
             
-            # If there's an action to execute (e.g., create employee)
+            # If there's an action to execute (e.g., create employee, search employee)
             action = automation_result.get("action")
             if action:
                 token = get_access_token()
                 action_result = execute_automation_action(action, token)
                 
                 if action_result.get("success"):
-                    # Append success message to response
-                    response_data["answer"] += f"\n\n🎉 {action_result.get('message')}"
+                    # Special handling for search_employee - update state with found employee
+                    if action.get("type") == "search_employee" and action_result.get("employee"):
+                        # Update the automation state with the found employee
+                        current_state = response_data.get("automationState", {})
+                        current_state["edit_target"] = action_result.get("employee")
+                        response_data["automationState"] = current_state
+                        
+                        # Build the edit menu response
+                        from ai_automation import _build_edit_menu
+                        menu = _build_edit_menu(action_result.get("employee"))
+                        response_data["answer"] = f"✅ {action_result.get('message')}\n\n{menu}"
+                    else:
+                        # Normal success - append message
+                        response_data["answer"] += f"\n\n🎉 {action_result.get('message')}"
                     response_data["actionResult"] = action_result
                 else:
                     response_data["answer"] += f"\n\n❌ Error: {action_result.get('error')}"

@@ -121,7 +121,16 @@ AUTOMATION_INTENTS = {
         "flow": "employee_creation",
         "description": "Create a new employee record"
     },
-    # Future: add more intents like "apply_leave", "create_asset", etc.
+    "edit_employee": {
+        "keywords": [
+            "edit employee", "update employee", "modify employee", "change employee",
+            "edit an employee", "update an employee", "edit employee record",
+            "update employee record", "modify employee record", "change employee details",
+            "edit employee details", "update employee details"
+        ],
+        "flow": "employee_edit",
+        "description": "Edit/update an existing employee record"
+    },
 }
 
 
@@ -154,13 +163,17 @@ class ConversationState:
         self.current_step: int = 0
         self.collected_data: Dict[str, Any] = {}
         self.awaiting_confirmation: bool = False
+        self.edit_target: Optional[Dict[str, Any]] = None  # For edit flows: stores the employee being edited
+        self.edit_field: Optional[str] = None  # Current field being edited
     
     def to_dict(self) -> Dict[str, Any]:
         return {
             "active_flow": self.active_flow,
             "current_step": self.current_step,
             "collected_data": self.collected_data,
-            "awaiting_confirmation": self.awaiting_confirmation
+            "awaiting_confirmation": self.awaiting_confirmation,
+            "edit_target": self.edit_target,
+            "edit_field": self.edit_field
         }
     
     @classmethod
@@ -170,6 +183,8 @@ class ConversationState:
         state.current_step = data.get("current_step", 0)
         state.collected_data = data.get("collected_data", {})
         state.awaiting_confirmation = data.get("awaiting_confirmation", False)
+        state.edit_target = data.get("edit_target")
+        state.edit_field = data.get("edit_field")
         return state
     
     def reset(self):
@@ -177,6 +192,21 @@ class ConversationState:
         self.current_step = 0
         self.collected_data = {}
         self.awaiting_confirmation = False
+        self.edit_target = None
+        self.edit_field = None
+
+
+# ================== EDITABLE FIELDS FOR UPDATE ==================
+
+EDITABLE_FIELDS = [
+    {"key": "first_name", "label": "First Name", "number": "1"},
+    {"key": "last_name", "label": "Last Name", "number": "2"},
+    {"key": "email", "label": "Email", "number": "3"},
+    {"key": "designation", "label": "Designation", "number": "4"},
+    {"key": "contact_number", "label": "Contact Number", "number": "5"},
+    {"key": "doj", "label": "Date of Joining", "number": "6"},
+    {"key": "employee_flag", "label": "Employee Type", "number": "7"},
+]
 
 
 # ================== FLOW HANDLERS ==================
@@ -283,6 +313,184 @@ def _build_employee_summary(data: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+# ================== EMPLOYEE EDIT FLOW ==================
+
+def handle_employee_edit_flow(
+    user_message: str,
+    state: ConversationState
+) -> Tuple[str, ConversationState, Optional[Dict[str, Any]]]:
+    """
+    Handle the employee edit/update conversation flow.
+    
+    Flow:
+    1. Ask for employee ID or email to find the employee
+    2. Show current details and ask which field to edit
+    3. Get new value for the field
+    4. Confirm and update
+    """
+    
+    # Starting the flow - ask for employee identifier
+    if state.active_flow != "employee_edit":
+        state.active_flow = "employee_edit"
+        state.current_step = 0
+        state.collected_data = {}
+        state.awaiting_confirmation = False
+        state.edit_target = None
+        state.edit_field = None
+        
+        response = """I'll help you edit an employee record. 📝
+
+Please provide the **Employee ID** or **Email** of the employee you want to edit.
+
+(Type **'cancel'** at any time to stop.)"""
+        return response, state, None
+    
+    # Check for cancel
+    if user_message.strip().lower() in ['cancel', 'stop', 'quit', 'exit', 'nevermind']:
+        state.reset()
+        return "No problem! Edit cancelled. Let me know if you need anything else. 👋", state, None
+    
+    # Step 0: Looking up the employee
+    if state.current_step == 0 and state.edit_target is None:
+        # User provided employee ID or email - we need to look them up
+        # Store the search term and signal that we need to look up
+        search_term = user_message.strip()
+        state.collected_data["search_term"] = search_term
+        state.current_step = 1
+        
+        # Return action to search for employee
+        action = {
+            "type": "search_employee",
+            "search_term": search_term
+        }
+        return "🔍 Searching for employee...", state, action
+    
+    # Step 1: Employee found, show details and ask which field to edit
+    if state.current_step == 1 and state.edit_target:
+        # Check if user selected a field number or 'done'
+        user_input = user_message.strip().lower()
+        
+        if user_input in ['done', 'finish', 'save', 'update', 'confirm']:
+            if not state.collected_data.get("updates"):
+                return "You haven't made any changes yet. Please select a field number to edit, or type **'cancel'** to exit.", state, None
+            
+            # Show summary and confirm
+            state.awaiting_confirmation = True
+            updates_summary = _build_updates_summary(state.collected_data.get("updates", {}))
+            response = f"""Here are the changes you want to make:
+
+{updates_summary}
+
+**Confirm update?** Type **'yes'** to save changes or **'no'** to cancel."""
+            return response, state, None
+        
+        # Check if it's a field number
+        field_map = {f["number"]: f for f in EDITABLE_FIELDS}
+        if user_input in field_map:
+            field = field_map[user_input]
+            state.edit_field = field["key"]
+            state.current_step = 2
+            
+            current_value = state.edit_target.get(field["key"], "(not set)")
+            response = f"""Editing **{field['label']}**
+
+Current value: **{current_value}**
+
+Enter the new value (or type **'skip'** to keep current):"""
+            return response, state, None
+        
+        # Invalid input - show menu again
+        return _build_edit_menu(state.edit_target), state, None
+    
+    # Step 2: Getting new value for a field
+    if state.current_step == 2 and state.edit_field:
+        user_input = user_message.strip()
+        
+        if user_input.lower() != 'skip':
+            # Validate the input based on field type
+            field_config = next((f for f in EMPLOYEE_FIELDS if f["key"] == state.edit_field), None)
+            
+            if field_config and not field_config.get("validate", lambda x: True)(user_input):
+                return f"❌ {field_config.get('error', 'Invalid input')}. Please try again:", state, None
+            
+            # Store the update
+            if "updates" not in state.collected_data:
+                state.collected_data["updates"] = {}
+            
+            normalized = _normalize_value(state.edit_field, user_input)
+            state.collected_data["updates"][state.edit_field] = normalized
+        
+        # Go back to field selection
+        state.current_step = 1
+        state.edit_field = None
+        
+        response = f"✓ Got it!\n\n{_build_edit_menu(state.edit_target, state.collected_data.get('updates', {}))}"
+        return response, state, None
+    
+    # Handle confirmation
+    if state.awaiting_confirmation:
+        answer = user_message.strip().lower()
+        if answer in ['yes', 'y', 'confirm', 'save', 'ok']:
+            # Execute the update
+            action = {
+                "type": "update_employee",
+                "employee_id": state.edit_target.get("employee_id"),
+                "record_guid": state.edit_target.get("record_guid"),
+                "updates": state.collected_data.get("updates", {})
+            }
+            state.reset()
+            return "✅ Updating employee record...", state, action
+        elif answer in ['no', 'n', 'cancel']:
+            state.reset()
+            return "Update cancelled. Let me know if you need anything else! 👋", state, None
+        else:
+            return "Please type **'yes'** to confirm the update, or **'no'** to cancel.", state, None
+    
+    # Fallback
+    return "I didn't understand that. Please try again or type **'cancel'** to exit.", state, None
+
+
+def _build_edit_menu(employee: Dict[str, Any], pending_updates: Dict[str, Any] = None) -> str:
+    """Build the field selection menu for editing."""
+    pending_updates = pending_updates or {}
+    
+    name = f"{employee.get('first_name', '')} {employee.get('last_name', '')}".strip()
+    emp_id = employee.get('employee_id', 'Unknown')
+    
+    lines = [
+        f"**Employee:** {name} ({emp_id})",
+        "",
+        "Select a field to edit (enter the number):",
+        ""
+    ]
+    
+    for field in EDITABLE_FIELDS:
+        current = employee.get(field["key"], "(not set)")
+        pending = pending_updates.get(field["key"])
+        
+        if pending:
+            lines.append(f"**{field['number']}.** {field['label']}: ~~{current}~~ → **{pending}** ✏️")
+        else:
+            lines.append(f"**{field['number']}.** {field['label']}: {current}")
+    
+    lines.append("")
+    lines.append("Type **'done'** when finished to save all changes.")
+    
+    return "\n".join(lines)
+
+
+def _build_updates_summary(updates: Dict[str, Any]) -> str:
+    """Build a summary of pending updates."""
+    lines = []
+    field_labels = {f["key"]: f["label"] for f in EDITABLE_FIELDS}
+    
+    for key, value in updates.items():
+        label = field_labels.get(key, key.replace('_', ' ').title())
+        lines.append(f"• **{label}:** {value}")
+    
+    return "\n".join(lines)
+
+
 # ================== MAIN AUTOMATION HANDLER ==================
 
 def process_automation(
@@ -320,12 +528,28 @@ def process_automation(
                 "state": state.to_dict(),
                 "action": action
             }
+        elif state.active_flow == "employee_edit":
+            response, state, action = handle_employee_edit_flow(user_message, state)
+            return {
+                "is_automation": True,
+                "response": response,
+                "state": state.to_dict(),
+                "action": action
+            }
     
     # Check for new automation intent
     intent = detect_automation_intent(user_message)
     if intent:
         if intent["flow"] == "employee_creation":
             response, state, action = handle_employee_creation_flow(user_message, state)
+            return {
+                "is_automation": True,
+                "response": response,
+                "state": state.to_dict(),
+                "action": action
+            }
+        elif intent["flow"] == "employee_edit":
+            response, state, action = handle_employee_edit_flow(user_message, state)
             return {
                 "is_automation": True,
                 "response": response,
@@ -526,6 +750,181 @@ def execute_automation_action(action: Dict[str, Any], token: str) -> Dict[str, A
             return {
                 "success": False,
                 "error": str(e)
+            }
+    
+    # ==================== SEARCH EMPLOYEE (for edit flow) ====================
+    if action["type"] == "search_employee":
+        try:
+            from unified_server import (
+                get_employee_entity_set, get_field_map, BASE_URL
+            )
+            
+            search_term = action.get("search_term", "").strip()
+            entity_set = get_employee_entity_set(token)
+            field_map = get_field_map(entity_set)
+            
+            headers = {"Authorization": f"Bearer {token}"}
+            
+            # Try to find by employee ID first, then by email
+            employee = None
+            
+            # Search by employee ID
+            if search_term.upper().startswith("EMP") or search_term.isdigit():
+                id_field = field_map.get('id', 'crc6f_employeeid')
+                safe_term = search_term.strip().replace("'", "''")
+                url = f"{BASE_URL}/{entity_set}?$filter={id_field} eq '{safe_term}'"
+                resp = requests.get(url, headers=headers)
+                if resp.status_code == 200:
+                    results = resp.json().get('value', [])
+                    if results:
+                        employee = results[0]
+            
+            # Search by email if not found
+            if not employee and '@' in search_term:
+                email_field = field_map.get('email', 'crc6f_email')
+                safe_email = search_term.lower().strip().replace("'", "''")
+                url = f"{BASE_URL}/{entity_set}?$filter={email_field} eq '{safe_email}'"
+                resp = requests.get(url, headers=headers)
+                if resp.status_code == 200:
+                    results = resp.json().get('value', [])
+                    if results:
+                        employee = results[0]
+            
+            # Try contains search as fallback
+            if not employee:
+                id_field = field_map.get('id', 'crc6f_employeeid')
+                safe_term = search_term.strip().replace("'", "''")
+                url = f"{BASE_URL}/{entity_set}?$filter=contains({id_field}, '{safe_term}')"
+                resp = requests.get(url, headers=headers)
+                if resp.status_code == 200:
+                    results = resp.json().get('value', [])
+                    if results:
+                        employee = results[0]
+            
+            if not employee:
+                return {
+                    "success": False,
+                    "error": f"No employee found with ID or email: **{search_term}**. Please check and try again."
+                }
+            
+            # Extract employee data
+            if field_map.get('fullname'):
+                fullname = employee.get(field_map['fullname'], '')
+                parts = fullname.split(' ', 1)
+                first_name = parts[0] if parts else ''
+                last_name = parts[1] if len(parts) > 1 else ''
+            else:
+                first_name = employee.get(field_map.get('firstname', ''), '')
+                last_name = employee.get(field_map.get('lastname', ''), '')
+            
+            employee_data = {
+                "employee_id": employee.get(field_map.get('id')),
+                "record_guid": employee.get(field_map.get('primary')),
+                "first_name": first_name,
+                "last_name": last_name,
+                "email": employee.get(field_map.get('email', ''), ''),
+                "designation": employee.get(field_map.get('designation', ''), ''),
+                "contact_number": employee.get(field_map.get('contact', ''), ''),
+                "doj": employee.get(field_map.get('doj', ''), ''),
+                "employee_flag": employee.get(field_map.get('employee_flag', ''), ''),
+            }
+            
+            return {
+                "success": True,
+                "employee": employee_data,
+                "message": f"Found employee: {first_name} {last_name}"
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Error searching for employee: {str(e)}"
+            }
+    
+    # ==================== UPDATE EMPLOYEE ====================
+    if action["type"] == "update_employee":
+        try:
+            from unified_server import (
+                get_employee_entity_set, get_field_map, BASE_URL
+            )
+            
+            employee_id = action.get("employee_id")
+            record_guid = action.get("record_guid")
+            updates = action.get("updates", {})
+            
+            if not updates:
+                return {
+                    "success": False,
+                    "error": "No updates provided"
+                }
+            
+            entity_set = get_employee_entity_set(token)
+            field_map = get_field_map(entity_set)
+            
+            # Build the update payload
+            payload = {}
+            
+            for key, value in updates.items():
+                if key == "first_name":
+                    if field_map.get('firstname'):
+                        payload[field_map['firstname']] = value
+                    elif field_map.get('fullname'):
+                        # Need to update fullname - get last name first
+                        payload[field_map['fullname']] = f"{value} {updates.get('last_name', '')}".strip()
+                elif key == "last_name":
+                    if field_map.get('lastname'):
+                        payload[field_map['lastname']] = value
+                    elif field_map.get('fullname') and 'first_name' not in updates:
+                        # Need to preserve first name
+                        payload[field_map['fullname']] = f"{updates.get('first_name', '')} {value}".strip()
+                elif key == "email" and field_map.get('email'):
+                    payload[field_map['email']] = value
+                elif key == "designation" and field_map.get('designation'):
+                    payload[field_map['designation']] = value
+                elif key == "contact_number" and field_map.get('contact'):
+                    payload[field_map['contact']] = value
+                elif key == "doj" and field_map.get('doj'):
+                    payload[field_map['doj']] = value
+                elif key == "employee_flag" and field_map.get('employee_flag'):
+                    payload[field_map['employee_flag']] = value
+            
+            if not payload:
+                return {
+                    "success": False,
+                    "error": "Could not map any fields for update"
+                }
+            
+            # Perform the PATCH request
+            primary_key = field_map.get('primary', 'crc6f_table12id')
+            url = f"{BASE_URL}/{entity_set}({record_guid})"
+            
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+                "OData-MaxVersion": "4.0",
+                "OData-Version": "4.0",
+                "If-Match": "*"
+            }
+            
+            resp = requests.patch(url, headers=headers, json=payload)
+            
+            if resp.status_code in [200, 204]:
+                updated_fields = ", ".join([f"**{k}**" for k in updates.keys()])
+                return {
+                    "success": True,
+                    "message": f"Employee **{employee_id}** updated successfully! Changed: {updated_fields}",
+                    "employee_id": employee_id
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Failed to update employee: {resp.status_code} - {resp.text[:200]}"
+                }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Error updating employee: {str(e)}"
             }
     
     return {

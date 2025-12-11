@@ -9,9 +9,9 @@ let automationState = null; // State for multi-step automation flows
 
 const AI_SUGGESTIONS = [
     "How many employees are active?",
-    "Show my attendance summary",
-    "What are the pending leave requests?",
     "Create an employee record",
+    "Edit employee record",
+    "Show my attendance summary",
     "List upcoming holidays",
 ];
 
