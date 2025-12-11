@@ -355,6 +355,36 @@ INBOX_ENTITY_RESOLVED = None
 # Store active check-in sessions (in production, use Redis or database)
 active_sessions = {}
 
+# Store login events (check-in/out with location) - in production, persist to DB
+login_events = []
+
+def log_login_event(employee_id, event_type, req, location=None, client_time=None, timezone_str=None):
+    """Log a check-in or check-out event with location and device info."""
+    now = datetime.now(timezone.utc)
+    event = {
+        "id": str(uuid.uuid4()),
+        "employee_id": employee_id,
+        "event_type": event_type,  # 'check_in' or 'check_out'
+        "server_time_utc": now.isoformat(),
+        "client_time_local": client_time,
+        "client_timezone": timezone_str,
+        "location_lat": None,
+        "location_lng": None,
+        "accuracy_m": None,
+        "location_source": "none",
+        "ip_address": req.remote_addr if req else None,
+        "user_agent": req.headers.get("User-Agent", "") if req else None,
+        "date": now.date().isoformat(),
+    }
+    if location and isinstance(location, dict):
+        event["location_lat"] = location.get("lat")
+        event["location_lng"] = location.get("lng")
+        event["accuracy_m"] = location.get("accuracy_m")
+        event["location_source"] = "browser" if location.get("lat") else "none"
+    login_events.append(event)
+    print(f"[LOGIN-EVENT] {event_type} for {employee_id} at {now.isoformat()}, location={location}")
+    return event
+
 
 # ================== HELPER FUNCTIONS ==================
 def generate_random_attendance_id():
@@ -1440,11 +1470,19 @@ def checkin():
         if not employee_id_raw:
             return jsonify({"success": False, "error": "Employee ID is required"}), 400
 
+        # Extract location data if provided
+        location_data = data.get('location')
+        client_time = data.get('client_time')
+        timezone_str = data.get('timezone')
+
         # Normalize employee ID to canonical EMP### form for storage / lookups
         normalized_emp_id = employee_id_raw.upper()
         if normalized_emp_id.isdigit():
             normalized_emp_id = format_employee_id(int(normalized_emp_id))
         key = normalized_emp_id
+
+        # Log the check-in event with location
+        log_login_event(normalized_emp_id, "check_in", request, location_data, client_time, timezone_str)
 
         # If already checked in, return existing active session (idempotent)
         if key in active_sessions:
@@ -2456,11 +2494,19 @@ def checkout():
         if not employee_id_raw:
             return jsonify({"success": False, "error": "Employee ID is required"}), 400
 
+        # Extract location data if provided
+        location_data = data.get('location')
+        client_time = data.get('client_time')
+        timezone_str = data.get('timezone')
+
         # Normalize employee ID (must match what we used at check-in)
         normalized_emp_id = employee_id_raw.upper()
         if normalized_emp_id.isdigit():
             normalized_emp_id = format_employee_id(int(normalized_emp_id))
         key = normalized_emp_id
+
+        # Log the check-out event with location
+        log_login_event(normalized_emp_id, "check_out", request, location_data, client_time, timezone_str)
 
         session = active_sessions.get(key)
         if not session:
@@ -10540,6 +10586,88 @@ def ai_health():
         "model": "Hugging Face Inference",
         "backend_model_id": os.getenv("HF_MODEL_ID", "mistralai/Mistral-7B-Instruct-v0.2")
     })
+
+
+# ================== LOGIN EVENTS (Location Tracking) ==================
+@app.route("/api/login-events", methods=["GET"])
+def get_login_events():
+    """Get login events (check-in/out with location) for L2/L3 tracking.
+    
+    Query params:
+    - from: start date (YYYY-MM-DD)
+    - to: end date (YYYY-MM-DD)
+    - employee_id: filter by specific employee
+    """
+    try:
+        from_date = request.args.get("from")
+        to_date = request.args.get("to")
+        employee_id_filter = request.args.get("employee_id", "").strip().upper()
+        
+        filtered = login_events
+        
+        # Filter by employee if specified
+        if employee_id_filter:
+            filtered = [e for e in filtered if e.get("employee_id", "").upper() == employee_id_filter]
+        
+        # Filter by date range
+        if from_date:
+            filtered = [e for e in filtered if e.get("date", "") >= from_date]
+        if to_date:
+            filtered = [e for e in filtered if e.get("date", "") <= to_date]
+        
+        # Sort by server_time_utc descending (most recent first)
+        filtered = sorted(filtered, key=lambda x: x.get("server_time_utc", ""), reverse=True)
+        
+        # Group by employee + date for summary view
+        daily_summary = {}
+        for event in filtered:
+            key = f"{event.get('employee_id')}|{event.get('date')}"
+            if key not in daily_summary:
+                daily_summary[key] = {
+                    "employee_id": event.get("employee_id"),
+                    "date": event.get("date"),
+                    "check_in_time": None,
+                    "check_in_location": None,
+                    "check_out_time": None,
+                    "check_out_location": None,
+                    "events": []
+                }
+            
+            summary = daily_summary[key]
+            summary["events"].append(event)
+            
+            if event.get("event_type") == "check_in":
+                # Use the earliest check-in
+                if not summary["check_in_time"] or event.get("server_time_utc", "") < summary["check_in_time"]:
+                    summary["check_in_time"] = event.get("server_time_utc")
+                    if event.get("location_lat"):
+                        summary["check_in_location"] = {
+                            "lat": event.get("location_lat"),
+                            "lng": event.get("location_lng"),
+                            "accuracy_m": event.get("accuracy_m"),
+                            "source": event.get("location_source")
+                        }
+            elif event.get("event_type") == "check_out":
+                # Use the latest check-out
+                if not summary["check_out_time"] or event.get("server_time_utc", "") > summary["check_out_time"]:
+                    summary["check_out_time"] = event.get("server_time_utc")
+                    if event.get("location_lat"):
+                        summary["check_out_location"] = {
+                            "lat": event.get("location_lat"),
+                            "lng": event.get("location_lng"),
+                            "accuracy_m": event.get("accuracy_m"),
+                            "source": event.get("location_source")
+                        }
+        
+        return jsonify({
+            "success": True,
+            "events": filtered,
+            "daily_summary": list(daily_summary.values()),
+            "total": len(filtered)
+        })
+    except Exception as e:
+        print(f"[ERROR] get_login_events: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 # ================== MAIN ==================

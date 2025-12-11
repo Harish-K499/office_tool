@@ -6,11 +6,19 @@ import { timedFetch } from './timedFetch.js';
 const BASE_URL = API_BASE_URL.replace(/\/$/, '');
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
 
-export async function checkIn(employeeId) {
+export async function checkIn(employeeId, location = null) {
+  const payload = {
+    employee_id: employeeId,
+    client_time: new Date().toISOString(),
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+  };
+  if (location) {
+    payload.location = location;
+  }
   const res = await timedFetch(`${BASE_URL}/api/checkin`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ employee_id: employeeId })
+    body: JSON.stringify(payload)
   }, 'checkIn');
   const data = await res.json();
   if (!res.ok || !data.success) {
@@ -19,11 +27,19 @@ export async function checkIn(employeeId) {
   return data; // { record_id, checkin_time }
 }
 
-export async function checkOut(employeeId) {
+export async function checkOut(employeeId, location = null) {
+  const payload = {
+    employee_id: employeeId,
+    client_time: new Date().toISOString(),
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+  };
+  if (location) {
+    payload.location = location;
+  }
   const res = await timedFetch(`${BASE_URL}/api/checkout`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ employee_id: employeeId })
+    body: JSON.stringify(payload)
   }, 'checkOut');
   const data = await res.json();
   if (!res.ok || !data.success) {

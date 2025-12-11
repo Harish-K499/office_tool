@@ -3,7 +3,7 @@
 import { state } from '../state.js';
 import { getPageContentHTML } from '../utils.js';
 import { renderModal, closeModal } from '../components/modal.js';
-import { listLoginAccounts, createLoginAccount, updateLoginAccount, deleteLoginAccount } from '../features/loginSettingsApi.js';
+import { listLoginAccounts, createLoginAccount, updateLoginAccount, deleteLoginAccount, fetchLoginEvents } from '../features/loginSettingsApi.js';
 
 const isAdminUser = () => {
     const empId = String(state.user?.id || '').trim().toUpperCase();
@@ -30,6 +30,79 @@ const formatLastLogin = (value) => {
     } catch {
         return String(value);
     }
+};
+
+const formatTime = (isoString) => {
+    if (!isoString) return '-';
+    try {
+        const d = new Date(isoString);
+        if (!isNaN(d.getTime())) {
+            return d.toLocaleTimeString('en-IN', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+            });
+        }
+        return String(isoString);
+    } catch {
+        return String(isoString);
+    }
+};
+
+const formatLocation = (loc) => {
+    if (!loc || (!loc.lat && !loc.lng)) return '<span class="text-muted">Not shared</span>';
+    const lat = Number(loc.lat).toFixed(4);
+    const lng = Number(loc.lng).toFixed(4);
+    const accuracy = loc.accuracy_m ? ` (±${Math.round(loc.accuracy_m)}m)` : '';
+    const source = loc.source === 'browser' ? '📍' : '🌐';
+    return `${source} ${lat}, ${lng}${accuracy}`;
+};
+
+const buildLoginActivityHTML = (dailySummary = []) => {
+    if (!dailySummary.length) {
+        return `
+            <div class="card" style="margin-top: 24px;">
+                <h3><i class="fa-solid fa-clock-rotate-left"></i> Login Activity</h3>
+                <p class="allocation-description">Track employee check-in/out times and locations.</p>
+                <p class="placeholder-text">No login activity recorded yet.</p>
+            </div>
+        `;
+    }
+
+    const rows = dailySummary.map((item) => `
+        <tr>
+            <td><strong>${item.employee_id || ''}</strong></td>
+            <td>${item.date || ''}</td>
+            <td>${formatTime(item.check_in_time)}</td>
+            <td>${formatLocation(item.check_in_location)}</td>
+            <td>${formatTime(item.check_out_time)}</td>
+            <td>${formatLocation(item.check_out_location)}</td>
+        </tr>
+    `).join('');
+
+    return `
+        <div class="card" style="margin-top: 24px;">
+            <h3><i class="fa-solid fa-clock-rotate-left"></i> Login Activity</h3>
+            <p class="allocation-description">Track employee check-in/out times and locations.</p>
+            <div class="table-container">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Employee ID</th>
+                            <th>Date</th>
+                            <th>Check-in Time</th>
+                            <th>Check-in Location</th>
+                            <th>Check-out Time</th>
+                            <th>Check-out Location</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
 };
 
 const buildTableHTML = (accounts = []) => {
@@ -323,9 +396,16 @@ export const renderLoginSettingsPage = async () => {
     document.getElementById('app-content').innerHTML = getPageContentHTML('Login Settings', loadingContent, controls);
 
     try {
-        const accounts = await listLoginAccounts();
+        // Fetch login accounts and login events in parallel
+        const [accounts, loginEventsData] = await Promise.all([
+            listLoginAccounts(),
+            fetchLoginEvents().catch(() => ({ daily_summary: [] }))
+        ]);
+        
         const tableHTML = buildTableHTML(accounts);
-        document.getElementById('app-content').innerHTML = getPageContentHTML('Login Settings', tableHTML, controls);
+        const activityHTML = buildLoginActivityHTML(loginEventsData.daily_summary || []);
+        
+        document.getElementById('app-content').innerHTML = getPageContentHTML('Login Settings', tableHTML + activityHTML, controls);
 
         const addBtn = document.getElementById('add-login-account-btn');
         if (addBtn) {

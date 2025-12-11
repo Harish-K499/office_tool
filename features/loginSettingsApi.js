@@ -48,3 +48,22 @@ export async function deleteLoginAccount(loginId) {
   }
   return true;
 }
+
+/**
+ * Fetch login events (check-in/out with location) for L2/L3 tracking.
+ * @param {Object} options - { from, to, employee_id }
+ */
+export async function fetchLoginEvents(options = {}) {
+  const params = new URLSearchParams();
+  if (options.from) params.set('from', options.from);
+  if (options.to) params.set('to', options.to);
+  if (options.employee_id) params.set('employee_id', options.employee_id);
+  
+  const url = `${BASE_URL}/api/login-events${params.toString() ? '?' + params.toString() : ''}`;
+  const res = await fetch(url);
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to fetch login events');
+  }
+  return data;
+}

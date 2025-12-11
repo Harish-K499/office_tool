@@ -3,6 +3,36 @@ import { checkIn, checkOut } from './attendanceApi.js';
 import { API_BASE_URL } from '../config.js';
 import { renderMyAttendancePage } from '../pages/attendance.js';
 
+/**
+ * Get current geolocation from browser.
+ * Returns { lat, lng, accuracy_m } or null if unavailable/denied.
+ */
+const getGeolocation = () => {
+    return new Promise((resolve) => {
+        if (!navigator.geolocation) {
+            console.log('[TIMER] Geolocation not supported');
+            resolve(null);
+            return;
+        }
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                const location = {
+                    lat: pos.coords.latitude,
+                    lng: pos.coords.longitude,
+                    accuracy_m: pos.coords.accuracy,
+                };
+                console.log('[TIMER] Geolocation captured:', location);
+                resolve(location);
+            },
+            (err) => {
+                console.warn('[TIMER] Geolocation error:', err.message);
+                resolve(null);
+            },
+            { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+        );
+    });
+};
+
 export const updateTimerDisplay = () => {
     const timerDisplay = document.getElementById('timer-display');
     if (!timerDisplay) return;
@@ -23,9 +53,12 @@ export const updateTimerDisplay = () => {
 };
 
 const startTimer = async () => {
-    // Call backend check-in
+    // Capture location before check-in
+    const location = await getGeolocation();
+    
+    // Call backend check-in with location
     try {
-        const { record_id, checkin_time, total_seconds_today } = await checkIn(state.user.id);
+        const { record_id, checkin_time, total_seconds_today } = await checkIn(state.user.id, location);
         // Update local timer state only after successful backend check-in
         state.timer.isRunning = true;
 
@@ -85,6 +118,9 @@ const startTimer = async () => {
 };
 
 const stopTimer = async () => {
+    // Capture location before check-out
+    const location = await getGeolocation();
+    
     // Capture the exact time when the user clicked CHECK OUT
     const clickTime = Date.now();
     const baseBefore =
@@ -101,7 +137,7 @@ const stopTimer = async () => {
     const localTotal = baseBefore + localElapsed;
 
     try {
-        const { checkout_time, duration, total_hours, total_seconds_today } = await checkOut(state.user.id);
+        const { checkout_time, duration, total_hours, total_seconds_today } = await checkOut(state.user.id, location);
         let backendTotal = 0;
 
         if (typeof total_seconds_today === 'number' && total_seconds_today > 0) {
