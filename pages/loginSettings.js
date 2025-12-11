@@ -49,13 +49,9 @@ const formatTime = (isoString) => {
     }
 };
 
-const formatLocation = (loc) => {
-    if (!loc || (!loc.lat && !loc.lng)) return '<span class="text-muted">Not shared</span>';
-    const lat = Number(loc.lat).toFixed(4);
-    const lng = Number(loc.lng).toFixed(4);
-    const accuracy = loc.accuracy_m ? ` (±${Math.round(loc.accuracy_m)}m)` : '';
-    const source = loc.source === 'browser' ? '📍' : '🌐';
-    return `${source} ${lat}, ${lng}${accuracy}`;
+const formatLocation = (city) => {
+    if (!city) return '<span class="text-muted">Not shared</span>';
+    return `📍 ${city}`;
 };
 
 const buildLoginActivityHTML = (dailySummary = []) => {

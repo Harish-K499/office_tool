@@ -358,9 +358,43 @@ active_sessions = {}
 # Store login events (check-in/out with location) - in production, persist to DB
 login_events = []
 
+def reverse_geocode_to_city(lat, lng):
+    """Convert lat/lng to city name using OpenStreetMap Nominatim API."""
+    if not lat or not lng:
+        return None
+    try:
+        url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lng}&format=json&zoom=10"
+        headers = {"User-Agent": "OfficeToolApp/1.0"}
+        resp = requests.get(url, headers=headers, timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            address = data.get("address", {})
+            # Try to get city name from various fields
+            city = (
+                address.get("city") or 
+                address.get("town") or 
+                address.get("village") or 
+                address.get("municipality") or
+                address.get("county") or
+                address.get("state_district") or
+                address.get("state")
+            )
+            if city:
+                print(f"[GEOCODE] {lat},{lng} -> {city}")
+                return city
+    except Exception as e:
+        print(f"[GEOCODE] Error reverse geocoding: {e}")
+    return None
+
 def log_login_event(employee_id, event_type, req, location=None, client_time=None, timezone_str=None):
     """Log a check-in or check-out event with location and device info."""
     now = datetime.now(timezone.utc)
+    
+    # Get city name from coordinates
+    city_name = None
+    if location and isinstance(location, dict) and location.get("lat") and location.get("lng"):
+        city_name = reverse_geocode_to_city(location.get("lat"), location.get("lng"))
+    
     event = {
         "id": str(uuid.uuid4()),
         "employee_id": employee_id,
@@ -372,6 +406,7 @@ def log_login_event(employee_id, event_type, req, location=None, client_time=Non
         "location_lng": None,
         "accuracy_m": None,
         "location_source": "none",
+        "city": city_name,  # City name from reverse geocoding
         "ip_address": req.remote_addr if req else None,
         "user_agent": req.headers.get("User-Agent", "") if req else None,
         "date": now.date().isoformat(),
@@ -382,7 +417,7 @@ def log_login_event(employee_id, event_type, req, location=None, client_time=Non
         event["accuracy_m"] = location.get("accuracy_m")
         event["location_source"] = "browser" if location.get("lat") else "none"
     login_events.append(event)
-    print(f"[LOGIN-EVENT] {event_type} for {employee_id} at {now.isoformat()}, location={location}")
+    print(f"[LOGIN-EVENT] {event_type} for {employee_id} at {now.isoformat()}, city={city_name}")
     return event
 
 
@@ -10640,24 +10675,14 @@ def get_login_events():
                 # Use the earliest check-in
                 if not summary["check_in_time"] or event.get("server_time_utc", "") < summary["check_in_time"]:
                     summary["check_in_time"] = event.get("server_time_utc")
-                    if event.get("location_lat"):
-                        summary["check_in_location"] = {
-                            "lat": event.get("location_lat"),
-                            "lng": event.get("location_lng"),
-                            "accuracy_m": event.get("accuracy_m"),
-                            "source": event.get("location_source")
-                        }
+                    # Store city name directly
+                    summary["check_in_location"] = event.get("city")
             elif event.get("event_type") == "check_out":
                 # Use the latest check-out
                 if not summary["check_out_time"] or event.get("server_time_utc", "") > summary["check_out_time"]:
                     summary["check_out_time"] = event.get("server_time_utc")
-                    if event.get("location_lat"):
-                        summary["check_out_location"] = {
-                            "lat": event.get("location_lat"),
-                            "lng": event.get("location_lng"),
-                            "accuracy_m": event.get("accuracy_m"),
-                            "source": event.get("location_source")
-                        }
+                    # Store city name directly
+                    summary["check_out_location"] = event.get("city")
         
         return jsonify({
             "success": True,
