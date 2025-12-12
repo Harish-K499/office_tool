@@ -275,6 +275,23 @@ AUTOMATION_INTENTS = {
         "flow": "leave_application",
         "description": "Apply for leave"
     },
+    "check_in": {
+        "keywords": [
+            "check in", "check-in", "checkin", "start my day",
+            "punch in", "clock in", "check in for me", "start work"
+        ],
+        "flow": "check_in",
+        "description": "Check in / start attendance timer"
+    },
+    "check_out": {
+        "keywords": [
+            "check out", "checkout", "check-out", "punch out",
+            "clock out", "end my day", "check out for me",
+            "stop work", "end shift"
+        ],
+        "flow": "check_out",
+        "description": "Check out / stop attendance timer"
+    },
 }
 
 
@@ -855,11 +872,53 @@ _(Type **'cancel'** at any time to stop.)_"""
     return "I didn't understand that. Please try again or type **'cancel'** to exit.", state, None
 
 
+# ================== CHECK-IN/CHECK-OUT HANDLER ==================
+
+def _handle_check_action(
+    action_type: str,
+    state: 'ConversationState',
+    user_employee_id: str = None
+) -> Tuple[str, 'ConversationState', Optional[Dict[str, Any]]]:
+    """
+    Handle check-in or check-out action.
+    This is a single-step action - no multi-step flow needed.
+    
+    Args:
+        action_type: 'check_in' or 'check_out'
+        state: Current conversation state
+        user_employee_id: The logged-in user's employee ID
+    
+    Returns:
+        Tuple of (response, updated_state, action_to_execute)
+    """
+    # Reset any active flow since this is a one-shot action
+    state.reset()
+    
+    if not user_employee_id:
+        return "❌ I couldn't identify your employee ID. Please make sure you're logged in.", state, None
+    
+    if action_type == "check_in":
+        action = {
+            "type": "check_in",
+            "employee_id": user_employee_id
+        }
+        return "⏰ Checking you in...", state, action
+    elif action_type == "check_out":
+        action = {
+            "type": "check_out",
+            "employee_id": user_employee_id
+        }
+        return "⏰ Checking you out...", state, action
+    
+    return "I didn't understand that action.", state, None
+
+
 # ================== MAIN AUTOMATION HANDLER ==================
 
 def process_automation(
     user_message: str,
-    conversation_state: Optional[Dict[str, Any]] = None
+    conversation_state: Optional[Dict[str, Any]] = None,
+    user_employee_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Main entry point for processing automation flows.
@@ -909,7 +968,7 @@ def process_automation(
                 "action": action
             }
         elif state.active_flow == "leave_application":
-            response, state, action = handle_leave_application_flow(user_message, state)
+            response, state, action = handle_leave_application_flow(user_message, state, user_employee_id)
             return {
                 "is_automation": True,
                 "response": response,
@@ -945,7 +1004,23 @@ def process_automation(
                 "action": action
             }
         elif intent["flow"] == "leave_application":
-            response, state, action = handle_leave_application_flow(user_message, state)
+            response, state, action = handle_leave_application_flow(user_message, state, user_employee_id)
+            return {
+                "is_automation": True,
+                "response": response,
+                "state": state.to_dict(),
+                "action": action
+            }
+        elif intent["flow"] == "check_in":
+            response, state, action = _handle_check_action("check_in", state, user_employee_id)
+            return {
+                "is_automation": True,
+                "response": response,
+                "state": state.to_dict(),
+                "action": action
+            }
+        elif intent["flow"] == "check_out":
+            response, state, action = _handle_check_action("check_out", state, user_employee_id)
             return {
                 "is_automation": True,
                 "response": response,
@@ -1699,6 +1774,275 @@ Please review in HR Tool.
             return {
                 "success": False,
                 "error": f"Error applying leave: {str(e)}"
+            }
+    
+    # ==================== CHECK-IN ====================
+    if action["type"] == "check_in":
+        try:
+            from unified_server import format_employee_id, active_sessions
+            import requests as req
+            
+            employee_id = action.get("employee_id", "")
+            
+            # Normalize employee ID
+            if employee_id:
+                if employee_id.isdigit():
+                    employee_id = format_employee_id(int(employee_id))
+                elif employee_id.upper().startswith("EMP"):
+                    employee_id = employee_id.upper()
+            
+            if not employee_id:
+                return {
+                    "success": False,
+                    "error": "Employee ID is required for check-in."
+                }
+            
+            # Call the check-in endpoint internally
+            from unified_server import checkin as do_checkin
+            from flask import Flask
+            
+            # We need to make an internal request to the checkin endpoint
+            # Since we're in the same process, we can call the function directly
+            # but we need to simulate the request context
+            from unified_server import (
+                ATTENDANCE_ENTITY, FIELD_EMPLOYEE_ID, FIELD_DATE, FIELD_CHECKIN,
+                FIELD_ATTENDANCE_ID_CUSTOM, FIELD_RECORD_ID,
+                generate_random_attendance_id, create_record, update_record,
+                RESOURCE, log_login_event
+            )
+            
+            key = employee_id.upper()
+            
+            # Check if already checked in
+            if key in active_sessions:
+                session = active_sessions[key]
+                return {
+                    "success": True,
+                    "message": f"✅ You're already checked in since {session.get('checkin_time', 'earlier')}!",
+                    "already_checked_in": True,
+                    "checkin_time": session.get("checkin_time")
+                }
+            
+            now = datetime.now()
+            formatted_date = now.date().isoformat()
+            formatted_time = now.strftime("%H:%M:%S")
+            
+            # Check for existing attendance record for today
+            attendance_record = None
+            try:
+                headers = {
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/json",
+                }
+                filter_query = f"?$filter={FIELD_EMPLOYEE_ID} eq '{employee_id}' and {FIELD_DATE} eq '{formatted_date}'"
+                url = f"{RESOURCE}/api/data/v9.2/{ATTENDANCE_ENTITY}{filter_query}"
+                resp = req.get(url, headers=headers, timeout=20)
+                if resp.status_code == 200:
+                    vals = resp.json().get("value", [])
+                    if vals:
+                        attendance_record = vals[0]
+            except Exception as probe_err:
+                print(f"[WARN] Failed to probe existing attendance record: {probe_err}")
+            
+            existing_hours = 0.0
+            if attendance_record:
+                # Reuse existing record
+                record_id = (
+                    attendance_record.get(FIELD_RECORD_ID)
+                    or attendance_record.get("crc6f_table13id")
+                    or attendance_record.get("id")
+                )
+                attendance_id = (
+                    attendance_record.get(FIELD_ATTENDANCE_ID_CUSTOM)
+                    or generate_random_attendance_id()
+                )
+                try:
+                    existing_hours = float(attendance_record.get("crc6f_duration") or "0")
+                except:
+                    existing_hours = 0.0
+                
+                active_sessions[key] = {
+                    "record_id": record_id,
+                    "checkin_time": formatted_time,
+                    "checkin_datetime": now.isoformat(),
+                    "attendance_id": attendance_id,
+                }
+                
+                return {
+                    "success": True,
+                    "message": f"✅ Checked in at **{formatted_time}**! (Continuing today's session)",
+                    "checkin_time": formatted_time,
+                    "continued_day": True,
+                    "total_seconds_today": int(round(existing_hours * 3600))
+                }
+            
+            # Create new attendance record
+            random_attendance_id = generate_random_attendance_id()
+            record_data = {
+                FIELD_EMPLOYEE_ID: employee_id,
+                FIELD_DATE: formatted_date,
+                FIELD_CHECKIN: formatted_time,
+                FIELD_ATTENDANCE_ID_CUSTOM: random_attendance_id,
+            }
+            
+            created = create_record(ATTENDANCE_ENTITY, record_data)
+            record_id = (
+                created.get(FIELD_RECORD_ID)
+                or created.get("crc6f_table13id")
+                or created.get("id")
+            )
+            
+            if record_id:
+                active_sessions[key] = {
+                    "record_id": record_id,
+                    "checkin_time": formatted_time,
+                    "checkin_datetime": now.isoformat(),
+                    "attendance_id": random_attendance_id,
+                }
+                
+                return {
+                    "success": True,
+                    "message": f"✅ Checked in successfully at **{formatted_time}**!",
+                    "checkin_time": formatted_time,
+                    "attendance_id": random_attendance_id
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "Failed to create attendance record"
+                }
+                
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {
+                "success": False,
+                "error": f"Check-in failed: {str(e)}"
+            }
+    
+    # ==================== CHECK-OUT ====================
+    if action["type"] == "check_out":
+        try:
+            from unified_server import format_employee_id, active_sessions
+            import requests as req
+            
+            employee_id = action.get("employee_id", "")
+            
+            # Normalize employee ID
+            if employee_id:
+                if employee_id.isdigit():
+                    employee_id = format_employee_id(int(employee_id))
+                elif employee_id.upper().startswith("EMP"):
+                    employee_id = employee_id.upper()
+            
+            if not employee_id:
+                return {
+                    "success": False,
+                    "error": "Employee ID is required for check-out."
+                }
+            
+            key = employee_id.upper()
+            
+            # Check if checked in
+            session = active_sessions.get(key)
+            if not session:
+                return {
+                    "success": False,
+                    "error": "❌ No active check-in found. Please check in first."
+                }
+            
+            from unified_server import (
+                ATTENDANCE_ENTITY, FIELD_CHECKOUT, FIELD_DURATION, FIELD_DURATION_INTEXT,
+                FIELD_EMPLOYEE_ID, FIELD_DATE, FIELD_RECORD_ID,
+                update_record, RESOURCE
+            )
+            
+            now = datetime.now()
+            checkout_time_str = now.strftime("%H:%M:%S")
+            
+            # Calculate session duration
+            try:
+                if "checkin_datetime" in session:
+                    checkin_dt = datetime.fromisoformat(session["checkin_datetime"])
+                    session_seconds = int((now - checkin_dt).total_seconds())
+                elif "checkin_time" in session:
+                    checkin_time_str = session["checkin_time"]
+                    checkin_dt = datetime.strptime(checkin_time_str, "%H:%M:%S").replace(
+                        year=now.year, month=now.month, day=now.day
+                    )
+                    session_seconds = int((now - checkin_dt).total_seconds())
+                else:
+                    session_seconds = 0
+            except Exception:
+                session_seconds = 0
+            
+            if session_seconds < 0:
+                session_seconds = 0
+            
+            # Fetch existing duration to aggregate
+            attendance_record = None
+            record_id = session.get("record_id")
+            try:
+                headers = {
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/json",
+                }
+                if record_id:
+                    url = f"{RESOURCE}/api/data/v9.2/{ATTENDANCE_ENTITY}({record_id})"
+                    resp = req.get(url, headers=headers, timeout=20)
+                    if resp.status_code == 200:
+                        attendance_record = resp.json()
+            except Exception:
+                pass
+            
+            existing_hours = 0.0
+            if attendance_record:
+                try:
+                    existing_hours = float(attendance_record.get(FIELD_DURATION) or "0")
+                except:
+                    existing_hours = 0.0
+            
+            # Aggregate duration
+            session_hours = session_seconds / 3600.0
+            total_hours_today = existing_hours + session_hours
+            total_seconds_today = int(round(total_hours_today * 3600))
+            
+            # Human-readable duration
+            hours_int = total_seconds_today // 3600
+            minutes_int = (total_seconds_today % 3600) // 60
+            readable_duration = f"{hours_int} hour(s) {minutes_int} minute(s)"
+            
+            update_data = {
+                FIELD_CHECKOUT: checkout_time_str,
+                FIELD_DURATION: str(round(total_hours_today, 2)),
+                FIELD_DURATION_INTEXT: readable_duration,
+            }
+            
+            if record_id:
+                update_record(ATTENDANCE_ENTITY, record_id, update_data)
+            
+            # Clear session
+            try:
+                if key in active_sessions:
+                    del active_sessions[key]
+            except:
+                pass
+            
+            return {
+                "success": True,
+                "message": f"✅ Checked out at **{checkout_time_str}**!\n\n📊 **Today's total:** {readable_duration}",
+                "checkout_time": checkout_time_str,
+                "duration": readable_duration,
+                "total_hours": total_hours_today,
+                "total_seconds_today": total_seconds_today
+            }
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {
+                "success": False,
+                "error": f"Check-out failed: {str(e)}"
             }
     
     return {

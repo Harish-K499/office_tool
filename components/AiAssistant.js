@@ -96,6 +96,14 @@ function getAiPanelHTML() {
         
         <div class="ai-input-container">
             <div class="ai-input-wrapper">
+                <button id="ai-voice" class="ai-voice-btn" title="Voice input">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                        <line x1="12" y1="19" x2="12" y2="23"/>
+                        <line x1="8" y1="23" x2="16" y2="23"/>
+                    </svg>
+                </button>
                 <input type="text" id="ai-input" placeholder="Ask me anything..." autocomplete="off">
                 <button id="ai-send" class="ai-send-btn" disabled>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -123,10 +131,126 @@ function toggleAiPanel() {
     }
 }
 
+// Voice recognition state
+let isListening = false;
+let recognition = null;
+
+function setupVoiceRecognition() {
+    // Check for browser support
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+        console.warn('[AI] Speech recognition not supported in this browser');
+        return null;
+    }
+    
+    recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+    
+    recognition.onstart = () => {
+        isListening = true;
+        const voiceBtn = document.getElementById('ai-voice');
+        if (voiceBtn) {
+            voiceBtn.classList.add('listening');
+            voiceBtn.title = 'Listening... Click to stop';
+        }
+        console.log('[AI] Voice recognition started');
+    };
+    
+    recognition.onend = () => {
+        isListening = false;
+        const voiceBtn = document.getElementById('ai-voice');
+        if (voiceBtn) {
+            voiceBtn.classList.remove('listening');
+            voiceBtn.title = 'Voice input';
+        }
+        console.log('[AI] Voice recognition ended');
+    };
+    
+    recognition.onresult = (event) => {
+        const input = document.getElementById('ai-input');
+        const sendBtn = document.getElementById('ai-send');
+        
+        let finalTranscript = '';
+        let interimTranscript = '';
+        
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+            const transcript = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+                finalTranscript += transcript;
+            } else {
+                interimTranscript += transcript;
+            }
+        }
+        
+        // Update input with transcript
+        if (input) {
+            if (finalTranscript) {
+                input.value = finalTranscript;
+                if (sendBtn) sendBtn.disabled = false;
+                // Auto-send after final result
+                setTimeout(() => {
+                    if (input.value.trim()) {
+                        sendMessage(input.value.trim());
+                    }
+                }, 500);
+            } else if (interimTranscript) {
+                input.value = interimTranscript;
+                input.placeholder = 'Listening...';
+            }
+        }
+    };
+    
+    recognition.onerror = (event) => {
+        console.error('[AI] Voice recognition error:', event.error);
+        isListening = false;
+        const voiceBtn = document.getElementById('ai-voice');
+        if (voiceBtn) {
+            voiceBtn.classList.remove('listening');
+            voiceBtn.title = 'Voice input';
+        }
+        
+        // Show error message for permission denied
+        if (event.error === 'not-allowed') {
+            alert('Microphone access denied. Please allow microphone access to use voice input.');
+        }
+    };
+    
+    return recognition;
+}
+
+function toggleVoiceInput() {
+    if (!recognition) {
+        recognition = setupVoiceRecognition();
+    }
+    
+    if (!recognition) {
+        alert('Voice input is not supported in your browser. Please use Chrome or Edge.');
+        return;
+    }
+    
+    if (isListening) {
+        recognition.stop();
+    } else {
+        const input = document.getElementById('ai-input');
+        if (input) {
+            input.value = '';
+            input.placeholder = 'Listening...';
+        }
+        try {
+            recognition.start();
+        } catch (e) {
+            console.error('[AI] Failed to start voice recognition:', e);
+        }
+    }
+}
+
 function setupAiEvents() {
     const closeBtn = document.getElementById('ai-close');
     const input = document.getElementById('ai-input');
     const sendBtn = document.getElementById('ai-send');
+    const voiceBtn = document.getElementById('ai-voice');
     
     if (closeBtn) closeBtn.addEventListener('click', toggleAiPanel);
     
@@ -149,6 +273,11 @@ function setupAiEvents() {
                 sendMessage(input.value.trim());
             }
         });
+    }
+    
+    // Voice input button
+    if (voiceBtn) {
+        voiceBtn.addEventListener('click', toggleVoiceInput);
     }
     
     // Suggestion clicks
@@ -709,6 +838,42 @@ function addAiStyles() {
         .ai-send-btn svg {
             width: 20px;
             height: 20px;
+        }
+        
+        /* Voice button */
+        .ai-voice-btn {
+            width: 44px;
+            height: 44px;
+            border: none;
+            background: transparent;
+            border-radius: 10px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-secondary, #6b7280);
+            transition: all 0.2s;
+        }
+        
+        .ai-voice-btn:hover {
+            background: rgba(102, 126, 234, 0.1);
+            color: #667eea;
+        }
+        
+        .ai-voice-btn.listening {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+            animation: pulse-voice 1.5s infinite;
+        }
+        
+        .ai-voice-btn svg {
+            width: 20px;
+            height: 20px;
+        }
+        
+        @keyframes pulse-voice {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+            50% { transform: scale(1.05); box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
         }
         
         .ai-powered {

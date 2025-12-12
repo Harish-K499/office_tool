@@ -10486,8 +10486,9 @@ def ai_query():
         # Get automation state from request (for multi-step flows)
         automation_state = data.get("automationState", None)
         
-        # Check for automation flow first
-        automation_result = process_automation(question, automation_state)
+        # Check for automation flow first (pass user_employee_id for check-in/out and leave flows)
+        user_employee_id = user_meta.get("employee_id", "")
+        automation_result = process_automation(question, automation_state, user_employee_id)
         
         # If there's an active automation flow OR this triggers a new one, handle it
         # This ensures we NEVER fall back to HF during a multi-step automation
