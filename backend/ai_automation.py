@@ -108,6 +108,130 @@ def _normalize_value(key: str, value: str) -> Any:
     return value
 
 
+# ================== LEAVE APPLICATION FLOW ==================
+
+LEAVE_TYPE_OPTIONS = ["Casual Leave", "Sick Leave", "Comp Off"]
+COMPENSATION_OPTIONS = ["Paid", "Unpaid"]
+
+LEAVE_FIELDS = [
+    {
+        "key": "leave_type",
+        "label": "Leave Type",
+        "prompt": "Which **leave type** would you like to apply for?\n\n**1.** Casual Leave\n**2.** Sick Leave\n**3.** Comp Off\n\n_(Type the number or name)_",
+        "required": True,
+        "options": LEAVE_TYPE_OPTIONS,
+        "validate": lambda x: _validate_leave_option(x, LEAVE_TYPE_OPTIONS),
+        "error": "Please select a valid leave type: type **1**, **2**, **3** or the leave name (Casual Leave, Sick Leave, Comp Off)."
+    },
+    {
+        "key": "compensation",
+        "label": "Compensation Type",
+        "prompt": "Should this leave be **Paid** or **Unpaid**?\n\n**1.** Paid\n**2.** Unpaid\n\n_(Type the number or name)_",
+        "required": True,
+        "options": COMPENSATION_OPTIONS,
+        "validate": lambda x: _validate_leave_option(x, COMPENSATION_OPTIONS),
+        "error": "Please select: type **1** for Paid or **2** for Unpaid."
+    },
+    {
+        "key": "start_date",
+        "label": "Start Date",
+        "prompt": "What is the **start date** of your leave? (Format: YYYY-MM-DD, e.g., 2025-01-15, or type 'today' or 'tomorrow')",
+        "required": True,
+        "validate": lambda x: _validate_leave_date(x),
+        "error": "Please provide a valid date in YYYY-MM-DD format, or type 'today' or 'tomorrow'."
+    },
+    {
+        "key": "end_date",
+        "label": "End Date",
+        "prompt": "What is the **end date** of your leave? (Format: YYYY-MM-DD, or type 'same' for single day leave)",
+        "required": True,
+        "validate": lambda x: _validate_leave_date(x, allow_same=True),
+        "error": "Please provide a valid date in YYYY-MM-DD format, or type 'same' for single day leave."
+    },
+    {
+        "key": "reason",
+        "label": "Reason",
+        "prompt": "Please provide a brief **reason** for your leave request:",
+        "required": True,
+        "validate": lambda x: len(x.strip()) >= 3,
+        "error": "Please provide a reason (at least 3 characters)."
+    }
+]
+
+
+def _validate_leave_option(value: str, options: List[str]) -> bool:
+    """Validate option selection by number or name."""
+    value = value.strip().lower()
+    # Check if it's a number
+    if value.isdigit():
+        idx = int(value) - 1
+        return 0 <= idx < len(options)
+    # Check if it matches an option name
+    for opt in options:
+        if value == opt.lower() or value in opt.lower():
+            return True
+    return False
+
+
+def _normalize_leave_option(value: str, options: List[str]) -> str:
+    """Normalize option selection to the canonical option name."""
+    value = value.strip().lower()
+    # Check if it's a number
+    if value.isdigit():
+        idx = int(value) - 1
+        if 0 <= idx < len(options):
+            return options[idx]
+    # Check if it matches an option name
+    for opt in options:
+        if value == opt.lower() or value in opt.lower():
+            return opt
+    return value
+
+
+def _validate_leave_date(value: str, allow_same: bool = False) -> bool:
+    """Validate leave date input."""
+    value = value.strip().lower()
+    if value in ['today', 'tomorrow']:
+        return True
+    if allow_same and value == 'same':
+        return True
+    try:
+        datetime.strptime(value, '%Y-%m-%d')
+        return True
+    except ValueError:
+        return False
+
+
+def _normalize_leave_date(value: str, reference_date: str = None) -> str:
+    """Normalize leave date input to YYYY-MM-DD format."""
+    from datetime import timedelta
+    value = value.strip().lower()
+    if value == 'today':
+        return datetime.now().strftime('%Y-%m-%d')
+    if value == 'tomorrow':
+        return (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
+    if value == 'same' and reference_date:
+        return reference_date
+    return value.strip()
+
+
+def _normalize_leave_value(key: str, value: str, collected_data: Dict[str, Any] = None) -> Any:
+    """Normalize leave field values."""
+    value = value.strip()
+    
+    if key == 'leave_type':
+        return _normalize_leave_option(value, LEAVE_TYPE_OPTIONS)
+    elif key == 'compensation':
+        return _normalize_leave_option(value, COMPENSATION_OPTIONS)
+    elif key == 'start_date':
+        return _normalize_leave_date(value)
+    elif key == 'end_date':
+        start_date = collected_data.get('start_date') if collected_data else None
+        return _normalize_leave_date(value, start_date)
+    
+    return value
+
+
 # ================== INTENT DETECTION ==================
 
 AUTOMATION_INTENTS = {
@@ -139,6 +263,17 @@ AUTOMATION_INTENTS = {
         ],
         "flow": "employee_delete",
         "description": "Delete an existing employee record"
+    },
+    "apply_leave": {
+        "keywords": [
+            "apply leave", "apply for leave", "request leave", "take leave",
+            "apply leave for me", "i want to apply leave", "i need leave",
+            "leave application", "apply for a leave", "submit leave",
+            "book leave", "request time off", "apply for time off",
+            "i want leave", "need to take leave", "want to take leave"
+        ],
+        "flow": "leave_application",
+        "description": "Apply for leave"
     },
 }
 
@@ -600,6 +735,126 @@ Or type **'cancel'** to abort."""
     return "I didn't understand that. Please try again or type **'cancel'** to exit.", state, None
 
 
+# ================== LEAVE APPLICATION FLOW HANDLER ==================
+
+def _build_leave_summary(data: Dict[str, Any], employee_id: str = None) -> str:
+    """Build a summary of the leave application for confirmation."""
+    lines = [
+        "📋 **Leave Application Summary**",
+        "",
+        f"• **Employee ID:** {employee_id or 'Will be auto-detected'}",
+        f"• **Leave Type:** {data.get('leave_type', 'N/A')}",
+        f"• **Compensation:** {data.get('compensation', 'N/A')}",
+        f"• **Start Date:** {data.get('start_date', 'N/A')}",
+        f"• **End Date:** {data.get('end_date', 'N/A')}",
+        f"• **Reason:** {data.get('reason', 'N/A')}",
+        "",
+        "Is this correct? Type **'yes'** to submit or **'no'** to start over."
+    ]
+    return "\n".join(lines)
+
+
+def handle_leave_application_flow(
+    user_message: str,
+    state: 'ConversationState',
+    user_employee_id: str = None
+) -> Tuple[str, 'ConversationState', Optional[Dict[str, Any]]]:
+    """
+    Handle the leave application conversation flow.
+    
+    Flow:
+    1. Ask for leave type (dropdown: Casual Leave, Sick Leave, Comp Off)
+    2. Ask for compensation type (dropdown: Paid, Unpaid)
+    3. Ask for start date
+    4. Ask for end date
+    5. Ask for reason
+    6. Show summary and confirm
+    7. Submit leave application
+    
+    Args:
+        user_message: The user's message
+        state: Current conversation state
+        user_employee_id: The logged-in user's employee ID (auto-fetched)
+    
+    Returns:
+        Tuple of (response, updated_state, action_to_execute)
+    """
+    
+    # Starting the flow
+    if state.active_flow != "leave_application":
+        state.active_flow = "leave_application"
+        state.current_step = 0
+        state.collected_data = {}
+        state.awaiting_confirmation = False
+        
+        # Store the employee ID if provided
+        if user_employee_id:
+            state.collected_data["employee_id"] = user_employee_id
+        
+        # Ask for the first field (leave type)
+        field = LEAVE_FIELDS[0]
+        response = f"""🏖️ I'll help you apply for leave!
+
+{field['prompt']}
+
+_(Type **'cancel'** at any time to stop.)_"""
+        return response, state, None
+    
+    # Check for cancel
+    if user_message.strip().lower() in ['cancel', 'stop', 'quit', 'exit', 'nevermind']:
+        state.reset()
+        return "No problem! Leave application cancelled. Let me know if you need anything else. 👋", state, None
+    
+    # Handle confirmation
+    if state.awaiting_confirmation:
+        answer = user_message.strip().lower()
+        if answer in ['yes', 'y', 'confirm', 'submit', 'ok']:
+            # Submit the leave application
+            action = {
+                "type": "apply_leave",
+                "data": state.collected_data
+            }
+            state.reset()
+            return "📤 Submitting your leave application...", state, action
+        elif answer in ['no', 'n', 'restart', 'start over']:
+            state.current_step = 0
+            state.collected_data = {"employee_id": state.collected_data.get("employee_id")}
+            state.awaiting_confirmation = False
+            field = LEAVE_FIELDS[0]
+            return f"No problem, let's start over.\n\n{field['prompt']}", state, None
+        else:
+            return "Please type **'yes'** to submit or **'no'** to start over.", state, None
+    
+    # Process current field
+    current_step = state.current_step
+    if current_step < len(LEAVE_FIELDS):
+        field = LEAVE_FIELDS[current_step]
+        
+        # Validate input
+        if not field["validate"](user_message):
+            return f"❌ {field['error']}\n\n{field['prompt']}", state, None
+        
+        # Normalize and store value
+        normalized_value = _normalize_leave_value(field["key"], user_message, state.collected_data)
+        state.collected_data[field["key"]] = normalized_value
+        state.current_step += 1
+        
+        # Check if we have more fields
+        if state.current_step < len(LEAVE_FIELDS):
+            next_field = LEAVE_FIELDS[state.current_step]
+            step_info = f"_(Step {state.current_step + 1} of {len(LEAVE_FIELDS)})_"
+            return f"✅ Got it!\n\n{next_field['prompt']}\n\n{step_info}", state, None
+        else:
+            # All fields collected, show summary and ask for confirmation
+            state.awaiting_confirmation = True
+            employee_id = state.collected_data.get("employee_id", "Auto-detected from login")
+            summary = _build_leave_summary(state.collected_data, employee_id)
+            return f"✅ Great! Here's your leave application:\n\n{summary}", state, None
+    
+    # Fallback
+    return "I didn't understand that. Please try again or type **'cancel'** to exit.", state, None
+
+
 # ================== MAIN AUTOMATION HANDLER ==================
 
 def process_automation(
@@ -653,6 +908,14 @@ def process_automation(
                 "state": state.to_dict(),
                 "action": action
             }
+        elif state.active_flow == "leave_application":
+            response, state, action = handle_leave_application_flow(user_message, state)
+            return {
+                "is_automation": True,
+                "response": response,
+                "state": state.to_dict(),
+                "action": action
+            }
     
     # Check for new automation intent
     intent = detect_automation_intent(user_message)
@@ -675,6 +938,14 @@ def process_automation(
             }
         elif intent["flow"] == "employee_delete":
             response, state, action = handle_employee_delete_flow(user_message, state)
+            return {
+                "is_automation": True,
+                "response": response,
+                "state": state.to_dict(),
+                "action": action
+            }
+        elif intent["flow"] == "leave_application":
+            response, state, action = handle_leave_application_flow(user_message, state)
             return {
                 "is_automation": True,
                 "response": response,
@@ -1171,6 +1442,263 @@ def execute_automation_action(action: Dict[str, Any], token: str) -> Dict[str, A
             return {
                 "success": False,
                 "error": f"Error deleting employee: {str(e)}"
+            }
+    
+    # ==================== APPLY LEAVE ====================
+    if action["type"] == "apply_leave":
+        try:
+            from unified_server import (
+                generate_leave_id, calculate_leave_days, format_employee_id,
+                create_record, LEAVE_ENTITY, BASE_URL, get_access_token,
+                _fetch_leave_balance, _ensure_leave_balance_row,
+                _get_available_days, _decrement_leave_balance,
+                get_employee_name, send_email
+            )
+            import os
+            from datetime import timedelta
+            
+            data = action["data"]
+            
+            leave_type = data.get('leave_type', '')
+            compensation = data.get('compensation', 'Paid')
+            start_date = data.get('start_date', '')
+            end_date = data.get('end_date', '')
+            reason = data.get('reason', '')
+            employee_id = data.get('employee_id', '')
+            
+            # Format employee ID if needed
+            if employee_id:
+                if employee_id.isdigit():
+                    employee_id = format_employee_id(int(employee_id))
+                elif employee_id.upper().startswith("EMP"):
+                    employee_id = employee_id.upper()
+            
+            if not employee_id:
+                return {
+                    "success": False,
+                    "error": "Employee ID is required. Please ensure you are logged in."
+                }
+            
+            # Validate required fields
+            if not all([leave_type, start_date, end_date]):
+                return {
+                    "success": False,
+                    "error": "Missing required fields: leave type, start date, and end date are required."
+                }
+            
+            # Generate leave ID and calculate days
+            leave_id = generate_leave_id()
+            leave_days = calculate_leave_days(start_date, end_date)
+            
+            # Get leave balance
+            balance_row = None
+            try:
+                balance_row = _fetch_leave_balance(token, employee_id)
+            except Exception as bal_err:
+                print(f"[WARN] Could not fetch leave balance for {employee_id}: {bal_err}")
+            
+            paid_flag = (compensation or "").lower() == "paid"
+            lt_norm = (leave_type or "").strip().lower()
+            
+            # Handle Casual Leave and Sick Leave with auto-split logic
+            if paid_flag and lt_norm in ("casual leave", "sick leave"):
+                if not balance_row:
+                    balance_row = _ensure_leave_balance_row(token, employee_id)
+                available = _get_available_days(balance_row, leave_type)
+                print(f"🔎 Available days for {leave_type} = {available}, requested = {leave_days}")
+                paid_days = min(float(available or 0), float(leave_days or 0))
+                unpaid_days = max(0.0, float(leave_days or 0) - paid_days)
+                
+                created_records = []
+                primary_leave_id = None
+                
+                start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+                end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+                
+                # Create paid leave record
+                if paid_days > 0:
+                    paid_leave_id = leave_id
+                    paid_end_dt = start_dt + timedelta(days=int(paid_days) - 1)
+                    record_data_paid = {
+                        "crc6f_leaveid": paid_leave_id,
+                        "crc6f_leavetype": leave_type,
+                        "crc6f_startdate": start_dt.date().isoformat(),
+                        "crc6f_enddate": paid_end_dt.date().isoformat(),
+                        "crc6f_paidunpaid": "Paid",
+                        "crc6f_status": "Pending",
+                        "crc6f_totaldays": str(int(paid_days)),
+                        "crc6f_employeeid": employee_id,
+                        "crc6f_approvedby": "",
+                    }
+                    print(f"📦 Creating Paid leave record: {record_data_paid}")
+                    created_paid = create_record(LEAVE_ENTITY, record_data_paid)
+                    created_records.append(created_paid)
+                    primary_leave_id = paid_leave_id
+                    
+                    # Decrement leave balance
+                    try:
+                        if paid_days > 0:
+                            _decrement_leave_balance(token, balance_row, leave_type, paid_days)
+                    except Exception as dec_err:
+                        print(f"[WARN] Failed to decrement leave balance: {dec_err}")
+                
+                # Create unpaid leave record if needed
+                if unpaid_days > 0:
+                    unpaid_leave_id = generate_leave_id()
+                    unpaid_start_dt = start_dt + timedelta(days=int(paid_days))
+                    record_data_unpaid = {
+                        "crc6f_leaveid": unpaid_leave_id,
+                        "crc6f_leavetype": leave_type,
+                        "crc6f_startdate": unpaid_start_dt.date().isoformat(),
+                        "crc6f_enddate": end_dt.date().isoformat(),
+                        "crc6f_paidunpaid": "Unpaid",
+                        "crc6f_status": "Pending",
+                        "crc6f_totaldays": str(int(unpaid_days)),
+                        "crc6f_employeeid": employee_id,
+                        "crc6f_approvedby": "",
+                    }
+                    print(f"📦 Creating Unpaid leave record: {record_data_unpaid}")
+                    created_unpaid = create_record(LEAVE_ENTITY, record_data_unpaid)
+                    created_records.append(created_unpaid)
+                    if primary_leave_id is None:
+                        primary_leave_id = unpaid_leave_id
+                
+                # Fetch updated balances
+                latest_row = None
+                try:
+                    latest_row = _fetch_leave_balance(token, employee_id) or balance_row
+                except Exception:
+                    latest_row = balance_row
+                balances = {
+                    "Casual Leave": float((latest_row or {}).get("crc6f_cl", 0) or 0),
+                    "Sick Leave": float((latest_row or {}).get("crc6f_sl", 0) or 0),
+                    "Comp Off": float((latest_row or {}).get("crc6f_compoff", 0) or 0),
+                }
+                balances["Total"] = balances["Casual Leave"] + balances["Sick Leave"] + balances["Comp Off"]
+                
+                # Send notification email
+                try:
+                    admin_email = os.getenv("ADMIN_EMAIL")
+                    employee_name = get_employee_name(employee_id)
+                    if admin_email:
+                        send_email(
+                            subject=f"[AI Assistant] New Leave Request from {employee_id}",
+                            recipients=[admin_email],
+                            body=f"""
+Employee {employee_name} ({employee_id}) has applied for {leave_type} leave via AI Assistant
+from {start_date} to {end_date} ({leave_days} days).
+
+Paid: {paid_days} day(s)
+Unpaid: {unpaid_days} day(s)
+
+Reason: {reason or 'Not provided'}
+
+Please review in HR Tool.
+""")
+                except Exception as mail_err:
+                    print(f"[WARN] Failed to send notification email: {mail_err}")
+                
+                split_msg = ""
+                if unpaid_days > 0:
+                    split_msg = f"\n\n📊 **Split:** {int(paid_days)} day(s) Paid + {int(unpaid_days)} day(s) Unpaid (insufficient balance)"
+                
+                return {
+                    "success": True,
+                    "message": f"Leave applied successfully!{split_msg}",
+                    "leave_id": primary_leave_id,
+                    "leave_days": leave_days,
+                    "balances": balances,
+                    "split": {
+                        "paid_days": paid_days,
+                        "unpaid_days": unpaid_days,
+                    }
+                }
+            
+            # Handle other leave types (Comp Off) or Unpaid leaves
+            if paid_flag:
+                if not balance_row:
+                    balance_row = _ensure_leave_balance_row(token, employee_id)
+                available = _get_available_days(balance_row, leave_type)
+                print(f"🔎 Available days for {leave_type} = {available}, requested = {leave_days}")
+                if float(available) < float(leave_days):
+                    return {
+                        "success": False,
+                        "error": f"Insufficient {leave_type} balance. Available: {available}, requested: {leave_days}. Please choose Unpaid or adjust dates.",
+                        "available": available,
+                        "requested": leave_days,
+                        "leave_type": leave_type
+                    }
+            
+            # Create single leave record
+            record_data = {
+                "crc6f_leaveid": leave_id,
+                "crc6f_leavetype": leave_type,
+                "crc6f_startdate": start_date,
+                "crc6f_enddate": end_date,
+                "crc6f_paidunpaid": compensation,
+                "crc6f_status": "Pending",
+                "crc6f_totaldays": str(leave_days),
+                "crc6f_employeeid": employee_id,
+                "crc6f_approvedby": "",
+            }
+            
+            print(f"📦 Creating leave record: {record_data}")
+            created_record = create_record(LEAVE_ENTITY, record_data)
+            
+            # Decrement balance if paid
+            try:
+                if paid_flag and leave_days > 0:
+                    _decrement_leave_balance(token, balance_row, leave_type, leave_days)
+            except Exception as dec_err:
+                print(f"[WARN] Failed to decrement leave balance: {dec_err}")
+            
+            # Fetch updated balances
+            latest_row = None
+            try:
+                latest_row = _fetch_leave_balance(token, employee_id) or balance_row
+            except Exception:
+                latest_row = balance_row
+            balances = {
+                "Casual Leave": float((latest_row or {}).get("crc6f_cl", 0) or 0),
+                "Sick Leave": float((latest_row or {}).get("crc6f_sl", 0) or 0),
+                "Comp Off": float((latest_row or {}).get("crc6f_compoff", 0) or 0),
+            }
+            balances["Total"] = balances["Casual Leave"] + balances["Sick Leave"] + balances["Comp Off"]
+            
+            # Send notification email
+            try:
+                admin_email = os.getenv("ADMIN_EMAIL")
+                employee_name = get_employee_name(employee_id)
+                if admin_email:
+                    send_email(
+                        subject=f"[AI Assistant] New Leave Request from {employee_id}",
+                        recipients=[admin_email],
+                        body=f"""
+Employee {employee_name} ({employee_id}) has applied for {leave_type} leave via AI Assistant
+from {start_date} to {end_date} ({leave_days} days).
+
+Compensation: {compensation}
+Reason: {reason or 'Not provided'}
+
+Please review in HR Tool.
+""")
+            except Exception as mail_err:
+                print(f"[WARN] Failed to send notification email: {mail_err}")
+            
+            return {
+                "success": True,
+                "message": f"Leave applied successfully for {employee_id}!",
+                "leave_id": leave_id,
+                "leave_days": leave_days,
+                "balances": balances
+            }
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {
+                "success": False,
+                "error": f"Error applying leave: {str(e)}"
             }
     
     return {

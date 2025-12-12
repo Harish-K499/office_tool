@@ -10496,6 +10496,17 @@ def ai_query():
             automation_state.get("active_flow") is not None
         )
         
+        # For leave_application flow, inject the logged-in user's employee_id
+        if automation_result.get("is_automation"):
+            result_state = automation_result.get("state", {})
+            if result_state.get("active_flow") == "leave_application":
+                # Inject employee_id from logged-in user if not already set
+                collected_data = result_state.get("collected_data", {})
+                if not collected_data.get("employee_id") and user_meta.get("employee_id"):
+                    collected_data["employee_id"] = user_meta.get("employee_id")
+                    result_state["collected_data"] = collected_data
+                    automation_result["state"] = result_state
+        
         if automation_result.get("is_automation") or has_active_flow:
             response_data = {
                 "success": True,
