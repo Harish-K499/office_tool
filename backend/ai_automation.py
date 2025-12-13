@@ -232,6 +232,150 @@ def _normalize_leave_value(key: str, value: str, collected_data: Dict[str, Any] 
     return value
 
 
+# ================== ASSET CREATION FLOW ==================
+
+ASSET_CATEGORY_OPTIONS = ["Laptop", "Monitor", "Charger", "Keyboard", "Headset", "Accessory"]
+ASSET_STATUS_OPTIONS = ["In Use", "Not Use", "Repair"]
+
+ASSET_FIELDS = [
+    {
+        "key": "asset_name",
+        "label": "Asset Name",
+        "prompt": "What is the **asset name**? (e.g., Dell Laptop, HP Monitor)",
+        "required": True,
+        "validate": lambda x: len(x.strip()) >= 2,
+        "error": "Asset name must be at least 2 characters."
+    },
+    {
+        "key": "serial_number",
+        "label": "Serial Number",
+        "prompt": "What is the **serial number**? (e.g., SN123456789)",
+        "required": True,
+        "validate": lambda x: len(x.strip()) >= 3,
+        "error": "Serial number must be at least 3 characters."
+    },
+    {
+        "key": "category",
+        "label": "Category",
+        "prompt": "Please select the **asset category** from the options below:\n\n📱 **1.** Laptop\n🖥️ **2.** Monitor\n🔌 **3.** Charger\n⌨️ **4.** Keyboard\n🎧 **5.** Headset\n🔧 **6.** Accessory\n\n_(Just type the number 1-6 or the category name)_",
+        "required": True,
+        "options": ASSET_CATEGORY_OPTIONS,
+        "validate": lambda x: _validate_asset_option(x, ASSET_CATEGORY_OPTIONS),
+        "error": "❌ Invalid selection. Please type a number **1-6** or the category name (Laptop, Monitor, Charger, Keyboard, Headset, Accessory)."
+    },
+    {
+        "key": "location",
+        "label": "Location",
+        "prompt": "What is the **location** of this asset? (e.g., Office Building A, Floor 2)",
+        "required": True,
+        "validate": lambda x: len(x.strip()) >= 2,
+        "error": "Location must be at least 2 characters."
+    },
+    {
+        "key": "status",
+        "label": "Status",
+        "prompt": "Please select the **asset status**:\n\n✅ **1.** In Use\n⏸️ **2.** Not Use\n🔧 **3.** Repair\n\n_(Just type the number 1-3 or the status name)_",
+        "required": True,
+        "options": ASSET_STATUS_OPTIONS,
+        "validate": lambda x: _validate_asset_option(x, ASSET_STATUS_OPTIONS),
+        "error": "❌ Invalid selection. Please type **1**, **2**, **3** or the status name (In Use, Not Use, Repair)."
+    },
+    {
+        "key": "assigned_to",
+        "label": "Assigned To",
+        "prompt": "Who is this asset **assigned to**? (Employee name, or type 'skip' if not assigned)",
+        "required": False,
+        "validate": lambda x: True,  # Optional field
+        "error": ""
+    },
+    {
+        "key": "employee_id",
+        "label": "Employee ID",
+        "prompt": "What is the **Employee ID** of the person this is assigned to? (e.g., EMP001, or type 'skip' if not assigned)",
+        "required": False,
+        "validate": lambda x: True,  # Optional field
+        "error": ""
+    },
+    {
+        "key": "assigned_on",
+        "label": "Assigned On",
+        "prompt": "When was this asset **assigned**? (Format: YYYY-MM-DD, or type 'today' or 'skip')",
+        "required": False,
+        "validate": lambda x: _validate_asset_date(x),
+        "error": "Please provide a valid date in YYYY-MM-DD format, or type 'today' or 'skip'."
+    }
+]
+
+
+def _validate_asset_option(value: str, options: List[str]) -> bool:
+    """Validate option selection by number or name for assets."""
+    value = value.strip().lower()
+    # Check if it's a number
+    if value.isdigit():
+        idx = int(value) - 1
+        return 0 <= idx < len(options)
+    # Check if it matches an option name
+    for opt in options:
+        if value == opt.lower() or value in opt.lower():
+            return True
+    return False
+
+
+def _normalize_asset_option(value: str, options: List[str]) -> str:
+    """Normalize option selection to the canonical option name for assets."""
+    value = value.strip().lower()
+    # Check if it's a number
+    if value.isdigit():
+        idx = int(value) - 1
+        if 0 <= idx < len(options):
+            return options[idx]
+    # Check if it matches an option name
+    for opt in options:
+        if value == opt.lower() or value in opt.lower():
+            return opt
+    return value
+
+
+def _validate_asset_date(value: str) -> bool:
+    """Validate asset date input."""
+    value = value.strip().lower()
+    if value in ['today', 'skip', '']:
+        return True
+    try:
+        datetime.strptime(value, '%Y-%m-%d')
+        return True
+    except ValueError:
+        return False
+
+
+def _normalize_asset_date(value: str) -> str:
+    """Normalize asset date input to YYYY-MM-DD format."""
+    value = value.strip().lower()
+    if value == 'today':
+        return datetime.now().strftime('%Y-%m-%d')
+    if value in ['skip', '']:
+        return ''
+    return value.strip()
+
+
+def _normalize_asset_value(key: str, value: str) -> Any:
+    """Normalize asset field values."""
+    value = value.strip()
+    
+    if key == 'category':
+        return _normalize_asset_option(value, ASSET_CATEGORY_OPTIONS)
+    elif key == 'status':
+        return _normalize_asset_option(value, ASSET_STATUS_OPTIONS)
+    elif key == 'assigned_on':
+        return _normalize_asset_date(value)
+    elif key in ['assigned_to', 'employee_id']:
+        if value.lower() == 'skip':
+            return ''
+        return value
+    
+    return value
+
+
 # ================== INTENT DETECTION ==================
 
 AUTOMATION_INTENTS = {
@@ -244,6 +388,16 @@ AUTOMATION_INTENTS = {
         ],
         "flow": "employee_creation",
         "description": "Create a new employee record"
+    },
+    "create_asset": {
+        "keywords": [
+            "add new asset", "create asset", "new asset", "add asset",
+            "create an asset", "add an asset", "register asset",
+            "asset creation", "create a new asset", "add a new asset",
+            "ass new asset"  # Handle typo from user request
+        ],
+        "flow": "asset_creation",
+        "description": "Create a new asset record"
     },
     "edit_employee": {
         "keywords": [
@@ -465,6 +619,110 @@ def _build_employee_summary(data: Dict[str, Any]) -> str:
     lines = []
     
     field_labels = {f['key']: f['label'] for f in EMPLOYEE_FIELDS}
+    
+    for key, value in data.items():
+        label = field_labels.get(key, key.replace('_', ' ').title())
+        display_value = value if value else "(not provided)"
+        lines.append(f"• **{label}:** {display_value}")
+    
+    return "\n".join(lines)
+
+
+# ================== ASSET CREATION FLOW HANDLER ==================
+
+def handle_asset_creation_flow(
+    user_message: str,
+    state: ConversationState
+) -> Tuple[str, ConversationState, Optional[Dict[str, Any]]]:
+    """
+    Handle the asset creation conversation flow.
+    
+    Returns:
+        - response: The AI response message
+        - state: Updated conversation state
+        - action: Optional action to execute (e.g., {"type": "create_asset", "data": {...}})
+    """
+    
+    # Starting the flow
+    if state.active_flow != "asset_creation":
+        state.active_flow = "asset_creation"
+        state.current_step = 0
+        state.collected_data = {}
+        state.awaiting_confirmation = False
+        
+        # Return the first question
+        first_field = ASSET_FIELDS[0]
+        response = f"""Great! I'll help you create a new asset record. 📦
+
+I'll need to collect some information. You can type **'cancel'** at any time to stop.
+
+**Step 1 of {len(ASSET_FIELDS)}:** {first_field['prompt']}"""
+        return response, state, None
+    
+    # Check for cancel
+    if user_message.strip().lower() in ['cancel', 'stop', 'quit', 'exit', 'nevermind']:
+        state.reset()
+        return "No problem! Asset creation cancelled. Let me know if you need anything else. 👋", state, None
+    
+    # Handle confirmation step
+    if state.awaiting_confirmation:
+        answer = user_message.strip().lower()
+        if answer in ['yes', 'y', 'confirm', 'create', 'ok', 'proceed']:
+            # Execute the creation
+            action = {
+                "type": "create_asset",
+                "data": state.collected_data.copy()
+            }
+            state.reset()
+            return "✅ Creating the asset record now...", state, action
+        elif answer in ['no', 'n', 'cancel', 'edit', 'change']:
+            state.awaiting_confirmation = False
+            state.current_step = 0
+            state.collected_data = {}
+            return f"""Okay, let's start over.
+
+**Step 1 of {len(ASSET_FIELDS)}:** {ASSET_FIELDS[0]['prompt']}""", state, None
+        else:
+            return "Please type **'yes'** to confirm and create the asset, or **'no'** to start over.", state, None
+    
+    # Collecting field data
+    current_field = ASSET_FIELDS[state.current_step]
+    
+    # Validate the input
+    if not current_field['validate'](user_message):
+        return f"❌ {current_field['error']}\n\n{current_field['prompt']}", state, None
+    
+    # Store the normalized value
+    normalized_value = _normalize_asset_value(current_field['key'], user_message)
+    state.collected_data[current_field['key']] = normalized_value
+    
+    # Move to next step
+    state.current_step += 1
+    
+    # Check if we've collected all fields
+    if state.current_step >= len(ASSET_FIELDS):
+        # Show summary and ask for confirmation
+        state.awaiting_confirmation = True
+        
+        summary = _build_asset_summary(state.collected_data)
+        response = f"""Perfect! Here's the asset information I've collected:
+
+{summary}
+
+**Does this look correct?** Type **'yes'** to create the asset or **'no'** to start over."""
+        return response, state, None
+    
+    # Ask for the next field
+    next_field = ASSET_FIELDS[state.current_step]
+    response = f"✓ Got it!\n\n**Step {state.current_step + 1} of {len(ASSET_FIELDS)}:** {next_field['prompt']}"
+    return response, state, None
+
+
+def _build_asset_summary(data: Dict[str, Any]) -> str:
+    """Build a formatted summary of collected asset data."""
+    lines = []
+    
+    field_labels = {f['key']: f['label'] for f in ASSET_FIELDS}
     
     for key, value in data.items():
         label = field_labels.get(key, key.replace('_', ' ').title())
@@ -975,6 +1233,14 @@ def process_automation(
                 "state": state.to_dict(),
                 "action": action
             }
+        elif state.active_flow == "asset_creation":
+            response, state, action = handle_asset_creation_flow(user_message, state)
+            return {
+                "is_automation": True,
+                "response": response,
+                "state": state.to_dict(),
+                "action": action
+            }
     
     # Check for new automation intent
     intent = detect_automation_intent(user_message)
@@ -1005,6 +1271,14 @@ def process_automation(
             }
         elif intent["flow"] == "leave_application":
             response, state, action = handle_leave_application_flow(user_message, state, user_employee_id)
+            return {
+                "is_automation": True,
+                "response": response,
+                "state": state.to_dict(),
+                "action": action
+            }
+        elif intent["flow"] == "asset_creation":
+            response, state, action = handle_asset_creation_flow(user_message, state)
             return {
                 "is_automation": True,
                 "response": response,
@@ -2043,6 +2317,113 @@ Please review in HR Tool.
             return {
                 "success": False,
                 "error": f"Check-out failed: {str(e)}"
+            }
+    
+    # ==================== CREATE ASSET ====================
+    if action["type"] == "create_asset":
+        try:
+            import requests as req
+            from unified_server import (
+                RESOURCE, get_access_token, create_record
+            )
+            
+            data = action["data"]
+            
+            asset_name = data.get('asset_name', '')
+            serial_number = data.get('serial_number', '')
+            category = data.get('category', '')
+            location = data.get('location', '')
+            status = data.get('status', 'In Use')
+            assigned_to = data.get('assigned_to', '')
+            employee_id = data.get('employee_id', '')
+            assigned_on = data.get('assigned_on', '')
+            
+            # Asset entity name
+            ASSET_ENTITY = "crc6f_hr_assetdetailses"
+            API_BASE = f"{RESOURCE}/api/data/v9.2"
+            
+            # Generate asset ID based on category
+            category_prefix_map = {
+                "Laptop": "LP",
+                "Monitor": "MO",
+                "Charger": "CH",
+                "Keyboard": "KB",
+                "Headset": "HS",
+                "Accessory": "AC",
+            }
+            prefix = category_prefix_map.get(category, "GEN")
+            
+            # Count existing assets in this category to generate unique ID
+            headers = {"Authorization": f"Bearer {token}"}
+            try:
+                filter_url = f"{API_BASE}/{ASSET_ENTITY}?$filter=crc6f_assetcategory eq '{category}'&$count=true"
+                resp = req.get(filter_url, headers=headers, timeout=20)
+                if resp.status_code == 200:
+                    existing_count = len(resp.json().get('value', []))
+                else:
+                    existing_count = 0
+            except Exception:
+                existing_count = 0
+            
+            asset_id = f"{prefix}-{existing_count + 1}"
+            
+            # Check for duplicate asset ID (just in case)
+            try:
+                check_url = f"{API_BASE}/{ASSET_ENTITY}?$filter=crc6f_assetid eq '{asset_id}'"
+                resp = req.get(check_url, headers=headers, timeout=20)
+                if resp.status_code == 200:
+                    existing = resp.json().get('value', [])
+                    if existing:
+                        # Generate a unique ID with timestamp
+                        import time
+                        asset_id = f"{prefix}-{existing_count + 1}-{int(time.time()) % 10000}"
+            except Exception:
+                pass
+            
+            # Build the payload for Dataverse
+            payload = {
+                "crc6f_assetid": asset_id,
+                "crc6f_assetname": asset_name,
+                "crc6f_serialnumber": serial_number,
+                "crc6f_assetcategory": category,
+                "crc6f_location": location,
+                "crc6f_assetstatus": status,
+            }
+            
+            # Add optional fields if provided
+            if assigned_to:
+                payload["crc6f_assignedto"] = assigned_to
+            if employee_id:
+                payload["crc6f_employeeid"] = employee_id
+            if assigned_on:
+                payload["crc6f_assignedon"] = assigned_on
+            
+            # Create the asset record
+            created = create_record(ASSET_ENTITY, payload)
+            
+            return {
+                "success": True,
+                "message": f"Asset **{asset_name}** (ID: {asset_id}) created successfully! 📦",
+                "asset_id": asset_id,
+                "data": {
+                    "asset_id": asset_id,
+                    "asset_name": asset_name,
+                    "serial_number": serial_number,
+                    "category": category,
+                    "location": location,
+                    "status": status,
+                    "assigned_to": assigned_to,
+                    "employee_id": employee_id,
+                    "assigned_on": assigned_on
+                }
+            }
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {
+                "success": False,
+                "error": f"Failed to create asset: {str(e)}"
             }
     
     return {
