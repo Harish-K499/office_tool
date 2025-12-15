@@ -113,11 +113,6 @@ def _event_local_date_time(event: dict):
         return None, None
 
     try:
-        # Keep an ISO string that Dataverse DateTime fields accept
-        time_iso = ts
-        if time_iso.endswith("+00:00"):
-            time_iso = time_iso.replace("+00:00", "Z")
-
         ts_norm = ts.replace("Z", "+00:00")
         dt = datetime.fromisoformat(ts_norm)
         if dt.tzinfo is None:
@@ -130,6 +125,13 @@ def _event_local_date_time(event: dict):
             dt = dt.astimezone(ZoneInfo(tz_name))
         except Exception:
             pass
+
+    # Return a timezone-adjusted ISO value (for DateTime fields) not the raw client string.
+    try:
+        dt_utc = dt.astimezone(timezone.utc).replace(microsecond=0)
+        time_iso = dt_utc.isoformat().replace("+00:00", "Z")
+    except Exception:
+        time_iso = dt.replace(microsecond=0).isoformat()
 
     return dt.date().isoformat(), time_iso
 
@@ -697,22 +699,53 @@ def _sync_login_activity_from_event(event: dict):
             return
         emp = (event.get("employee_id") or "").strip().upper()
         et = (event.get("event_type") or "").strip().lower()
-        local_date, local_time = _event_local_date_time(event)
-        if not emp or not local_date or not local_time or et not in ("check_in", "check_out"):
+        local_date, local_time_iso = _event_local_date_time(event)
+        if not emp or not local_date or not local_time_iso or et not in ("check_in", "check_out"):
             return
+
+        # Some Dataverse schemas use Time-only columns for checkin/checkout.
+        # Keep a time-only fallback derived from client/server timestamp.
+        time_only = None
+        try:
+            ts = (event.get("client_time_local") or event.get("server_time_utc") or "").strip()
+            if ts:
+                dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                tz_name = (event.get("client_timezone") or "").strip()
+                if tz_name and ZoneInfo:
+                    try:
+                        dt = dt.astimezone(ZoneInfo(tz_name))
+                    except Exception:
+                        pass
+                time_only = dt.strftime("%H:%M:%S")
+        except Exception:
+            time_only = None
 
         token = get_access_token()
         patch = {}
         if et == "check_in":
-            patch[LA_FIELD_CHECKIN_TIME] = local_time
+            patch[LA_FIELD_CHECKIN_TIME] = local_time_iso
             patch[LA_FIELD_CHECKIN_LOCATION] = _login_activity_location_string(event)
         else:
-            patch[LA_FIELD_CHECKOUT_TIME] = local_time
+            patch[LA_FIELD_CHECKOUT_TIME] = local_time_iso
             patch[LA_FIELD_CHECKOUT_LOCATION] = _login_activity_location_string(event)
 
-        _upsert_login_activity(token, emp, local_date, patch)
+        try:
+            _upsert_login_activity(token, emp, local_date, patch)
+        except Exception as e:
+            # Retry with time-only values if the schema expects Time instead of DateTime
+            if time_only:
+                patch2 = dict(patch)
+                if et == "check_in":
+                    patch2[LA_FIELD_CHECKIN_TIME] = time_only
+                else:
+                    patch2[LA_FIELD_CHECKOUT_TIME] = time_only
+                _upsert_login_activity(token, emp, local_date, patch2)
+            else:
+                raise e
     except Exception as e:
-        print(f"[WARN] Failed to sync login activity: {e}")
+        print(f"[WARN] Failed to sync login activity: emp={event.get('employee_id')} type={event.get('event_type')} date={event.get('date')} err={e}")
 
 # ================== HELPER FUNCTIONS ==================
 def generate_random_attendance_id():
