@@ -1,11 +1,23 @@
 # server.py
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from dataverse_helper import create_record, update_record
-from datetime import datetime
+from dataverse_helper import create_record, update_record, get_access_token
+from datetime import datetime, timezone
+import os
+import requests
+from dotenv import load_dotenv
+
+try:
+    from zoneinfo import ZoneInfo
+except Exception:
+    ZoneInfo = None
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for React frontend
+
+load_dotenv("id.env")
+RESOURCE = os.getenv("RESOURCE")
+BASE_URL = (RESOURCE or "").rstrip("/") + "/api/data/v9.2" if RESOURCE else None
 
 # ✅ CORRECT FIELD NAMES from your Dataverse schema
 ENTITY_NAME = "crc6f_table13s"
@@ -20,11 +32,123 @@ FIELD_ATTENDANCE_ID = "crc6f_table13id"
 active_sessions = {}
 
 
+LOGIN_ACTIVITY_ENTITY = "crc6f_hr_loginactivitytbs"
+LOGIN_ACTIVITY_PRIMARY_FIELD = "crc6f_hr_loginactivitytbid"
+LA_FIELD_EMPLOYEE_ID = "crc6f_employeeid"
+LA_FIELD_DATE = "crc6f_date"
+LA_FIELD_CHECKIN_LOCATION = "crc6f_checkinlocation"
+LA_FIELD_CHECKIN_TIME = "crc6f_checkintime"
+LA_FIELD_CHECKOUT_LOCATION = "crc6f_checkoutlocation"
+LA_FIELD_CHECKOUT_TIME = "crc6f_checkouttime"
+
+
+def _safe_odata_string(val: str) -> str:
+    return (val or "").replace("'", "''")
+
+
+def _event_local_date(client_time: str, timezone_str: str) -> str:
+    ts = (client_time or "").strip()
+    if not ts:
+        return datetime.now().date().isoformat()
+    try:
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        if timezone_str and ZoneInfo:
+            try:
+                dt = dt.astimezone(ZoneInfo(timezone_str))
+            except Exception:
+                pass
+        return dt.date().isoformat()
+    except Exception:
+        return datetime.now().date().isoformat()
+
+
+def _location_to_string(location) -> str | None:
+    if not location:
+        return None
+    if isinstance(location, str):
+        v = location.strip()
+        return v or None
+    if isinstance(location, dict):
+        lat = location.get("lat")
+        lng = location.get("lng")
+        if lat is not None and lng is not None:
+            try:
+                return f"{float(lat):.6f},{float(lng):.6f}"
+            except Exception:
+                return f"{lat},{lng}"
+    return None
+
+
+def _fetch_login_activity_record(token: str, employee_id: str, date_str: str):
+    if not BASE_URL:
+        return None
+    emp = (employee_id or "").strip().upper()
+    dt = (date_str or "").strip()
+    if not emp or not dt:
+        return None
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+        "OData-MaxVersion": "4.0",
+        "OData-Version": "4.0",
+    }
+    url = (
+        f"{BASE_URL}/{LOGIN_ACTIVITY_ENTITY}"
+        f"?$top=1&$select={LOGIN_ACTIVITY_PRIMARY_FIELD}&$filter={LA_FIELD_EMPLOYEE_ID} eq '{_safe_odata_string(emp)}' and {LA_FIELD_DATE} eq '{_safe_odata_string(dt)}'"
+    )
+    r = requests.get(url, headers=headers, timeout=20)
+    if r.status_code == 200:
+        vals = r.json().get("value", [])
+        return vals[0] if vals else None
+    return None
+
+
+def _upsert_login_activity(employee_id: str, date_str: str, payload: dict):
+    token = get_access_token()
+    emp = (employee_id or "").strip().upper()
+    dt = (date_str or "").strip()
+    if not emp or not dt:
+        return None
+
+    existing = _fetch_login_activity_record(token, emp, dt)
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "OData-MaxVersion": "4.0",
+        "OData-Version": "4.0",
+    }
+
+    if existing and existing.get(LOGIN_ACTIVITY_PRIMARY_FIELD) and BASE_URL:
+        rid = str(existing.get(LOGIN_ACTIVITY_PRIMARY_FIELD)).strip("{}")
+        url = f"{BASE_URL}/{LOGIN_ACTIVITY_ENTITY}({rid})"
+        r = requests.patch(url, headers={**headers, "If-Match": "*"}, json=payload, timeout=20)
+        if r.status_code in (204, 200):
+            return rid
+        raise Exception(f"Login activity update failed ({r.status_code}): {r.text}")
+
+    # Create
+    create_payload = {
+        LA_FIELD_EMPLOYEE_ID: emp,
+        LA_FIELD_DATE: dt,
+        **(payload or {}),
+    }
+    # Use helper for create to keep consistent with existing code
+    created = create_record(LOGIN_ACTIVITY_ENTITY, create_payload)
+    rid = created.get(LOGIN_ACTIVITY_PRIMARY_FIELD) or created.get("id")
+    return str(rid).strip("{}") if rid else None
+
+
 @app.route('/api/checkin', methods=['POST'])
 def checkin():
     try:
         data = request.json
         employee_id = data.get('employee_id')
+        client_time = data.get('client_time')
+        timezone_str = data.get('timezone')
+        location_data = data.get('location')
         
         if not employee_id:
             return jsonify({"success": False, "error": "Employee ID is required"}), 400
@@ -39,6 +163,17 @@ def checkin():
         now = datetime.now()
         formatted_date = now.date().isoformat()
         formatted_time = now.strftime("%H:%M:%S")
+
+        # Punch login activity (Dataverse) using client-local date as key
+        la_date = _event_local_date(client_time, timezone_str)
+        la_location = _location_to_string(location_data)
+        try:
+            _upsert_login_activity(employee_id, la_date, {
+                LA_FIELD_CHECKIN_TIME: client_time or now.replace(microsecond=0).isoformat() + "Z",
+                LA_FIELD_CHECKIN_LOCATION: la_location,
+            })
+        except Exception as e:
+            print(f"[WARN] Login activity check-in punch failed: {e}")
         
         # ✅ Create record with CORRECT field names
         record_data = {
@@ -98,6 +233,9 @@ def checkout():
     try:
         data = request.json
         employee_id = data.get('employee_id')
+        client_time = data.get('client_time')
+        timezone_str = data.get('timezone')
+        location_data = data.get('location')
         
         if not employee_id:
             return jsonify({"success": False, "error": "Employee ID is required"}), 400
@@ -112,6 +250,17 @@ def checkout():
         
         now = datetime.now()
         checkout_time_str = now.strftime("%H:%M:%S")
+
+        # Punch login activity (Dataverse) using client-local date as key
+        la_date = _event_local_date(client_time, timezone_str)
+        la_location = _location_to_string(location_data)
+        try:
+            _upsert_login_activity(employee_id, la_date, {
+                LA_FIELD_CHECKOUT_TIME: client_time or now.replace(microsecond=0).isoformat() + "Z",
+                LA_FIELD_CHECKOUT_LOCATION: la_location,
+            })
+        except Exception as e:
+            print(f"[WARN] Login activity check-out punch failed: {e}")
         
         # Calculate duration
         checkin_dt = datetime.fromisoformat(session["checkin_datetime"])

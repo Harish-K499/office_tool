@@ -29,6 +29,11 @@ from project_tasks import tasks_bp
 from project_column import columns_bp
 from chats import chat_bp
 
+try:
+    from zoneinfo import ZoneInfo
+except Exception:
+    ZoneInfo = None
+
 from time_tracking import bp_time as time_bp
 from google_token_store import save_google_token, load_google_token
 
@@ -91,12 +96,42 @@ def _maybe_load_google_client_from_file():
     try:
         if not os.path.exists(GOOGLE_CLIENT_CONFIG_FILE):
             return None
+
         with open(GOOGLE_CLIENT_CONFIG_FILE, 'r', encoding='utf-8') as fh:
             data = json.load(fh)
         return data.get("web") or data
     except Exception as e:
         print(f"[WARN] Failed to load Google client config from json: {e}")
         return None
+
+def _event_local_date_time(event: dict):
+    if not event or not isinstance(event, dict):
+        return None, None
+    tz_name = (event.get("client_timezone") or "").strip()
+    ts = (event.get("client_time_local") or event.get("server_time_utc") or "").strip()
+    if not ts:
+        return None, None
+
+    try:
+        # Keep an ISO string that Dataverse DateTime fields accept
+        time_iso = ts
+        if time_iso.endswith("+00:00"):
+            time_iso = time_iso.replace("+00:00", "Z")
+
+        ts_norm = ts.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(ts_norm)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None, None
+
+    if tz_name and ZoneInfo:
+        try:
+            dt = dt.astimezone(ZoneInfo(tz_name))
+        except Exception:
+            pass
+
+    return dt.date().isoformat(), time_iso
 
 # Populate GOOGLE_* env vars from json file if they are missing.
 client_cfg = _maybe_load_google_client_from_file()
@@ -490,6 +525,27 @@ def _fetch_login_activity_record(token: str, employee_id: str, date_str: str):
     if resp.status_code == 200:
         vals = resp.json().get("value", [])
         return vals[0] if vals else None
+
+    # Fallback: if the date column is DateTime, equality against YYYY-MM-DD will not match.
+    # Try a day-range query: [dtT00:00:00Z, nextDayT00:00:00Z)
+    try:
+        d0 = date.fromisoformat(dt)
+        d1 = d0 + timedelta(days=1)
+        start_iso = f"{d0.isoformat()}T00:00:00Z"
+        end_iso = f"{d1.isoformat()}T00:00:00Z"
+        safe_start = _safe_odata_string(start_iso)
+        safe_end = _safe_odata_string(end_iso)
+        url2 = (
+            f"{BASE_URL}/{LOGIN_ACTIVITY_ENTITY}"
+            f"?$select={select_fields}&$top=1&$filter={LA_FIELD_EMPLOYEE_ID} eq '{safe_emp}' and {LA_FIELD_DATE} ge '{safe_start}' and {LA_FIELD_DATE} lt '{safe_end}'"
+        )
+        resp2 = requests.get(url2, headers=headers, timeout=20)
+        if resp2.status_code == 200:
+            vals2 = resp2.json().get("value", [])
+            return vals2[0] if vals2 else None
+    except Exception:
+        pass
+
     raise Exception(f"Dataverse fetch failed ({resp.status_code}): {resp.text}")
 
 def _upsert_login_activity(token: str, employee_id: str, date_str: str, payload: dict):
@@ -567,10 +623,50 @@ def _fetch_login_activity_records_range(token: str, from_date: str, to_date: str
         filter_parts.append(f"{LA_FIELD_EMPLOYEE_ID} eq '{_safe_odata_string(employee_id.strip().upper())}'")
     filter_query = " and ".join(filter_parts)
     url = f"{BASE_URL}/{LOGIN_ACTIVITY_ENTITY}?$select={select_fields}&$top=5000&$filter={filter_query}"
+
+    merged = []
+    seen = set()
+
     resp = requests.get(url, headers=headers, timeout=25)
     if resp.status_code == 200:
-        return resp.json().get("value", [])
-    raise Exception(f"Dataverse range fetch failed ({resp.status_code}): {resp.text}")
+        for r in resp.json().get("value", []):
+            rid = r.get(LOGIN_ACTIVITY_PRIMARY_FIELD) or id(r)
+            if rid in seen:
+                continue
+            seen.add(rid)
+            merged.append(r)
+
+    # Fallback: DateTime range query using start-of-day and next-day-exclusive for to_date.
+    try:
+        d0 = date.fromisoformat(fd)
+        d1 = date.fromisoformat(td) + timedelta(days=1)
+        start_iso = f"{d0.isoformat()}T00:00:00Z"
+        end_iso = f"{d1.isoformat()}T00:00:00Z"
+        filter_parts2 = [
+            f"{LA_FIELD_DATE} ge '{_safe_odata_string(start_iso)}'",
+            f"{LA_FIELD_DATE} lt '{_safe_odata_string(end_iso)}'",
+        ]
+        if employee_id:
+            filter_parts2.append(f"{LA_FIELD_EMPLOYEE_ID} eq '{_safe_odata_string(employee_id.strip().upper())}'")
+        filter_query2 = " and ".join(filter_parts2)
+        url2 = f"{BASE_URL}/{LOGIN_ACTIVITY_ENTITY}?$select={select_fields}&$top=5000&$filter={filter_query2}"
+        resp2 = requests.get(url2, headers=headers, timeout=25)
+        if resp2.status_code == 200:
+            for r in resp2.json().get("value", []):
+                rid = r.get(LOGIN_ACTIVITY_PRIMARY_FIELD) or id(r)
+                if rid in seen:
+                    continue
+                seen.add(rid)
+                merged.append(r)
+    except Exception:
+        pass
+
+    # If both queries failed, surface error.
+    if merged:
+        return merged
+    if resp.status_code != 200:
+        raise Exception(f"Dataverse range fetch failed ({resp.status_code}): {resp.text}")
+    return []
 
 def _fetch_all_employee_ids(token: str):
     entity_set = get_employee_entity_set(token)
@@ -600,29 +696,21 @@ def _sync_login_activity_from_event(event: dict):
         if not event or not isinstance(event, dict):
             return
         emp = (event.get("employee_id") or "").strip().upper()
-        dt = (event.get("date") or "").strip()
         et = (event.get("event_type") or "").strip().lower()
-        if not emp or not dt or et not in ("check_in", "check_out"):
+        local_date, local_time = _event_local_date_time(event)
+        if not emp or not local_date or not local_time or et not in ("check_in", "check_out"):
             return
 
         token = get_access_token()
-        existing = None
-        try:
-            existing = _fetch_login_activity_record(token, emp, dt)
-        except Exception:
-            existing = None
-
         patch = {}
         if et == "check_in":
-            if existing and existing.get(LA_FIELD_CHECKIN_TIME):
-                return
-            patch[LA_FIELD_CHECKIN_TIME] = event.get("server_time_utc")
+            patch[LA_FIELD_CHECKIN_TIME] = local_time
             patch[LA_FIELD_CHECKIN_LOCATION] = _login_activity_location_string(event)
         else:
-            patch[LA_FIELD_CHECKOUT_TIME] = event.get("server_time_utc")
+            patch[LA_FIELD_CHECKOUT_TIME] = local_time
             patch[LA_FIELD_CHECKOUT_LOCATION] = _login_activity_location_string(event)
 
-        _upsert_login_activity(token, emp, dt, patch)
+        _upsert_login_activity(token, emp, local_date, patch)
     except Exception as e:
         print(f"[WARN] Failed to sync login activity: {e}")
 
