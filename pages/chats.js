@@ -621,13 +621,19 @@ export const renderChatPage = async () => {
       cursor: pointer;
       padding: 4px 6px;
       border-radius: 4px;
-      opacity: 0;
-      transition: opacity 0.15s ease, background 0.15s ease;
+      opacity: 0.75;
+      transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
       font-size: 12px;
+      z-index: 2;
+    }
+
+    .chat-msg {
+      padding-top: 18px;
     }
 
     .chat-msg:hover .msg-options-btn {
       opacity: 1;
+      color: var(--text);
     }
 
     .msg-options-btn:hover {
@@ -637,6 +643,21 @@ export const renderChatPage = async () => {
     .dark-mode .msg-options-btn:hover,
     [data-theme='dark'] .msg-options-btn:hover {
       background: rgba(255,255,255,0.1);
+    }
+
+    .msg-ticks i{
+      font-size: 12px;
+      line-height: 1;
+    }
+
+    /* Forward modal layout fix */
+    .modal.forward-modal .modal-body{
+      padding-top: 16px !important;
+      overflow: hidden !important;
+    }
+
+    .modal.forward-modal .forward-list{
+      padding-top: 8px;
     }
 
     /* header search + input area */
@@ -3473,7 +3494,7 @@ body.dark .msg-time {
         ? formatChatTimestamp(iso)
         : new Date(iso).toLocaleTimeString();
 
-    const tickHtml = isMine ? `<span class="msg-tick msg-ticks"></span>` : "";
+    const tickHtml = renderStatusTickHTML(messageObj, isMine);
 
     // SAFE MIME list (keeps previews safe)
     const SAFE_MIME = [
@@ -3986,6 +4007,9 @@ body.dark .msg-time {
         ${listHtml}
       </div>
     `, null);
+
+    const modal = document.querySelector(".modal");
+    if (modal) modal.classList.add("forward-modal");
 
     // Search filter
     const searchInput = document.getElementById("forwardSearchInput");
