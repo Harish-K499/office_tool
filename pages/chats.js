@@ -101,6 +101,10 @@ export const renderChatPage = async () => {
       --hover: rgba(15,23,36,0.03);
       --input-bg: rgba(15,23,36,0.03);
       --card: #ffffff;
+      --chip: rgba(15,23,36,0.04);
+      --shadow: 0 12px 30px rgba(2, 6, 23, 0.08);
+      --shadow-soft: 0 8px 20px rgba(2, 6, 23, 0.06);
+      --bubble-in: #f3f4f6;
     }
 
     /* -------------------------
@@ -154,7 +158,7 @@ export const renderChatPage = async () => {
     /* container */
     .chat-wrapper{
       display:flex;
-      gap:16px;
+      gap:18px;
       height: calc(100vh - 80px);
       padding: 18px;
       box-sizing: border-box;
@@ -164,28 +168,70 @@ export const renderChatPage = async () => {
 
     /* left column */
     .chat-left{
-      width: 300px;
-      min-width: 260px;
-      max-width: 340px;
-      background: var(--panel);
-      border-radius: 12px;
+      width: 320px;
+      min-width: 280px;
+      max-width: 360px;
+      background: var(--surface);
+      border-radius: 16px;
       border: 1px solid var(--border);
       overflow: hidden;
       display:flex;
       flex-direction:column;
-      box-shadow: 0 6px 20px rgba(2,6,23,0.06);
+      box-shadow: var(--shadow-soft);
     }
 
     .chat-left-header{
       display:flex;
       align-items:center;
       justify-content:space-between;
-      padding:16px;
-      font-weight:600;
+      padding:16px 16px 10px;
+      font-weight:700;
       font-size:18px;
       color:var(--text);
       border-bottom:1px solid var(--border);
-      background: linear-gradient(180deg, rgba(0,0,0,0.02), transparent);
+      background: var(--surface);
+    }
+
+    .chat-left-header .chat-left-title{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      min-width:0;
+    }
+
+    .chat-left-header .chat-left-title span{
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
+    .chat-left-tabs{
+      display:flex;
+      gap:8px;
+      padding: 10px 16px 12px;
+    }
+
+    .chat-tab{
+      flex:1;
+      border:none;
+      background: var(--chip);
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 10px 12px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor:pointer;
+      transition: background .12s ease, color .12s ease, transform .06s ease;
+    }
+
+    .chat-tab:hover{
+      transform: translateY(-1px);
+    }
+
+    .chat-tab.active{
+      background: linear-gradient(180deg, rgba(91,61,245,0.18), rgba(107,70,255,0.10));
+      color: var(--text);
+      box-shadow: inset 0 0 0 1px rgba(91,61,245,0.12);
     }
 
     #createNewChat{
@@ -194,26 +240,39 @@ export const renderChatPage = async () => {
       color:white;
       width:44px;
       height:44px;
-      border-radius:8px;
+      border-radius: 12px;
       display:flex;
       align-items:center;
       justify-content:center;
-      box-shadow: 0 6px 18px rgba(91,61,245,0.08);
+      box-shadow: 0 10px 26px rgba(91,61,245,0.18);
       cursor:pointer;
       font-size:16px;
     }
 
     .chat-search{
-      padding: 14px;
+      padding: 0 16px 14px;
       border-bottom:1px solid var(--border);
+    }
+
+    .chat-search .chat-search-box{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: var(--input-bg);
+      border: 1px solid rgba(0,0,0,0.04);
+    }
+
+    .chat-search .chat-search-box i{
+      color: var(--muted);
+      font-size: 14px;
     }
 
     .chat-search input{
       width:100%;
-      padding:12px 14px;
-      border-radius:10px;
-      background:var(--input-bg);
-      border:1px solid rgba(0,0,0,0.04);
+      border:none;
+      background:transparent;
       color:var(--text);
       outline:none;
       font-size:14px;
@@ -223,15 +282,15 @@ export const renderChatPage = async () => {
     .chat-list{
       flex:1;
       overflow:auto;
-      padding:8px 6px;
+      padding: 10px 10px;
     }
 
     .chat-item{
       display:flex;
       gap:12px;
-      padding:10px 12px;
+      padding: 12px 12px;
       align-items:center;
-      border-radius:8px;
+      border-radius: 14px;
       cursor:pointer;
       transition: background .12s ease, transform .06s ease;
       color:var(--text);
@@ -243,22 +302,23 @@ export const renderChatPage = async () => {
     }
 
     .chat-item.active{
-      background: linear-gradient(90deg, rgba(91,61,245,0.12), rgba(107,70,255,0.05));
-      box-shadow: inset 0 0 0 1px rgba(91,61,245,0.06);
+      background: rgba(91,61,245,0.10);
+      box-shadow: inset 0 0 0 1px rgba(91,61,245,0.10);
     }
 
     .chat-avatar-sm{
       width:44px;
       height:44px;
-      border-radius:10px;
-      background:var(--primary);
+      border-radius: 50%;
+      background: linear-gradient(180deg, var(--primary), var(--accent));
       color:white;
       display:flex;
       align-items:center;
       justify-content:center;
-      font-weight:700;
-      font-size:16px;
+      font-weight:800;
+      font-size:14px;
       flex-shrink:0;
+      box-shadow: 0 8px 20px rgba(91,61,245,0.20);
     }
 
     .chat-item .chat-meta{
@@ -302,11 +362,10 @@ export const renderChatPage = async () => {
       display:flex;
       flex-direction:column;
       background: var(--surface);
-      border-radius:12px;
-      border:1px solid var(--border);
-      
+      border-radius: 16px;
+      border: 1px solid var(--border);
       min-width:0;
-      box-shadow: 0 6px 24px rgba(2,6,23,0.06);
+      box-shadow: var(--shadow);
     }
 
     /* header layout EXACT like requested */
@@ -316,23 +375,24 @@ export const renderChatPage = async () => {
       gap:12px;
       position: relative;
       z-index: 5;
-      padding:18px;
+      padding: 14px 16px;
       border-bottom:1px solid var(--border);
-      background: linear-gradient(180deg, rgba(0,0,0,0.02), transparent);
+      background: var(--surface);
     }
 
     .chat-avatar-lg{
-      width:56px;
-      height:56px;
+      width:46px;
+      height:46px;
       border-radius:50%;
-      background:var(--primary);
+      background: linear-gradient(180deg, var(--primary), var(--accent));
       display:flex;
       align-items:center;
       justify-content:center;
       color:white;
-      font-weight:700;
-      font-size:20px;
+      font-weight:800;
+      font-size:16px;
       flex-shrink:0;
+      box-shadow: 0 10px 24px rgba(91,61,245,0.18);
     }
 
     .chat-header-main{
@@ -344,9 +404,9 @@ export const renderChatPage = async () => {
     }
 
     .chat-right-name{
-      font-weight:700;
+      font-weight:800;
       color:var(--text);
-      font-size:18px;
+      font-size:16px;
       white-space:nowrap;
       overflow:hidden;
       text-overflow:ellipsis;
@@ -400,8 +460,8 @@ export const renderChatPage = async () => {
     .chat-messages{
       flex:1;
       overflow:auto;
-      padding:22px;
-      background: linear-gradient(180deg, transparent, rgba(0,0,0,0.02));
+      padding: 18px;
+      background: var(--bg);
     }
 
     .chat-placeholder{
@@ -411,28 +471,32 @@ export const renderChatPage = async () => {
     }
 
     .chat-msg{
-      display:inline-block;
-      padding:10px 14px;
-      border-radius:14px;
-      margin-bottom:12px;
+      display:inline-flex;
+      flex-direction: column;
+      padding: 12px 14px;
+      border-radius: 18px;
+      margin: 8px 0;
       word-wrap:break-word;
-      max-width:68%;
+      max-width: 70%;
+      width: fit-content;
       font-size:14px;
       line-height:1.35;
+      box-shadow: 0 10px 24px rgba(2, 6, 23, 0.06);
     }
 
     .msg-sent{
       margin-left:auto;
       background: linear-gradient(180deg,var(--primary),var(--accent));
       color:white;
-      border-bottom-right-radius:6px;
+      border-bottom-right-radius: 8px;
     }
 
     .msg-received{
-      background: var(--card);
+      background: var(--bubble-in);
       color:var(--text);
-      border-bottom-left-radius:6px;
-      border:1px solid var(--border);
+      border-bottom-left-radius: 8px;
+      border: 1px solid rgba(0,0,0,0.04);
+      box-shadow: none;
     }
 
     .msg-content{ display:block; }
@@ -483,42 +547,48 @@ export const renderChatPage = async () => {
     }
 
     .chat-input{
-      padding:14px 18px;
+      padding: 12px 14px;
       display:flex;
       gap:10px;
       align-items:center;
       border-top:1px solid var(--border);
-      background: linear-gradient(0deg, rgba(0,0,0,0.02), transparent);
+      background: var(--surface);
     }
 
     .icon-btn{
-      width:46px;
-      height:46px;
-      border-radius:10px;
-      background:var(--panel);
-      border:1px solid var(--border);
+      width:44px;
+      height:44px;
+      border-radius: 14px;
+      background: var(--input-bg);
+      border: 1px solid rgba(0,0,0,0.04);
       display:flex;
       align-items:center;
       justify-content:center;
       cursor:pointer;
       color:var(--muted);
+      transition: transform .06s ease, background .12s ease;
+    }
+
+    .icon-btn:hover{
+      background: rgba(91,61,245,0.08);
+      transform: translateY(-1px);
     }
 
     .chat-input input[type="text"]{
       flex:1;
-      padding:14px 16px;
-      border-radius:12px;
-      border:1px solid rgba(0,0,0,0.04);
-      background:var(--input-bg);
+      padding: 14px 16px;
+      border-radius: 16px;
+      border: 1px solid rgba(0,0,0,0.04);
+      background: var(--input-bg);
       color:var(--text);
       outline:none;
-      font-size:15px;
+      font-size: 14px;
     }
 
     .send-btn{
-      width:54px;
-      height:54px;
-      border-radius:12px;
+      width: 52px;
+      height: 52px;
+      border-radius: 16px;
       background: linear-gradient(180deg,var(--primary),var(--accent));
       border:none;
       color:white;
@@ -526,7 +596,7 @@ export const renderChatPage = async () => {
       align-items:center;
       justify-content:center;
       cursor:pointer;
-      box-shadow: 0 8px 24px rgba(91,61,245,0.08);
+      box-shadow: 0 14px 34px rgba(91,61,245,0.20);
       font-size:18px;
     }
 
@@ -552,6 +622,326 @@ export const renderChatPage = async () => {
       background: linear-gradient(90deg, rgba(91,61,245,0.08), rgba(107,70,255,0.04));
     }
 
+    /* floating menus (message actions / chat options) */
+    #messageMenu,
+    #chatOptionsMenu {
+      background: var(--surface) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 12px !important;
+      box-shadow: var(--shadow-soft) !important;
+      overflow: hidden;
+    }
+
+    #messageMenu button,
+    #chatOptionsMenu button {
+      width: 100%;
+      padding: 10px 12px;
+      background: transparent;
+      border: none;
+      text-align: left;
+      cursor: pointer;
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    #messageMenu button:hover,
+    #chatOptionsMenu button:hover {
+      background: var(--hover);
+    }
+
+    /* ========================================
+       NEW CONVERSATION MODAL - MODERN UI
+    ======================================== */
+    .new-chat-modal {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding: 8px 0;
+    }
+
+    .new-chat-search {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+    }
+
+    .new-chat-search i {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .new-chat-search input {
+      flex: 1;
+      border: none;
+      background: transparent;
+      color: var(--text);
+      font-size: 14px;
+      outline: none;
+    }
+
+    .new-chat-list {
+      max-height: 320px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .new-chat-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.12s ease;
+    }
+
+    .new-chat-row:hover {
+      background: var(--hover);
+    }
+
+    .new-chat-row.selected {
+      background: rgba(91, 61, 245, 0.10);
+    }
+
+    .new-chat-row input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--primary);
+      cursor: pointer;
+    }
+
+    .new-chat-name {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    .new-chat-actions {
+      display: flex;
+      gap: 12px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border);
+    }
+
+    .btn-chat-action {
+      flex: 1;
+      padding: 12px 16px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.12s ease;
+    }
+
+    .btn-chat-action.btn-outline {
+      background: transparent;
+      border: 2px solid var(--primary);
+      color: var(--primary);
+    }
+
+    .btn-chat-action.btn-outline:hover {
+      background: rgba(91, 61, 245, 0.08);
+    }
+
+    .btn-chat-action.btn-primary {
+      background: linear-gradient(180deg, var(--primary), var(--accent));
+      border: none;
+      color: white;
+      box-shadow: 0 8px 20px rgba(91, 61, 245, 0.20);
+    }
+
+    .btn-chat-action:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* ========================================
+       MEDIA MENU - MODERN ICONS
+    ======================================== */
+    .media-option {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      border: none;
+      background: transparent;
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      border-radius: 8px;
+      transition: background 0.12s ease;
+    }
+
+    .media-option i {
+      width: 20px;
+      text-align: center;
+      color: var(--primary);
+    }
+
+    /* ========================================
+       MESSAGE OPTIONS (3-DOT MENU)
+    ======================================== */
+    .msg-options-btn {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.1);
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.15s ease;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .chat-msg:hover .msg-options-btn {
+      opacity: 1;
+    }
+
+    .msg-sent .msg-options-btn {
+      background: rgba(255,255,255,0.2);
+      color: white;
+    }
+
+    .msg-options-menu {
+      position: fixed;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+      min-width: 160px;
+      z-index: 10000;
+      overflow: hidden;
+    }
+
+    .msg-options-menu button {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      padding: 10px 14px;
+      background: transparent;
+      border: none;
+      text-align: left;
+      cursor: pointer;
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    .msg-options-menu button:hover {
+      background: var(--hover);
+    }
+
+    .msg-options-menu button i {
+      width: 16px;
+      color: var(--muted);
+    }
+
+    .msg-options-menu button.delete-option {
+      color: #ef4444;
+    }
+
+    .msg-options-menu button.delete-option i {
+      color: #ef4444;
+    }
+
+    /* ========================================
+       FILE ATTACHMENT UI - MODERN WHATSAPP STYLE
+    ======================================== */
+    .msg-file-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .msg-file-wrap.file-wrap {
+      flex-direction: row;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      background: rgba(0,0,0,0.05);
+      border-radius: 10px;
+      min-width: 200px;
+    }
+
+    .msg-sent .msg-file-wrap.file-wrap {
+      background: rgba(255,255,255,0.15);
+    }
+
+    .msg-file-wrap .file-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      background: var(--primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 18px;
+    }
+
+    .msg-file-wrap .file-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .msg-file-wrap .file-name {
+      font-weight: 600;
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .msg-file-wrap .file-size {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .msg-sent .msg-file-wrap .file-size {
+      color: rgba(255,255,255,0.7);
+    }
+
+    .msg-file-wrap .file-download-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.1);
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: var(--text);
+      transition: background 0.12s ease;
+    }
+
+    .msg-sent .msg-file-wrap .file-download-btn {
+      background: rgba(255,255,255,0.2);
+      color: white;
+    }
+
+    .msg-file-wrap .file-download-btn:hover {
+      background: rgba(0,0,0,0.15);
+    }
+
+    .msg-file-wrap .file-download-btn.downloaded {
+      color: #22c55e;
+    }
+
     /* file preview / video sizing inside messages */
     .chat-msg img, .chat-msg video{
       max-width:420px;
@@ -561,20 +951,20 @@ export const renderChatPage = async () => {
 
     /* responsive tweaks */
     @media (max-width: 980px){
-      .chat-left{ width:260px; }
+      .chat-left{ width:280px; }
       .media-menu{ right: 60px; top: 66px; }
     }
 
     @media (max-width: 720px){
-      .chat-wrapper{ padding:12px; gap:6px; }
+      .chat-wrapper{ padding:12px; gap:10px; }
       .chat-left{ display:none; }
-      .chat-right{ border-radius:10px; }
+      .chat-right{ border-radius: 14px; }
     }
     /* ------------------------------ */
     /* MESSAGE BUBBLES (final fixed)  */
     /* ------------------------------ */
 
-    .chat-msg {
+    .chat-msg-legacy {
       position: relative;
       padding: 12px 16px;
       margin: 6px 0;
@@ -587,7 +977,7 @@ export const renderChatPage = async () => {
     }
 
     /*** MY MESSAGE (RIGHT SIDE) ***/
-    .msg-sent {
+    .msg-sent-legacy {
       background: linear-gradient(180deg, var(--primary), var(--accent));
       color: white;
       margin-left: auto;                /* push to right */
@@ -595,7 +985,7 @@ export const renderChatPage = async () => {
     }
 
     /*** OTHER USER MESSAGE (LEFT SIDE) ***/
-    .msg-received {
+    .msg-received-legacy {
       background: var(--card);
       color: var(--text);
       margin-right: auto;                /* push to left */
@@ -604,7 +994,7 @@ export const renderChatPage = async () => {
     }
 
     /*** MESSAGE SPACING FIX ***/
-    .chat-messages .chat-msg {
+    .chat-messages .chat-msg-legacy {
       display: flex;
       flex-direction: column;
     }
@@ -619,7 +1009,7 @@ export const renderChatPage = async () => {
     /*   WhatsApp-style message bubble (auto width)       */
     /* -------------------------------------------------- */
 
-    .chat-msg {
+    .chat-msg-legacy {
       position: relative;
       display: inline-flex;
       align-items: center;
@@ -634,7 +1024,7 @@ export const renderChatPage = async () => {
     }
 
     /* SENT (RIGHT) */
-    .msg-sent {
+    .msg-sent-legacy {
       background: linear-gradient(180deg, var(--primary), var(--accent));
       color: white;
       margin-left: auto;
@@ -642,7 +1032,7 @@ export const renderChatPage = async () => {
     }
 
     /* RECEIVED (LEFT) */
-    .msg-received {
+    .msg-received-legacy {
       background: var(--card);
       color: var(--text);
       margin-right: auto;
@@ -1591,15 +1981,23 @@ body.dark .msg-time {
 
     <!-- LEFT SIDEBAR -->
     <div class="chat-left">
-      <div class="chat-left-header"  style="padding:12px 16px; height:70px;">
-        <div>Chats</div>
+      <div class="chat-left-header" style="padding:12px 16px;">
+        <div class="chat-left-title"><span>Messages</span></div>
         <button id="createNewChat" title="New chat">
           <i class="fa-solid fa-plus"></i>
         </button>
       </div>
 
-      <div class="chat-search"  style="padding:12px 16px; height:70px;">
-        <input type="text" id="chatSearchInput" placeholder="Search chats..." />
+      <div class="chat-left-tabs">
+        <button class="chat-tab active" type="button">General</button>
+        <button class="chat-tab" type="button">Archive</button>
+      </div>
+
+      <div class="chat-search" style="padding:0 16px 14px;">
+        <div class="chat-search-box">
+          <i class="fa-solid fa-magnifying-glass"></i>
+          <input type="text" id="chatSearchInput" placeholder="Search..." />
+        </div>
       </div>
 
       <div class="chat-list" id="chatList"></div>
@@ -1609,12 +2007,9 @@ body.dark .msg-time {
     <div class="chat-right">
 
       <!-- HEADER -->
-      <div class="chat-right-header" style="padding:12px 16px; height:70px;">
+      <div class="chat-right-header">
         
-        <div class="chat-avatar-lg" id="chatHeaderAvatar" style="width:48px;height:48px;font-size:18px;">?</div>
-        <button id="chatOptionsBtn" class="icon-btn">
-            <i class="fa-solid fa-ellipsis-vertical"></i>
-        </button>
+        <div class="chat-avatar-lg" id="chatHeaderAvatar">?</div>
 
 
         <!-- REPLACE the duplicated header-sub elements with this single element -->
@@ -1639,6 +2034,10 @@ body.dark .msg-time {
             <button id="clearSearchMessages" class="clear-btn" 
                     style="padding:6px 12px;font-size:12px;">Clear</button>
           </div>
+
+          <button id="chatOptionsBtn" class="icon-btn" title="Options">
+            <i class="fa-solid fa-ellipsis"></i>
+          </button>
 
           <div id="typingIndicator" class="typing-indicator" style="display:none;font-size:12px;margin-left:10px;">typing...</div>
           <div id="presenceIndicator" style="font-size:12px;color:var(--muted);margin-left:6px;"></div>
@@ -1669,10 +2068,10 @@ body.dark .msg-time {
 
     <!-- ATTACHMENT DROPDOWN -->
         <div id="mediaMenu" class="media-menu" style="display:none; position:fixed;">
-          <button class="media-option" id="uploadImageBtn"><i class="fa-solid fa-image"></i> Image</button>
-          <button class="media-option" id="uploadVideoBtn"><i class="fa-solid fa-video"></i> Video</button>
-          <button class="media-option" id="uploadFileBtn"><i class="fa-solid fa-file"></i> File</button>
-          <button class="media-option" id="recordVoiceBtn"><i class="fa-solid fa-microphone"></i> Voice</button>
+          <button class="media-option" id="uploadImageBtn"><i class="fa-regular fa-image"></i> Photo</button>
+          <button class="media-option" id="uploadVideoBtn"><i class="fa-solid fa-clapperboard"></i> Video</button>
+          <button class="media-option" id="uploadFileBtn"><i class="fa-regular fa-file-lines"></i> Document</button>
+          <button class="media-option" id="recordVoiceBtn"><i class="fa-solid fa-microphone-lines"></i> Audio</button>
         </div>
       </div>
       <input type="file" id="hiddenImageInput" accept="image/*" multiple style="display:none;" />
@@ -1704,9 +2103,7 @@ body.dark .msg-time {
 
   </div>
 `;
-  // hide header 3-dots (if present)
-  const headerBtn = document.getElementById("chatOptionsBtn");
-  if (headerBtn) headerBtn.style.display = "none";
+
 
   // // for safety
   // // for safety
@@ -2784,47 +3181,41 @@ body.dark .msg-time {
     let contentHtml = "";
     const mType = messageObj.message_type || "text";
 
+    // Helper to get file icon based on extension
+    function getFileIcon(filename) {
+      const ext = (filename || "").split(".").pop().toLowerCase();
+      const icons = {
+        pdf: "fa-file-pdf",
+        doc: "fa-file-word", docx: "fa-file-word",
+        xls: "fa-file-excel", xlsx: "fa-file-excel",
+        ppt: "fa-file-powerpoint", pptx: "fa-file-powerpoint",
+        zip: "fa-file-zipper", rar: "fa-file-zipper",
+        txt: "fa-file-lines",
+        jpg: "fa-file-image", jpeg: "fa-file-image", png: "fa-file-image", gif: "fa-file-image",
+        mp3: "fa-file-audio", wav: "fa-file-audio",
+        mp4: "fa-file-video", avi: "fa-file-video", mov: "fa-file-video",
+      };
+      return icons[ext] || "fa-file";
+    }
+
     // IMAGE
     if (mType === "image" && SAFE_MIME.includes(messageObj.mime_type)) {
       contentHtml = `
       <div class="msg-file-wrap image-wrap">
         ${FILE_URL ? `<img src="${FILE_URL}" class="msg-image" />` : ""}
-        <div class="msg-file-name">${escapeHtml(
-          messageObj.file_name || ""
-        )}</div>
-    `;
-
-      // WhatsApp-style download icon for receiver (frontend-only once-per-file)
-      if (!isMine && rawMediaId && !hasDownloadedOnce(rawMediaId)) {
-        contentHtml += waDownloadIcon(rawMediaId);
-      } else if (!isMine) {
-        contentHtml += waDownloadedIcon();
-      }
-
-      contentHtml += `</div>`;
+        <div class="msg-file-name">${escapeHtml(messageObj.file_name || "")}</div>
+        ${rawMediaId ? `<button class="file-download-btn" data-download="${rawMediaId}"><i class="fa-solid fa-arrow-down"></i></button>` : ""}
+      </div>`;
     }
 
     // VIDEO
     else if (mType === "video" && SAFE_MIME.includes(messageObj.mime_type)) {
       contentHtml = `
       <div class="msg-file-wrap video-wrap">
-        ${
-          FILE_URL
-            ? `<video controls class="msg-video"><source src="${FILE_URL}"></video>`
-            : ""
-        }
-        <div class="msg-file-name">${escapeHtml(
-          messageObj.file_name || ""
-        )}</div>
-    `;
-
-      if (!isMine && rawMediaId && !hasDownloadedOnce(rawMediaId)) {
-        contentHtml += waDownloadIcon(rawMediaId);
-      } else if (!isMine) {
-        contentHtml += waDownloadedIcon();
-      }
-
-      contentHtml += `</div>`;
+        ${FILE_URL ? `<video controls class="msg-video"><source src="${FILE_URL}"></video>` : ""}
+        <div class="msg-file-name">${escapeHtml(messageObj.file_name || "")}</div>
+        ${rawMediaId ? `<button class="file-download-btn" data-download="${rawMediaId}"><i class="fa-solid fa-arrow-down"></i></button>` : ""}
+      </div>`;
     }
 
     // AUDIO
@@ -2832,38 +3223,25 @@ body.dark .msg-time {
       contentHtml = `
       <div class="msg-file-wrap audio-wrap">
         ${FILE_URL ? `<audio controls src="${FILE_URL}"></audio>` : ""}
-        <div class="msg-file-name">${escapeHtml(
-          messageObj.file_name || ""
-        )}</div>
-    `;
-
-      if (!isMine && rawMediaId && !hasDownloadedOnce(rawMediaId)) {
-        contentHtml += waDownloadIcon(rawMediaId);
-      } else if (!isMine) {
-        contentHtml += waDownloadedIcon();
-      }
-
-      contentHtml += `</div>`;
+        <div class="msg-file-name">${escapeHtml(messageObj.file_name || "")}</div>
+        ${rawMediaId ? `<button class="file-download-btn" data-download="${rawMediaId}"><i class="fa-solid fa-arrow-down"></i></button>` : ""}
+      </div>`;
     }
 
-    // GENERIC FILE (pdf/docx/pptx/zip etc.)
-    // GENERIC FILE (pdf/docx/pptx/zip etc.)
+    // GENERIC FILE (pdf/docx/pptx/zip etc.) - MODERN UI
     else if (mType !== "text") {
       const fname = escapeHtml(messageObj.file_name || "download");
+      const fileIcon = getFileIcon(messageObj.file_name);
 
       contentHtml = `
-  <div class="msg-file-wrap file-wrap" data-file="${rawMediaId}">
-    <i class="fa-solid fa-file"></i>
-    <div class="file-name">${fname}</div>
-`;
-
-      if (!isMine && rawMediaId && !hasDownloadedOnce(rawMediaId)) {
-        contentHtml += waDownloadIcon(rawMediaId);
-      } else if (!isMine) {
-        contentHtml += waDownloadedIcon();
-      }
-
-      contentHtml += `</div>`;
+      <div class="msg-file-wrap file-wrap" data-file="${rawMediaId}">
+        <div class="file-icon"><i class="fa-solid ${fileIcon}"></i></div>
+        <div class="file-info">
+          <div class="file-name">${fname}</div>
+          <div class="file-size">${messageObj.mime_type || "File"}</div>
+        </div>
+        ${rawMediaId ? `<button class="file-download-btn" data-download="${rawMediaId}"><i class="fa-solid fa-arrow-down"></i></button>` : ""}
+      </div>`;
     }
 
     // TEXT
@@ -2872,12 +3250,22 @@ body.dark .msg-time {
       contentHtml = `<div class="msg-content">${text}</div>`;
     }
 
+    // 3-dot options button for every message
+    const optionsBtnHtml = messageObj.sender_id !== "system" ? `
+      <button class="msg-options-btn" data-msg-options="${msgId}">
+        <i class="fa-solid fa-ellipsis-vertical"></i>
+      </button>` : "";
+
     // FINAL HTML (keeps data attributes used by other code)
     const html = `
     <div class="chat-msg ${bubbleClass}" 
       data-msgid="${msgId}" 
       data-tempid="${messageObj.temp_id || ""}"
+      data-senderid="${messageObj.sender_id || ""}"
+      data-filename="${escapeHtml(messageObj.file_name || "")}"
+      data-fileurl="${FILE_URL || ""}"
       data-date="${iso}">
+      ${optionsBtnHtml}
       ${senderHeaderHtml}
       ${contentHtml}
       <div class="msg-meta-row">
@@ -2890,41 +3278,44 @@ body.dark .msg-time {
     container.insertAdjacentHTML("beforeend", html);
     container.scrollTop = container.scrollHeight;
 
-    // attach WA icon click handler (best-effort, non-blocking)
+    // Attach handlers after DOM insert
     setTimeout(() => {
       const el = container.querySelector(`[data-msgid="${msgId}"]`);
       if (!el) return;
 
-      const waIcon = el.querySelector(`[data-wa="${rawMediaId}"]`);
-      if (waIcon && FILE_URL) {
-        waIcon.onclick = async () => {
+      // Download button handler (for both sender AND receiver)
+      const downloadBtn = el.querySelector(`[data-download="${rawMediaId}"]`);
+      if (downloadBtn && FILE_URL) {
+        downloadBtn.onclick = async (e) => {
+          e.stopPropagation();
           try {
             await downloadFileRobust(
               FILE_URL,
               messageObj.file_name,
               messageObj.mime_type
             );
-            markDownloaded(rawMediaId);
-            waIcon.outerHTML = waDownloadedIcon();
+            downloadBtn.classList.add("downloaded");
+            downloadBtn.innerHTML = `<i class="fa-solid fa-check"></i>`;
           } catch (err) {
-            console.error("WA icon download failed", err);
+            console.error("Download failed", err);
           }
         };
       }
 
-      // Attach contextmenu (right-click) if needed so openMessageActionsMenu is usable from bubble
-      // (this keeps existing behaviour of your right-click menu)
-      if (el && typeof openMessageActionsMenu === "function") {
-        el.addEventListener("contextmenu", (ev) => {
-          ev.preventDefault();
-          // pass x/y coords and message id
-          openMessageActionsMenu(
-            messageObj.message_id || msgId,
-            ev.clientX,
-            ev.clientY
-          );
-        });
+      // 3-dot options button handler
+      const optionsBtn = el.querySelector(`[data-msg-options="${msgId}"]`);
+      if (optionsBtn) {
+        optionsBtn.onclick = (e) => {
+          e.stopPropagation();
+          openMsgOptionsMenu(msgId, messageObj, FILE_URL, e);
+        };
       }
+
+      // Right-click context menu
+      el.addEventListener("contextmenu", (ev) => {
+        ev.preventDefault();
+        openMsgOptionsMenu(msgId, messageObj, FILE_URL, ev);
+      });
     }, 30);
   }
 
@@ -3090,6 +3481,183 @@ body.dark .msg-time {
 
   function markDownloaded(fileId) {
     localStorage.setItem("downloaded_" + fileId, "1");
+  }
+
+  /* ===========================================================
+   MESSAGE OPTIONS MENU (3-dot menu)
+=========================================================== */
+  function openMsgOptionsMenu(msgId, messageObj, fileUrl, event) {
+    // Close any existing menu
+    closeAllFloatingMenus();
+
+    const isMine = String(messageObj.sender_id) === String(state.user?.id);
+    const hasFile = !!fileUrl && fileUrl !== "null";
+    const messageText = messageObj.message_text || "";
+
+    const menu = document.createElement("div");
+    menu.className = "msg-options-menu";
+    menu.style.left = event.pageX + "px";
+    menu.style.top = event.pageY + "px";
+
+    let menuHtml = "";
+
+    // Copy option (for text messages)
+    if (messageText) {
+      menuHtml += `<button data-action="copy"><i class="fa-regular fa-copy"></i> Copy</button>`;
+    }
+
+    // Download option (for files)
+    if (hasFile) {
+      menuHtml += `<button data-action="download"><i class="fa-solid fa-download"></i> Download</button>`;
+    }
+
+    // Forward option
+    menuHtml += `<button data-action="forward"><i class="fa-solid fa-share"></i> Forward</button>`;
+
+    // Share option (if Web Share API available)
+    if (navigator.share) {
+      menuHtml += `<button data-action="share"><i class="fa-solid fa-arrow-up-from-bracket"></i> Share</button>`;
+    }
+
+    // Delete option (only for sender)
+    if (isMine) {
+      menuHtml += `<button data-action="delete" class="delete-option"><i class="fa-solid fa-trash"></i> Delete</button>`;
+    }
+
+    menu.innerHTML = menuHtml;
+    document.body.appendChild(menu);
+
+    // Ensure menu stays within viewport
+    const rect = menu.getBoundingClientRect();
+    if (rect.right > window.innerWidth) {
+      menu.style.left = (window.innerWidth - rect.width - 10) + "px";
+    }
+    if (rect.bottom > window.innerHeight) {
+      menu.style.top = (window.innerHeight - rect.height - 10) + "px";
+    }
+
+    // Handle menu actions
+    menu.querySelectorAll("button").forEach(btn => {
+      btn.onclick = async () => {
+        const action = btn.dataset.action;
+
+        switch (action) {
+          case "copy":
+            try {
+              await navigator.clipboard.writeText(messageText);
+              showToast("Copied to clipboard");
+            } catch (err) {
+              console.error("Copy failed", err);
+            }
+            break;
+
+          case "download":
+            if (fileUrl) {
+              try {
+                await downloadFileRobust(fileUrl, messageObj.file_name, messageObj.mime_type);
+              } catch (err) {
+                console.error("Download failed", err);
+              }
+            }
+            break;
+
+          case "forward":
+            openForwardModal(messageObj);
+            break;
+
+          case "share":
+            try {
+              const shareData = { text: messageText || messageObj.file_name || "Shared message" };
+              if (fileUrl && !fileUrl.startsWith("blob:")) {
+                shareData.url = window.location.origin + fileUrl;
+              }
+              await navigator.share(shareData);
+            } catch (err) {
+              console.error("Share failed", err);
+            }
+            break;
+
+          case "delete":
+            if (confirm("Delete this message?")) {
+              emit("delete_message", { message_id: msgId });
+            }
+            break;
+        }
+
+        menu.remove();
+      };
+    });
+
+    // Close menu on outside click
+    setTimeout(() => {
+      document.addEventListener("click", function closeMenu(e) {
+        if (!menu.contains(e.target)) {
+          menu.remove();
+          document.removeEventListener("click", closeMenu);
+        }
+      });
+    }, 10);
+  }
+
+  // Simple toast notification
+  function showToast(message) {
+    const toast = document.createElement("div");
+    toast.style.cssText = `
+      position: fixed;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--text);
+      color: var(--bg);
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 13px;
+      z-index: 99999;
+      animation: fadeInUp 0.2s ease;
+    `;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2000);
+  }
+
+  // Forward message modal
+  function openForwardModal(messageObj) {
+    const conversations = window.conversationCache || [];
+    if (!conversations.length) {
+      alert("No conversations to forward to");
+      return;
+    }
+
+    let listHtml = conversations.map(c => {
+      const name = getTargetDisplayName(c) || c.display_name || c.name || "Chat";
+      return `<div class="forward-item" data-convo="${c.conversation_id}">
+        <span>${escapeHtml(name)}</span>
+      </div>`;
+    }).join("");
+
+    renderModal("Forward to", `
+      <div class="forward-list" style="max-height:300px;overflow-y:auto;">
+        ${listHtml}
+      </div>
+    `, null);
+
+    document.querySelectorAll(".forward-item").forEach(item => {
+      item.style.cssText = "padding:12px;cursor:pointer;border-radius:8px;";
+      item.onmouseenter = () => item.style.background = "var(--hover)";
+      item.onmouseleave = () => item.style.background = "transparent";
+      item.onclick = async () => {
+        const targetConvoId = item.dataset.convo;
+        // Forward the message
+        emit("send_message", {
+          conversation_id: targetConvoId,
+          sender_id: state.user.id,
+          message_text: messageObj.message_text || `[Forwarded: ${messageObj.file_name || "file"}]`,
+          message_type: "text"
+        });
+        closeModal();
+        showToast("Message forwarded");
+      };
+    });
   }
 
   /* ===========================================================
@@ -4040,7 +4608,8 @@ body.dark .msg-time {
 
     const myId = state.user?.id;
 
-    const list = (window.conversationCache || []).filter((c) => {
+    // Filter conversations
+    let list = (window.conversationCache || []).filter((c) => {
       const name = getTargetDisplayName(c) || c.display_name || c.name || "";
       const last = c.last_message || "";
 
@@ -4050,6 +4619,13 @@ body.dark .msg-time {
         name.toLowerCase().includes(filter) ||
         last.toLowerCase().includes(filter)
       );
+    });
+
+    // ✅ SORT BY LATEST MESSAGE TIME (newest first)
+    list = list.sort((a, b) => {
+      const timeA = a.last_message_time ? new Date(a.last_message_time).getTime() : 0;
+      const timeB = b.last_message_time ? new Date(b.last_message_time).getTime() : 0;
+      return timeB - timeA;
     });
 
     for (const convo of list) {
@@ -4338,7 +4914,7 @@ body.dark .msg-time {
 
   function closeAllFloatingMenus() {
     document
-      .querySelectorAll(".floating-chat-item-menu")
+      .querySelectorAll(".floating-chat-item-menu, .msg-options-menu")
       .forEach((n) => n.remove());
   }
 
@@ -4675,16 +5251,16 @@ body.dark .msg-time {
     renderModal(
       "New Conversation",
       `
-  <!-- LEFT COLUMN -->
-  <input id="empSearchInput" placeholder="Search employee..." />
-
-  <!-- RIGHT COLUMN -->
-  <div id="empListBox"></div>
-
-  <!-- BUTTON ROW (FULL WIDTH) -->
-  <div>
-    <button id="directChatBtn">Direct Chat</button>
-    <button id="groupChatBtn">Group Chat</button>
+  <div class="new-chat-modal">
+    <div class="new-chat-search">
+      <i class="fa-solid fa-magnifying-glass"></i>
+      <input id="empSearchInput" placeholder="Search..." />
+    </div>
+    <div id="empListBox" class="new-chat-list"></div>
+    <div class="new-chat-actions">
+      <button id="directChatBtn" class="btn-chat-action btn-outline">Direct Chat</button>
+      <button id="groupChatBtn" class="btn-chat-action btn-primary">Group Chat</button>
+    </div>
   </div>
   `,
       null
@@ -4706,24 +5282,19 @@ body.dark .msg-time {
         .filter((e) => e.name.toLowerCase().includes(filter))
         .forEach((e) => {
           const row = document.createElement("div");
-          row.style = `
-                    padding:6px 4px;
-                    display:flex;
-                    align-items:center;
-                    gap:10px;
-                    cursor:pointer;
-                `;
+          row.className = "new-chat-row" + (selected.has(e.id) ? " selected" : "");
 
           row.innerHTML = `
-                    <input type="checkbox" data-id="${e.id}">
-                    <span>${e.name}</span>
-                `;
+            <input type="checkbox" data-id="${e.id}" ${selected.has(e.id) ? "checked" : ""}>
+            <span class="new-chat-name">${escapeHtml(e.name)}</span>
+          `;
 
           const checkbox = row.querySelector("input");
 
           checkbox.addEventListener("change", () => {
             if (checkbox.checked) selected.add(e.id);
             else selected.delete(e.id);
+            row.classList.toggle("selected", checkbox.checked);
             updateButtons();
           });
 
