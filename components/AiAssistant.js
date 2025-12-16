@@ -342,6 +342,10 @@ async function sendMessage(question) {
             // If an action was executed (e.g., employee created), show success indicator
             if (data.actionResult) {
                 console.log('[AI] Action result received:', data.actionResult);
+                // Include taskAction in the result if present
+                if (data.taskAction) {
+                    data.actionResult.action = data.taskAction === 'start_timer' ? 'start_timer' : 'stop_timer';
+                }
                 await showActionSuccess(data.actionResult);
             }
         } else {
@@ -459,6 +463,135 @@ async function showActionSuccess(actionResult) {
                 window.dispatchEvent(new HashChangeEvent('hashchange'));
             }
         }, 500);
+    }
+    
+    // Handle task timer start
+    if (actionResult.action === 'start_timer' && actionResult.task_guid) {
+        console.log(`[AI] Starting task timer for: ${actionResult.task_name || actionResult.task_id}`);
+        
+        try {
+            const empId = String(state.user?.id || '').toUpperCase();
+            const taskGuid = actionResult.task_guid;
+            const taskId = actionResult.task_id;
+            const taskName = actionResult.task_name;
+            const projectId = actionResult.project_id;
+            
+            // Get today's date string
+            const today = new Date();
+            const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+            
+            // Get persisted seconds for this task today
+            const perTaskKey = `tt_accum_${empId}_${taskGuid}_${todayStr}`;
+            const persistedSecs = Number(localStorage.getItem(perTaskKey) || '0') || 0;
+            
+            // Set active task in localStorage (same format as My Tasks page)
+            const activeKey = `tt_active_${empId}`;
+            const activeData = {
+                task_guid: taskGuid,
+                task_id: taskId,
+                task_name: taskName,
+                project_id: projectId,
+                started_at: Date.now(),
+                accumulated: persistedSecs,
+                paused: false
+            };
+            localStorage.setItem(activeKey, JSON.stringify(activeData));
+            
+            console.log('[AI] Task timer started via localStorage:', activeData);
+            
+            // Dispatch custom event for My Tasks page to pick up
+            window.dispatchEvent(new CustomEvent('taskTimerStarted', {
+                detail: {
+                    task_guid: taskGuid,
+                    task_id: taskId,
+                    task_name: taskName,
+                    project_id: projectId,
+                    employee_id: empId
+                }
+            }));
+            
+            // If on My Tasks page, refresh it
+            if (window.location.hash.includes('time-my-tasks')) {
+                window.dispatchEvent(new HashChangeEvent('hashchange'));
+            }
+        } catch (err) {
+            console.error('[AI] Failed to start task timer:', err);
+        }
+    }
+    
+    // Handle task timer stop
+    if (actionResult.action === 'stop_timer') {
+        console.log('[AI] Stopping task timer');
+        
+        try {
+            const empId = String(state.user?.id || '').toUpperCase();
+            const activeKey = `tt_active_${empId}`;
+            const activeRaw = localStorage.getItem(activeKey);
+            
+            if (activeRaw) {
+                const active = JSON.parse(activeRaw);
+                const taskGuid = active.task_guid;
+                
+                // Calculate total seconds
+                let totalSeconds = active.accumulated || 0;
+                if (!active.paused && active.started_at) {
+                    totalSeconds += Math.floor((Date.now() - Number(active.started_at)) / 1000);
+                }
+                totalSeconds = Math.max(1, totalSeconds);
+                
+                // Get today's date string
+                const today = new Date();
+                const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+                
+                // Persist the accumulated time
+                const perTaskKey = `tt_accum_${empId}_${taskGuid}_${todayStr}`;
+                localStorage.setItem(perTaskKey, String(totalSeconds));
+                
+                // Post to timesheet log
+                try {
+                    const API = `${API_BASE_URL}/api`;
+                    await fetch(`${API}/time-tracker/task-log`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            employee_id: empId,
+                            project_id: active.project_id,
+                            task_guid: taskGuid,
+                            task_id: active.task_id,
+                            task_name: active.task_name,
+                            seconds: totalSeconds,
+                            work_date: todayStr,
+                            description: ''
+                        })
+                    });
+                } catch (logErr) {
+                    console.error('[AI] Failed to post timesheet log:', logErr);
+                }
+                
+                // Clear active task
+                localStorage.removeItem(activeKey);
+                
+                console.log('[AI] Task timer stopped, total seconds:', totalSeconds);
+                
+                // Dispatch custom event
+                window.dispatchEvent(new CustomEvent('taskTimerStopped', {
+                    detail: {
+                        task_guid: taskGuid,
+                        total_seconds: totalSeconds,
+                        employee_id: empId
+                    }
+                }));
+                
+                // If on My Tasks page, refresh it
+                if (window.location.hash.includes('time-my-tasks')) {
+                    window.dispatchEvent(new HashChangeEvent('hashchange'));
+                }
+            } else {
+                console.log('[AI] No active task timer to stop');
+            }
+        } catch (err) {
+            console.error('[AI] Failed to stop task timer:', err);
+        }
     }
 }
 

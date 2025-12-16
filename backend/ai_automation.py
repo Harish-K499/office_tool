@@ -446,6 +446,24 @@ AUTOMATION_INTENTS = {
         "flow": "check_out",
         "description": "Check out / stop attendance timer"
     },
+    "start_task": {
+        "keywords": [
+            "start my task", "start task", "start a task", "begin task",
+            "start working on task", "show my tasks", "list my tasks",
+            "my tasks", "work on task", "resume task", "play task"
+        ],
+        "flow": "task_start",
+        "description": "Start/resume a task timer"
+    },
+    "stop_task": {
+        "keywords": [
+            "stop my task", "stop task", "pause task", "end task",
+            "stop working on task", "pause my task", "stop the task",
+            "stop current task", "pause current task"
+        ],
+        "flow": "task_stop",
+        "description": "Stop/pause the currently running task timer"
+    },
 }
 
 
@@ -1171,6 +1189,111 @@ def _handle_check_action(
     return "I didn't understand that action.", state, None
 
 
+# ================== TASK START/STOP FLOW HANDLER ==================
+
+def handle_task_start_flow(
+    user_message: str,
+    state: 'ConversationState',
+    user_employee_id: str = None
+) -> Tuple[str, 'ConversationState', Optional[Dict[str, Any]]]:
+    """
+    Handle the task start flow:
+    1. Fetch user's tasks
+    2. Display numbered list
+    3. User selects a task number
+    4. Start the timer for that task
+    """
+    # Check for cancel
+    if user_message.strip().lower() in ['cancel', 'stop', 'quit', 'exit', 'nevermind']:
+        state.reset()
+        return "No problem! Task selection cancelled. Let me know if you need anything else. 👋", state, None
+    
+    # Starting the flow - fetch tasks and show list
+    if state.active_flow != "task_start":
+        state.active_flow = "task_start"
+        state.current_step = 0
+        state.collected_data = {}
+        state.awaiting_confirmation = False
+        
+        # Return action to fetch tasks
+        action = {
+            "type": "fetch_my_tasks",
+            "employee_id": user_employee_id
+        }
+        return "📋 Fetching your tasks...", state, action
+    
+    # User is selecting a task number
+    if state.current_step == 1:
+        tasks = state.collected_data.get("tasks", [])
+        if not tasks:
+            state.reset()
+            return "❌ No tasks available. Please try again later.", state, None
+        
+        # Parse user selection
+        user_input = user_message.strip()
+        
+        # Check if user typed a number
+        try:
+            selection = int(user_input)
+            if 1 <= selection <= len(tasks):
+                selected_task = tasks[selection - 1]
+                state.reset()
+                
+                action = {
+                    "type": "start_task_timer",
+                    "employee_id": user_employee_id,
+                    "task_guid": selected_task.get("guid"),
+                    "task_id": selected_task.get("task_id"),
+                    "task_name": selected_task.get("task_name"),
+                    "project_id": selected_task.get("project_id")
+                }
+                return f"▶️ Starting timer for **{selected_task.get('task_name', 'Task')}**...", state, action
+            else:
+                return f"❌ Please enter a number between 1 and {len(tasks)}.", state, None
+        except ValueError:
+            # Check if user typed task name or ID
+            user_lower = user_input.lower()
+            for task in tasks:
+                task_name = (task.get("task_name") or "").lower()
+                task_id = (task.get("task_id") or "").lower()
+                if user_lower in task_name or user_lower == task_id:
+                    state.reset()
+                    action = {
+                        "type": "start_task_timer",
+                        "employee_id": user_employee_id,
+                        "task_guid": task.get("guid"),
+                        "task_id": task.get("task_id"),
+                        "task_name": task.get("task_name"),
+                        "project_id": task.get("project_id")
+                    }
+                    return f"▶️ Starting timer for **{task.get('task_name', 'Task')}**...", state, action
+            
+            return f"❌ I couldn't find that task. Please enter a number (1-{len(tasks)}) or the task name.", state, None
+    
+    return "I didn't understand that. Please select a task number.", state, None
+
+
+def handle_task_stop_flow(
+    user_message: str,
+    state: 'ConversationState',
+    user_employee_id: str = None
+) -> Tuple[str, 'ConversationState', Optional[Dict[str, Any]]]:
+    """
+    Handle stopping the currently running task.
+    This is a single-step action.
+    """
+    state.reset()
+    
+    if not user_employee_id:
+        return "❌ I couldn't identify your employee ID. Please make sure you're logged in.", state, None
+    
+    action = {
+        "type": "stop_task_timer",
+        "employee_id": user_employee_id
+    }
+    return "⏹️ Stopping your current task timer...", state, action
+
+
 # ================== MAIN AUTOMATION HANDLER ==================
 
 def process_automation(
@@ -1241,6 +1364,14 @@ def process_automation(
                 "state": state.to_dict(),
                 "action": action
             }
+        elif state.active_flow == "task_start":
+            response, state, action = handle_task_start_flow(user_message, state, user_employee_id)
+            return {
+                "is_automation": True,
+                "response": response,
+                "state": state.to_dict(),
+                "action": action
+            }
     
     # Check for new automation intent
     intent = detect_automation_intent(user_message)
@@ -1295,6 +1426,22 @@ def process_automation(
             }
         elif intent["flow"] == "check_out":
             response, state, action = _handle_check_action("check_out", state, user_employee_id)
+            return {
+                "is_automation": True,
+                "response": response,
+                "state": state.to_dict(),
+                "action": action
+            }
+        elif intent["flow"] == "task_start":
+            response, state, action = handle_task_start_flow(user_message, state, user_employee_id)
+            return {
+                "is_automation": True,
+                "response": response,
+                "state": state.to_dict(),
+                "action": action
+            }
+        elif intent["flow"] == "task_stop":
+            response, state, action = handle_task_stop_flow(user_message, state, user_employee_id)
             return {
                 "is_automation": True,
                 "response": response,
@@ -2424,6 +2571,111 @@ Please review in HR Tool.
             return {
                 "success": False,
                 "error": f"Failed to create asset: {str(e)}"
+            }
+    
+    # ==================== FETCH MY TASKS ====================
+    if action["type"] == "fetch_my_tasks":
+        try:
+            import requests as req
+            
+            employee_id = action.get("employee_id", "")
+            if not employee_id:
+                return {
+                    "success": False,
+                    "error": "Employee ID is required to fetch tasks."
+                }
+            
+            # Call the my-tasks endpoint
+            api_url = "http://localhost:5000/api/my-tasks"
+            params = {
+                "user_id": employee_id,
+                "role": "l1"
+            }
+            
+            resp = req.get(api_url, params=params, timeout=30)
+            if resp.ok:
+                data = resp.json()
+                if data.get("success"):
+                    tasks = data.get("tasks", [])
+                    return {
+                        "success": True,
+                        "tasks": tasks,
+                        "message": f"Found {len(tasks)} task(s)."
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": data.get("error", "Failed to fetch tasks")
+                    }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Failed to fetch tasks: {resp.status_code}"
+                }
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {
+                "success": False,
+                "error": f"Error fetching tasks: {str(e)}"
+            }
+    
+    # ==================== START TASK TIMER ====================
+    if action["type"] == "start_task_timer":
+        try:
+            employee_id = action.get("employee_id", "")
+            task_guid = action.get("task_guid", "")
+            task_id = action.get("task_id", "")
+            task_name = action.get("task_name", "")
+            project_id = action.get("project_id", "")
+            
+            if not employee_id or not task_guid:
+                return {
+                    "success": False,
+                    "error": "Employee ID and task GUID are required."
+                }
+            
+            return {
+                "success": True,
+                "message": f"Timer started for **{task_name or task_id}**! ▶️",
+                "task_guid": task_guid,
+                "task_id": task_id,
+                "task_name": task_name,
+                "project_id": project_id,
+                "employee_id": employee_id,
+                "action": "start_timer"
+            }
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {
+                "success": False,
+                "error": f"Error starting task timer: {str(e)}"
+            }
+    
+    # ==================== STOP TASK TIMER ====================
+    if action["type"] == "stop_task_timer":
+        try:
+            employee_id = action.get("employee_id", "")
+            
+            if not employee_id:
+                return {
+                    "success": False,
+                    "error": "Employee ID is required."
+                }
+            
+            return {
+                "success": True,
+                "message": "Task timer stopped! ⏹️",
+                "employee_id": employee_id,
+                "action": "stop_timer"
+            }
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {
+                "success": False,
+                "error": f"Error stopping task timer: {str(e)}"
             }
     
     return {

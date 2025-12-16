@@ -10898,6 +10898,46 @@ def ai_query():
 To confirm, type exactly: **{confirm_text}**
 
 Or type **'cancel'** to abort."""
+                    # Special handling for fetch_my_tasks - show task list and update state
+                    elif action.get("type") == "fetch_my_tasks" and action_result.get("tasks"):
+                        tasks = action_result.get("tasks", [])
+                        current_state = response_data.get("automationState", {})
+                        current_state["collected_data"] = current_state.get("collected_data", {})
+                        current_state["collected_data"]["tasks"] = tasks
+                        current_state["current_step"] = 1  # Move to task selection step
+                        response_data["automationState"] = current_state
+                        
+                        if not tasks:
+                            response_data["answer"] = "❌ You don't have any tasks assigned. Please check with your manager."
+                            current_state["active_flow"] = None
+                        else:
+                            # Build numbered task list
+                            task_lines = []
+                            for i, task in enumerate(tasks, 1):
+                                name = task.get("task_name", "Unnamed Task")
+                                task_id = task.get("task_id", "")
+                                status = task.get("task_status", "")
+                                project = task.get("project_id", "")
+                                task_lines.append(f"**{i}.** {name} ({task_id}) - {status}")
+                            
+                            task_list = "\n".join(task_lines)
+                            response_data["answer"] = f"""📋 **Your Tasks:**
+
+{task_list}
+
+**Please enter the number of the task you want to start** (e.g., type `1` to start the first task).
+
+Or type **'cancel'** to abort."""
+                    # Special handling for start_task_timer - return action info to frontend
+                    elif action.get("type") == "start_task_timer":
+                        response_data["answer"] = f"▶️ {action_result.get('message', 'Timer started!')}"
+                        response_data["actionResult"] = action_result
+                        response_data["taskAction"] = "start_timer"
+                    # Special handling for stop_task_timer - return action info to frontend
+                    elif action.get("type") == "stop_task_timer":
+                        response_data["answer"] = f"⏹️ {action_result.get('message', 'Timer stopped!')}"
+                        response_data["actionResult"] = action_result
+                        response_data["taskAction"] = "stop_timer"
                     else:
                         # Normal success - append message
                         response_data["answer"] += f"\n\n🎉 {action_result.get('message')}"
