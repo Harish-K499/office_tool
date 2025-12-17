@@ -249,15 +249,15 @@ export const renderChatPage = async () => {
       display:flex;
       align-items:center;
       gap:10px;
-      padding: 12px 14px;
-      border-radius: 14px;
-      background: var(--input-bg);
-      border: 1px solid rgba(0,0,0,0.04);
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.08);
     }
 
     .chat-search .chat-search-box i{
       color: var(--muted);
-      font-size: 14px;
+      font-size: 13px;
     }
 
     .chat-search input{
@@ -266,7 +266,7 @@ export const renderChatPage = async () => {
       background:transparent;
       color:var(--text);
       outline:none;
-      font-size:14px;
+      font-size:13px;
       box-sizing:border-box;
     }
 
@@ -685,20 +685,21 @@ export const renderChatPage = async () => {
       display:flex;
       align-items:center;
       gap:8px;
-      padding:8px 10px;
-      border-radius:12px;
-      border:1px solid var(--border);
-      background:var(--input-bg);
+      padding: 7px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.06);
       color:var(--text);
     }
 
     .messages-search-bar input{
-      padding:8px;
+      padding: 6px 6px;
       border:none;
       outline:none;
       background:transparent;
       color:var(--text);
-      width:260px;
+      width:180px;
+      font-size: 13px;
     }
 
     .clear-btn{
@@ -2335,7 +2336,7 @@ body.dark .msg-time {
                  style="display:flex;align-items:center;padding:6px 10px;border-radius:8px;">
               <i class="fa-solid fa-magnifying-glass" style="color:var(--muted);font-size:13px;"></i>
               <input id="searchMessagesHeader" placeholder="Search messages..."
-                     style="background:transparent;border:none;outline:none;padding:4px 6px;font-size:13px;width:160px;" />
+                     style="background:transparent;border:none;outline:none;padding:4px 6px;font-size:13px;width:180px;" />
             </div>
             <button id="clearSearchMessages" class="clear-btn" 
                     style="padding:6px 12px;font-size:12px;">Clear</button>
@@ -2596,7 +2597,10 @@ body.dark .msg-time {
       }
 
       // 3️⃣ Refresh left list – cheap
-      renderConversationList();
+      const currentFilter = (document.getElementById("chatSearchInput")?.value || "")
+        .trim()
+        .toLowerCase();
+      renderConversationList(currentFilter);
 
       // 4️⃣ Only render if active conversation is open AND not already shown
       if (convId === window.currentConversationId) {
@@ -6672,12 +6676,14 @@ async function openGroupInfoPanel(conversation_id) {
       <div id="memberSearchContainer" style="display:none;padding:8px 16px;">
         <input type="text" id="memberSearchInput" placeholder="Search members..." style="
           width:100%;
-          padding:10px 12px;
+          padding:8px 12px;
           border:none;
-          border-radius:8px;
-          background:var(--surface-alt, #202c33);
+          border-radius:999px;
+          background:rgba(255,255,255,0.06);
+          border:1px solid rgba(255,255,255,0.08);
           color:var(--text);
-          font-size:14px;
+          font-size:13px;
+          outline:none;
         ">
       </div>
 
