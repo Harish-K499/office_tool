@@ -21,6 +21,8 @@ import {
   leaveDirectChat,
   sendWithProgress,
   sendMultipleFilesApi,
+  markMessagesRead,
+  sendTextMessageWithReply,
 } from "../features/chatapi.js";
 
 import {
@@ -47,6 +49,9 @@ window.groupMemberCache = {}; // { conversationId: [members] }
 window.currentConversationId = null;
 let typingTimer = null;
 let isTyping = false;
+
+// Reply-to state
+window.replyToMessage = null; // { message_id, sender_name, message_text }
 // ✅ Upload queues
 window.pendingUploads = {}; // { tempId: { file, payload } }  — waiting to be sent (preview)
 window.activeUploads = {}; // { tempId: xhr }                — uploading with XHR abort
@@ -2565,7 +2570,13 @@ body.dark .msg-time {
 
       // 1️⃣ Update chat cache
       if (!window.chatCache[convId]) window.chatCache[convId] = [];
-      window.chatCache[convId].push(msg);
+      // Deduplication: check if message already exists in cache
+      const existsInCache = window.chatCache[convId].some(
+        (m) => m.message_id === msg.message_id || (msg.temp_id && m.temp_id === msg.temp_id)
+      );
+      if (!existsInCache) {
+        window.chatCache[convId].push(msg);
+      }
 
       // 2️⃣ Update left-sidebar conversation preview
       const convo = window.conversationCache.find(
@@ -2576,6 +2587,11 @@ body.dark .msg-time {
         convo.last_message = msg.message_text || msg.file_name || "";
         convo.last_sender = msg.sender_id;
         convo.last_message_time = msg.created_on;
+        
+        // Increment unread count if not current conversation and not my message
+        if (convId !== window.currentConversationId && String(msg.sender_id) !== String(state.user?.id)) {
+          convo.unread_count = (convo.unread_count || 0) + 1;
+        }
       }
 
       // 3️⃣ Refresh left list – cheap
@@ -2595,6 +2611,8 @@ body.dark .msg-time {
           if (msg.message_id && existingEl.dataset.tempid) {
             existingEl.setAttribute("data-msgid", msg.message_id);
             existingEl.removeAttribute("data-tempid");
+            // Update status tick to delivered
+            updateMessageStatusUI(msg.message_id, msg.status || "delivered");
           }
           return; // Don't add duplicate
         }
@@ -2602,6 +2620,11 @@ body.dark .msg-time {
         addMessageToUI(msg, isMine, msg.message_id, {
           is_group: window.currentConversation?.is_group || false,
         });
+        
+        // If incoming message from others, mark as read immediately
+        if (!isMine && msg.sender_id !== "system") {
+          markMessagesRead(convId, [msg.message_id]).catch(() => {});
+        }
       }
     });
 
@@ -2890,12 +2913,23 @@ body.dark .msg-time {
       created_on: new Date().toISOString(),
       temp_id: "tmp_" + Date.now(),
       sender_name: state.user?.name,
+      status: "sent",
     };
+
+    // Include reply_to if replying to a message
+    if (window.replyToMessage) {
+      payload.reply_to = window.replyToMessage.message_id;
+      payload.reply_to_text = window.replyToMessage.message_text;
+      payload.reply_to_sender = window.replyToMessage.sender_name;
+    }
 
     // 1️⃣ Optimistic local UI
     addMessageToUI(payload, true, payload.message_id, {
       is_group: window.currentConversation?.is_group || false,
     });
+
+    // Clear reply state
+    clearReplyPreview();
 
     // 2️⃣ Insert into local cache immediately
     if (!window.chatCache[window.currentConversationId]) {
@@ -2931,7 +2965,10 @@ body.dark .msg-time {
     emitTypingStop();
   };
 
-  // typing
+  // typing indicator with 3-second auto-stop (WhatsApp behavior)
+  const TYPING_TIMEOUT_MS = 3000;
+  let typingAutoStopTimer = null;
+  
   const inputEl = document.getElementById("chatMessageInput");
   inputEl.addEventListener("input", () => {
     if (!window.currentConversationId) return;
@@ -2942,13 +2979,17 @@ body.dark .msg-time {
         sender_id: state.user.id,
       });
     }
+    // Reset the auto-stop timer on each keystroke
     clearTimeout(typingTimer);
-    typingTimer = setTimeout(() => emitTypingStop(), 1400);
+    clearTimeout(typingAutoStopTimer);
+    typingTimer = setTimeout(() => emitTypingStop(), TYPING_TIMEOUT_MS);
   });
 
   function emitTypingStop() {
     if (!isTyping) return;
     isTyping = false;
+    clearTimeout(typingTimer);
+    clearTimeout(typingAutoStopTimer);
     emit("stop_typing", {
       conversation_id: window.currentConversationId,
       sender_id: state.user.id,
@@ -3609,6 +3650,29 @@ body.dark .msg-time {
       contentHtml = `<div class="msg-content">${text}</div>`;
     }
 
+    // Reply preview bubble (if this message is a reply to another)
+    let replyBubbleHtml = "";
+    if (messageObj.reply_to || messageObj.reply_to_text) {
+      const replyText = messageObj.reply_to_text || "[Original message]";
+      const replySender = messageObj.reply_to_sender || "User";
+      const truncatedReply = replyText.length > 50 ? replyText.substring(0, 50) + "..." : replyText;
+      
+      replyBubbleHtml = `
+        <div class="reply-bubble" data-reply-to="${messageObj.reply_to || ""}" style="
+          background: rgba(0, 168, 132, 0.1);
+          border-left: 3px solid #00a884;
+          padding: 6px 10px;
+          margin-bottom: 6px;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 12px;
+        ">
+          <div style="color:#00a884;font-weight:500;">${escapeHtml(replySender)}</div>
+          <div style="color:var(--text-secondary, #8696a0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(truncatedReply)}</div>
+        </div>
+      `;
+    }
+
     // 3-dot options button for every message
     const optionsBtnHtml = messageObj.sender_id !== "system" ? `
       <button class="msg-options-btn" data-msg-options="${msgId}">
@@ -3626,6 +3690,7 @@ body.dark .msg-time {
       data-date="${iso}">
       ${optionsBtnHtml}
       ${senderHeaderHtml}
+      ${replyBubbleHtml}
       ${contentHtml}
       <div class="msg-meta-row">
         <span class="msg-time">${escapeHtml(timeText)}</span>
@@ -3675,6 +3740,18 @@ body.dark .msg-time {
         ev.preventDefault();
         openMsgOptionsMenu(msgId, messageObj, FILE_URL, ev);
       });
+
+      // Reply bubble click handler - scroll to original message
+      const replyBubble = el.querySelector(".reply-bubble");
+      if (replyBubble) {
+        replyBubble.onclick = (e) => {
+          e.stopPropagation();
+          const replyToId = replyBubble.dataset.replyTo;
+          if (replyToId) {
+            scrollToMessage(replyToId);
+          }
+        };
+      }
     }, 30);
   }
 
@@ -4070,12 +4147,45 @@ body.dark .msg-time {
 
     el.classList.add("upload-failed");
 
+    // Remove progress UI
+    const uploadActions = el.querySelector(".upload-actions");
+    if (uploadActions) uploadActions.remove();
+
+    // Add failed indicator with retry button
     const meta = el.querySelector(".msg-meta-row");
     if (meta) {
-      meta.insertAdjacentHTML(
-        "beforeend",
-        `<span class="upload-failed-text">Failed</span>`
-      );
+      meta.innerHTML = `
+        <span class="upload-failed-text" style="color:#f15c6d;font-size:12px;">
+          <i class="fa-solid fa-exclamation-circle" style="margin-right:4px;"></i>Failed
+        </span>
+        <button class="retry-upload-btn" data-retry="${tempId}" style="
+          background:none;
+          border:none;
+          color:#00a884;
+          font-size:12px;
+          cursor:pointer;
+          margin-left:8px;
+        ">
+          <i class="fa-solid fa-rotate-right" style="margin-right:4px;"></i>Retry
+        </button>
+      `;
+
+      // Attach retry handler
+      const retryBtn = meta.querySelector(`[data-retry="${tempId}"]`);
+      if (retryBtn) {
+        retryBtn.onclick = () => {
+          // Get the file from activeUploads cache
+          const uploadData = window.activeUploads?.[tempId];
+          if (uploadData?.file) {
+            // Remove failed bubble
+            el.remove();
+            // Retry upload
+            sendFileAfterPreview(uploadData.file);
+          } else {
+            alert("Cannot retry - file data not available. Please select the file again.");
+          }
+        };
+      }
     }
   }
   function openMultiFilePreviewModal(files) {
@@ -4193,8 +4303,41 @@ body.dark .msg-time {
     updateMessageStatusUI(data.message_id, data.status);
   });
 
+  // Handle messages_read event - update ticks to blue for read messages
+  on("messages_read", (data) => {
+    if (data.conversation_id !== window.currentConversationId) return;
+    // Don't update if it's my own read receipt
+    if (String(data.user_id) === String(state.user?.id)) return;
+    
+    // Update all my messages in this conversation to "read" status
+    const container = document.getElementById("chatMessages");
+    const myMessages = container.querySelectorAll(".msg-sent");
+    myMessages.forEach((el) => {
+      const msgId = el.getAttribute("data-msgid");
+      // If message_ids provided, only update those; otherwise update all
+      if (data.message_ids && data.message_ids.length > 0) {
+        if (data.message_ids.includes(msgId)) {
+          updateMessageStatusUI(msgId, "read");
+        }
+      } else {
+        updateMessageStatusUI(msgId, "read");
+      }
+    });
+    
+    // Update cache
+    if (window.chatCache[data.conversation_id]) {
+      window.chatCache[data.conversation_id].forEach((m) => {
+        if (String(m.sender_id) === String(state.user?.id)) {
+          m.status = "read";
+        }
+      });
+    }
+  });
+
   on("typing", (data) => {
     if (data.conversation_id !== window.currentConversationId) return;
+    // Don't show typing for self
+    if (String(data.sender_id) === String(state.user?.id)) return;
     showTypingIndicator(data.sender_id);
   });
 
@@ -4957,14 +5100,30 @@ body.dark .msg-time {
     el.innerHTML = `<div style="font-style:italic;color:var(--muted)">This message was deleted</div>`;
   }
 
+  // Typing indicator with auto-hide after 4 seconds (safety net)
+  let typingIndicatorTimeout = null;
+  
   function showTypingIndicator(userId) {
     const el = document.getElementById("typingIndicator");
+    if (!el) return;
+    
+    // Clear any existing auto-hide timer
+    clearTimeout(typingIndicatorTimeout);
+    
     el.style.display = "block";
     el.innerText = `${getDisplayName(userId)} is typing...`;
+    
+    // Auto-hide after 4 seconds as safety net (in case stop_typing event is missed)
+    typingIndicatorTimeout = setTimeout(() => {
+      hideTypingIndicator();
+    }, 4000);
   }
 
   function hideTypingIndicator() {
     const el = document.getElementById("typingIndicator");
+    if (!el) return;
+    
+    clearTimeout(typingIndicatorTimeout);
     el.style.display = "none";
     el.innerText = "";
   }
@@ -4977,6 +5136,85 @@ body.dark .msg-time {
     if (!convo) return userId;
     const m = (convo.members || []).find((x) => x.id === userId);
     return m?.name || userId;
+  }
+
+  // ========================================
+  // REPLY-TO-MESSAGE FUNCTIONS
+  // ========================================
+  function setReplyToMessage(message) {
+    window.replyToMessage = {
+      message_id: message.message_id,
+      sender_name: message.sender_name || message.sender_id,
+      message_text: message.message_text || message.file_name || "[Media]",
+    };
+    showReplyPreview();
+    document.getElementById("chatMessageInput")?.focus();
+  }
+
+  function clearReplyPreview() {
+    window.replyToMessage = null;
+    const preview = document.getElementById("replyPreviewBar");
+    if (preview) {
+      preview.remove();
+    }
+  }
+
+  function showReplyPreview() {
+    if (!window.replyToMessage) return;
+
+    // Remove existing preview if any
+    const existing = document.getElementById("replyPreviewBar");
+    if (existing) existing.remove();
+
+    const inputBar = document.getElementById("bottomInputBar");
+    if (!inputBar) return;
+
+    const preview = document.createElement("div");
+    preview.id = "replyPreviewBar";
+    preview.style.cssText = `
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: var(--surface-alt, #202c33);
+      border-left: 3px solid #00a884;
+      margin-bottom: 4px;
+      border-radius: 4px;
+    `;
+
+    const truncatedText = window.replyToMessage.message_text.length > 60
+      ? window.replyToMessage.message_text.substring(0, 60) + "..."
+      : window.replyToMessage.message_text;
+
+    preview.innerHTML = `
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:12px;color:#00a884;font-weight:500;">
+          Replying to ${escapeHtml(window.replyToMessage.sender_name)}
+        </div>
+        <div style="font-size:13px;color:var(--text-secondary, #8696a0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+          ${escapeHtml(truncatedText)}
+        </div>
+      </div>
+      <button id="cancelReplyBtn" style="background:none;border:none;color:var(--text-secondary, #8696a0);cursor:pointer;padding:4px 8px;font-size:16px;">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    `;
+
+    inputBar.insertBefore(preview, inputBar.firstChild);
+
+    document.getElementById("cancelReplyBtn").onclick = () => clearReplyPreview();
+  }
+
+  function scrollToMessage(messageId) {
+    const el = document.querySelector(`[data-msgid="${messageId}"]`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.style.transition = "background 0.3s";
+      el.style.background = "rgba(0, 168, 132, 0.2)";
+      setTimeout(() => {
+        el.style.background = "";
+      }, 1500);
+    }
   }
 
   // conversation list handling
@@ -5023,8 +5261,18 @@ body.dark .msg-time {
       );
     });
 
-    // ✅ SORT BY LATEST MESSAGE TIME (newest first)
+    // Get pinned chats from localStorage
+    const pinnedChats = JSON.parse(localStorage.getItem("pinnedChats") || "[]");
+
+    // ✅ SORT: Pinned first, then by latest message time (newest first)
     list = list.sort((a, b) => {
+      const aPinned = pinnedChats.includes(a.conversation_id) ? 1 : 0;
+      const bPinned = pinnedChats.includes(b.conversation_id) ? 1 : 0;
+      
+      // Pinned chats come first
+      if (aPinned !== bPinned) return bPinned - aPinned;
+      
+      // Then sort by time
       const timeA = a.last_message_time ? new Date(a.last_message_time).getTime() : 0;
       const timeB = b.last_message_time ? new Date(b.last_message_time).getTime() : 0;
       return timeB - timeA;
@@ -5072,17 +5320,48 @@ body.dark .msg-time {
         }
       }
 
+      // Unread count badge
+      const unreadCount = convo.unread_count || 0;
+      const unreadBadgeHtml = unreadCount > 0 
+        ? `<span class="unread-badge" style="
+            background:#00a884;
+            color:#fff;
+            font-size:11px;
+            font-weight:600;
+            padding:2px 6px;
+            border-radius:10px;
+            min-width:18px;
+            text-align:center;
+          ">${unreadCount > 99 ? "99+" : unreadCount}</span>`
+        : "";
+
+      // Mute icon (check if user has muted this conversation)
+      const isMuted = convo.is_muted || false;
+      const muteIconHtml = isMuted 
+        ? `<i class="fa-solid fa-bell-slash" style="color:var(--muted);font-size:12px;margin-left:4px;" title="Muted"></i>`
+        : "";
+
+      // Pin icon (check localStorage for pinned chats)
+      const pinnedChats = JSON.parse(localStorage.getItem("pinnedChats") || "[]");
+      const isPinned = pinnedChats.includes(convo.conversation_id);
+      const pinIconHtml = isPinned 
+        ? `<i class="fa-solid fa-thumbtack" style="color:var(--muted);font-size:11px;margin-right:4px;" title="Pinned"></i>`
+        : "";
+
       el.innerHTML = `
         <div class="chat-avatar-sm">${avatarLetter}</div>
 
         <div class="chat-meta">
 
             <div class="chat-item-name-row">
-                <span class="chat-name">${escapeHtml(displayName)}</span>
+                <span class="chat-name">${pinIconHtml}${escapeHtml(displayName)}${muteIconHtml}</span>
                 <span class="chat-time">${timeText}</span>
             </div>
 
-            <div class="chat-item-preview">${preview}</div>
+            <div class="chat-item-preview-row" style="display:flex;align-items:center;justify-content:space-between;">
+              <div class="chat-item-preview" style="flex:1;min-width:0;">${preview}</div>
+              ${unreadBadgeHtml}
+            </div>
         </div>
 
         <button class="chat-item-more" title="Options" data-convo="${
@@ -5129,6 +5408,12 @@ body.dark .msg-time {
       (window.conversationCache || []).find(
         (c) => c.conversation_id === conversation_id
       ) || {};
+
+    // Clear unread count when opening conversation
+    if (convo.unread_count > 0) {
+      convo.unread_count = 0;
+      renderConversationList();
+    }
 
     const displayName = getTargetDisplayName(convo);
     document.getElementById("chatUserName").innerText =
@@ -5208,10 +5493,21 @@ body.dark .msg-time {
         window.chatCache[conversation_id] = messages;
         if (window.currentConversationId === conversation_id) {
           renderMessages(messages, convo);
+          
+          // Mark messages as read - collect message IDs from other senders
+          const otherMessageIds = messages
+            .filter((m) => String(m.sender_id) !== String(state.user?.id) && m.sender_id !== "system")
+            .map((m) => m.message_id)
+            .filter(Boolean);
+          
+          if (otherMessageIds.length > 0) {
+            markMessagesRead(conversation_id, otherMessageIds).catch(() => {});
+          }
         }
       })
       .catch((err) => console.error("message load fail", err));
 
+    // Also emit via socket for immediate notification
     emit("mark_read", { conversation_id, user_id: state.user.id });
   }
 
@@ -5495,17 +5791,19 @@ body.dark .msg-time {
     // -------------------------------
     let html = "";
 
+    // Reply option available for all messages (not system)
+    if (message.sender_id !== "system") {
+      html += `<div class="msg-menu-item" data-action="reply"><i class="fa-solid fa-reply" style="margin-right:8px;"></i>Reply</div>`;
+    }
+
     if (isMine) {
       // Sender can edit only text
       if (msgType === "text") {
-        html += `<div class="msg-menu-item" data-action="edit">Edit</div>`;
+        html += `<div class="msg-menu-item" data-action="edit"><i class="fa-solid fa-pen" style="margin-right:8px;"></i>Edit</div>`;
       }
 
       // Sender can delete
-      html += `<div class="msg-menu-item" data-action="delete">Delete</div>`;
-    } else {
-      // Receiver → no actions
-      html += `<div class="msg-menu-item disabled" style="opacity:0.6;cursor:not-allowed;">No actions</div>`;
+      html += `<div class="msg-menu-item" data-action="delete" style="color:#f15c6d;"><i class="fa-solid fa-trash" style="margin-right:8px;"></i>Delete</div>`;
     }
 
     menu.innerHTML = html;
@@ -5518,8 +5816,18 @@ body.dark .msg-time {
     menu.style.top = `${top}px`;
 
     // -------------------------------
-    // ACTION HANDLERS (ONLY IF MINE)
+    // ACTION HANDLERS
     // -------------------------------
+    
+    // Reply handler (available for all non-system messages)
+    const replyBtn = menu.querySelector('[data-action="reply"]');
+    if (replyBtn) {
+      replyBtn.onclick = () => {
+        menu.remove();
+        setReplyToMessage(message);
+      };
+    }
+    
     if (isMine) {
       // Edit
       const editBtn = menu.querySelector('[data-action="edit"]');
@@ -6122,9 +6430,109 @@ body.dark .msg-time {
   // small safety: if socket connects later, register on connect
   if (getSocket() && getSocket().on) {
     getSocket().on("connect", () => {
+      console.log("[Socket] Connected - re-registering user");
       emit("chat_register", { user_id: state.user.id });
+      // Re-join current conversation room if any
+      if (window.currentConversationId) {
+        emit("join_room", { conversation_id: window.currentConversationId });
+      }
       // subscribe presence to conversation users if any
       subscribePresenceForList();
+    });
+
+    // Handle disconnect gracefully
+    getSocket().on("disconnect", (reason) => {
+      console.log("[Socket] Disconnected:", reason);
+      // Show reconnecting indicator in header
+      const headerSub = document.getElementById("chatHeaderSub");
+      if (headerSub) {
+        headerSub.innerHTML = `<span style="color:#f59e0b;">Reconnecting...</span>`;
+      }
+    });
+
+    // Handle reconnect
+    getSocket().on("reconnect", (attemptNumber) => {
+      console.log("[Socket] Reconnected after", attemptNumber, "attempts");
+      // Refresh conversation list to sync any missed messages
+      refreshConversationList();
+      // Re-fetch messages for current conversation
+      if (window.currentConversationId) {
+        fetchMessagesForConversation(window.currentConversationId)
+          .then((messages) => {
+            window.chatCache[window.currentConversationId] = messages;
+            const convo = window.conversationCache.find(
+              (c) => c.conversation_id === window.currentConversationId
+            );
+            if (convo) renderMessages(messages, convo);
+          })
+          .catch((err) => console.error("Failed to refresh messages after reconnect:", err));
+      }
+    });
+
+    // Handle user removed from group while viewing
+    getSocket().on("user_removed_from_group", (data) => {
+      if (String(data.user_id) !== String(state.user?.id)) return;
+      if (data.conversation_id === window.currentConversationId) {
+        // Close group info panel if open
+        const panel = document.getElementById("groupInfoPanel");
+        if (panel) panel.remove();
+        const overlay = document.getElementById("groupInfoOverlay");
+        if (overlay) overlay.remove();
+        
+        // Show removed message
+        document.getElementById("chatMessages").innerHTML = `
+          <div class="chat-placeholder" style="text-align:center;padding:40px;">
+            <i class="fa-solid fa-user-slash" style="font-size:48px;color:var(--muted);margin-bottom:16px;"></i>
+            <p style="color:var(--muted);">You were removed from this group</p>
+          </div>
+        `;
+        
+        // Refresh conversation list to remove this group
+        refreshConversationList();
+      }
+    });
+
+    // Handle group deleted while viewing
+    getSocket().on("group_deleted", (data) => {
+      if (data.conversation_id === window.currentConversationId) {
+        // Close group info panel if open
+        const panel = document.getElementById("groupInfoPanel");
+        if (panel) panel.remove();
+        const overlay = document.getElementById("groupInfoOverlay");
+        if (overlay) overlay.remove();
+        
+        document.getElementById("chatMessages").innerHTML = `
+          <div class="chat-placeholder" style="text-align:center;padding:40px;">
+            <i class="fa-solid fa-trash" style="font-size:48px;color:var(--muted);margin-bottom:16px;"></i>
+            <p style="color:var(--muted);">This group was deleted</p>
+          </div>
+        `;
+        
+        window.currentConversationId = null;
+        refreshConversationList();
+      }
+    });
+
+    // Handle admin demoted while panel open
+    getSocket().on("admin_demoted", (data) => {
+      if (String(data.user_id) === String(state.user?.id) && 
+          data.conversation_id === window.currentConversationId) {
+        // Refresh group info panel to update admin controls
+        const panel = document.getElementById("groupInfoPanel");
+        if (panel) {
+          const closePanel = () => {
+            panel.classList.remove("open");
+            const overlay = document.getElementById("groupInfoOverlay");
+            if (overlay) overlay.classList.remove("open");
+            setTimeout(() => {
+              panel.remove();
+              if (overlay) overlay.remove();
+            }, 300);
+          };
+          closePanel();
+          setTimeout(() => openGroupInfoPanel(data.conversation_id), 350);
+        }
+      }
     });
   }
 
@@ -6259,6 +6667,19 @@ async function openGroupInfoPanel(conversation_id) {
         <button class="search-btn" id="searchMembersBtn"><i class="fa-solid fa-magnifying-glass"></i></button>
       </div>
 
+      <!-- Member search input (hidden by default) -->
+      <div id="memberSearchContainer" style="display:none;padding:8px 16px;">
+        <input type="text" id="memberSearchInput" placeholder="Search members..." style="
+          width:100%;
+          padding:10px 12px;
+          border:none;
+          border-radius:8px;
+          background:var(--surface-alt, #202c33);
+          color:var(--text);
+          font-size:14px;
+        ">
+      </div>
+
       <!-- Add member (admin only) -->
       ${isMeAdmin ? `
       <div class="group-info-action-row green" id="addMemberRow">
@@ -6343,6 +6764,36 @@ async function openGroupInfoPanel(conversation_id) {
     };
   }
 
+  // Member search functionality
+  const searchMembersBtn = document.getElementById("searchMembersBtn");
+  const memberSearchContainer = document.getElementById("memberSearchContainer");
+  const memberSearchInput = document.getElementById("memberSearchInput");
+  const memberListContainer = document.getElementById("groupInfoMemberList");
+
+  if (searchMembersBtn && memberSearchContainer && memberSearchInput) {
+    searchMembersBtn.onclick = () => {
+      const isVisible = memberSearchContainer.style.display !== "none";
+      memberSearchContainer.style.display = isVisible ? "none" : "block";
+      if (!isVisible) {
+        memberSearchInput.focus();
+      } else {
+        memberSearchInput.value = "";
+        // Reset member list visibility
+        memberListContainer.querySelectorAll(".group-info-member-item").forEach((item) => {
+          item.style.display = "";
+        });
+      }
+    };
+
+    memberSearchInput.oninput = () => {
+      const query = memberSearchInput.value.toLowerCase().trim();
+      memberListContainer.querySelectorAll(".group-info-member-item").forEach((item) => {
+        const name = item.querySelector(".group-info-member-name")?.textContent?.toLowerCase() || "";
+        item.style.display = name.includes(query) ? "" : "none";
+      });
+    };
+  }
+
   // Edit group name (admin only)
   const editNameBtn = document.getElementById("editGroupNameBtn");
   if (editNameBtn) {
@@ -6385,10 +6836,10 @@ async function openGroupInfoPanel(conversation_id) {
     };
   }
 
-  // Member click (admin can remove/make admin)
+  // Member click (admin can remove/make admin) - WhatsApp-style action menu
   if (isMeAdmin) {
     document.querySelectorAll(".group-info-member-item").forEach((item) => {
-      item.onclick = () => {
+      item.onclick = (e) => {
         const uid = item.dataset.userId;
         if (!uid || uid === me) return;
 
@@ -6396,42 +6847,115 @@ async function openGroupInfoPanel(conversation_id) {
         if (!member) return;
 
         const isAdmin = Boolean(member.is_admin);
-        const actions = [];
-        if (!isAdmin) actions.push("Make admin");
-        actions.push("Remove from group");
-        actions.push("Cancel");
+        
+        // Remove any existing action menu
+        const existingMenu = document.getElementById("memberActionMenu");
+        if (existingMenu) existingMenu.remove();
 
-        const choice = prompt(
-          `${member.name}\n\nChoose action:\n${actions.map((a, i) => `${i + 1}. ${a}`).join("\n")}\n\nEnter number:`
-        );
-        const idx = parseInt(choice, 10) - 1;
-        if (isNaN(idx) || idx < 0 || idx >= actions.length) return;
+        // Create action menu
+        const menu = document.createElement("div");
+        menu.id = "memberActionMenu";
+        menu.style.cssText = `
+          position: fixed;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          background: var(--surface, #fff);
+          border-radius: 16px 16px 0 0;
+          box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+          z-index: 100001;
+          padding: 16px;
+          animation: slideUp 0.2s ease;
+        `;
 
-        const action = actions[idx];
-        if (action === "Make admin") {
-          makeGroupAdmin(conversation_id, uid, true)
-            .then(() => {
-              delete window.groupMemberCache[conversation_id];
-              closePanel();
-              setTimeout(() => openGroupInfoPanel(conversation_id), 350);
-            })
-            .catch((err) => {
-              console.error("make admin failed:", err);
-              alert("Failed to make admin");
-            });
-        } else if (action === "Remove from group") {
-          if (!confirm(`Remove ${member.name} from group?`)) return;
-          removeMembersFromGroup(conversation_id, [uid])
-            .then(() => {
-              delete window.groupMemberCache[conversation_id];
-              closePanel();
-              setTimeout(() => openGroupInfoPanel(conversation_id), 350);
-            })
-            .catch((err) => {
-              console.error("remove member failed:", err);
-              alert("Failed to remove member");
-            });
+        let menuHTML = `
+          <div style="text-align:center;margin-bottom:12px;">
+            <div style="width:40px;height:4px;background:var(--muted);border-radius:2px;margin:0 auto 12px;"></div>
+            <div style="font-weight:600;font-size:16px;">${escapeHtml(member.name)}</div>
+          </div>
+        `;
+
+        if (!isAdmin) {
+          menuHTML += `
+            <div class="member-action-item" data-action="make-admin" style="
+              display:flex;align-items:center;gap:12px;padding:14px;
+              border-radius:8px;cursor:pointer;
+            ">
+              <i class="fa-solid fa-user-shield" style="color:#00a884;width:24px;"></i>
+              <span>Make group admin</span>
+            </div>
+          `;
         }
+
+        menuHTML += `
+          <div class="member-action-item" data-action="remove" style="
+            display:flex;align-items:center;gap:12px;padding:14px;
+            border-radius:8px;cursor:pointer;color:#f15c6d;
+          ">
+            <i class="fa-solid fa-user-minus" style="width:24px;"></i>
+            <span>Remove from group</span>
+          </div>
+          <div class="member-action-item" data-action="cancel" style="
+            display:flex;align-items:center;justify-content:center;gap:12px;padding:14px;
+            border-radius:8px;cursor:pointer;margin-top:8px;
+            background:var(--surface-alt, #f0f0f0);
+          ">
+            <span>Cancel</span>
+          </div>
+        `;
+
+        menu.innerHTML = menuHTML;
+        document.body.appendChild(menu);
+
+        // Add hover effects
+        menu.querySelectorAll(".member-action-item").forEach((item) => {
+          item.onmouseenter = () => item.style.background = "var(--surface-alt, #f5f5f5)";
+          item.onmouseleave = () => {
+            if (item.dataset.action !== "cancel") item.style.background = "";
+          };
+        });
+
+        // Action handlers
+        menu.querySelector('[data-action="make-admin"]')?.addEventListener("click", async () => {
+          menu.remove();
+          try {
+            await makeGroupAdmin(conversation_id, uid, true);
+            delete window.groupMemberCache[conversation_id];
+            closePanel();
+            setTimeout(() => openGroupInfoPanel(conversation_id), 350);
+          } catch (err) {
+            console.error("make admin failed:", err);
+            alert("Failed to make admin");
+          }
+        });
+
+        menu.querySelector('[data-action="remove"]')?.addEventListener("click", async () => {
+          menu.remove();
+          if (!confirm(`Remove ${member.name} from group?`)) return;
+          try {
+            await removeMembersFromGroup(conversation_id, [uid]);
+            delete window.groupMemberCache[conversation_id];
+            closePanel();
+            setTimeout(() => openGroupInfoPanel(conversation_id), 350);
+          } catch (err) {
+            console.error("remove member failed:", err);
+            alert("Failed to remove member");
+          }
+        });
+
+        menu.querySelector('[data-action="cancel"]')?.addEventListener("click", () => {
+          menu.remove();
+        });
+
+        // Close on outside click
+        setTimeout(() => {
+          document.addEventListener("click", function closeMenu(ev) {
+            if (!menu.contains(ev.target) && !item.contains(ev.target)) {
+              menu.remove();
+              document.removeEventListener("click", closeMenu);
+            }
+          });
+        }, 100);
       };
     });
   }

@@ -225,6 +225,10 @@ def normalize_message(rec, emp_map=None):
     if not sender_name:
         sender_name = sender_id  # final fallback
 
+    # Message status: sent -> delivered -> read
+    # Default to "delivered" for messages fetched from DB (they were saved + emitted)
+    status = rec.get("crc6f_status") or "delivered"
+
     return {
         "message_id": rec.get("crc6f_message_id"),
         "conversation_id": rec.get("crc6f_conversation_id"),
@@ -236,6 +240,9 @@ def normalize_message(rec, emp_map=None):
         "file_name": rec.get("crc6f_file_name"),
         "mime_type": rec.get("crc6f_mime_type"),
         "created_on": rec.get("createdon"),
+        "status": status,
+        "is_edited": rec.get("crc6f_is_edited") or False,
+        "reply_to": rec.get("crc6f_reply_to_message_id"),
     }
 
 def build_employee_name_map():
@@ -603,9 +610,17 @@ def send_text():
         "crc6f_message_text": data.get("message_text"),
     }
 
+    # Support reply_to for threaded replies
+    reply_to = data.get("reply_to")
+    if reply_to:
+        payload["crc6f_reply_to_message_id"] = reply_to
+
     try:
         dataverse_create(MSG_ENTITY_SET, payload)
-        emit_socket_event("new_message", normalize_message(payload))
+        # Emit with status="delivered" since it's now saved and being broadcast
+        msg_out = normalize_message(payload)
+        msg_out["status"] = "delivered"
+        emit_socket_event("new_message", msg_out)
 
 
         # Invalidate messages cache for this conversation and convo list of members
@@ -1540,21 +1555,50 @@ def mark_read():
         payload = request.get_json() or {}
         conversation_id = payload.get("conversation_id")
         user_id = payload.get("user_id")
+        message_ids = payload.get("message_ids", [])
 
         if not conversation_id or not user_id:
             return jsonify({"error": "conversation_id and user_id required"}), 400
 
-        # ✅ OPTIONAL: you can store this in MSGSTATUS_ENTITY_SET later if needed
-
+        # Emit read receipt with message_ids so sender can update ticks to blue
         emit_socket_event("messages_read", {
             "conversation_id": conversation_id,
-            "user_id": user_id
+            "user_id": user_id,
+            "message_ids": message_ids
         })
 
         return jsonify({"ok": True})
 
     except Exception as e:
         return jsonify({"error": "mark_read_failed", "details": str(e)}), 500
+
+
+# --------------------------------------------------------------
+# TYPING INDICATORS (relay via socket)
+# POST /chat/typing
+# Body: { conversation_id, user_id, is_typing }
+# --------------------------------------------------------------
+@chat_bp.route("/typing", methods=["POST"])
+def typing_indicator():
+    try:
+        payload = request.get_json() or {}
+        conversation_id = payload.get("conversation_id")
+        user_id = payload.get("user_id")
+        is_typing = payload.get("is_typing", True)
+
+        if not conversation_id or not user_id:
+            return jsonify({"error": "conversation_id and user_id required"}), 400
+
+        event_name = "typing" if is_typing else "stop_typing"
+        emit_socket_event(event_name, {
+            "conversation_id": conversation_id,
+            "sender_id": user_id
+        })
+
+        return jsonify({"ok": True})
+
+    except Exception as e:
+        return jsonify({"error": "typing_failed", "details": str(e)}), 500
 
 # --------------------------------------------------------------
 # OPTIONS HANDLER

@@ -1,0 +1,495 @@
+CHAT MODULE – FULL TECHNICAL DOCUMENTATION (CURRENT IMPLEMENTATION)
+
+Repository area:
+- Frontend: pages/chats.js
+- Frontend API wrapper: features/chatapi.js
+- Backend (Flask blueprint): backend/chats.py
+- Styling: index.css (includes WhatsApp-style group info slide-in panel CSS)
+
+================================================================================
+1) HIGH-LEVEL DATA FLOW
+================================================================================
+A) Conversation list
+- Frontend calls: GET /chat/conversations/<user_id>
+- Backend queries membership rows for user, then fetches conversation record + all members.
+- Response is cached client-side in window.conversationCache / window.conversationList.
+
+B) Message list
+- Frontend calls: GET /chat/messages/<conversation_id>
+- Rendered in #chatMessages.
+
+C) Sending messages
+- Text: POST /chat/send-text
+- Files: POST /chat/send-files (multipart)
+- Backend stores message + emits socket event "new_message".
+
+D) Group management
+- Create: POST /chat/group
+- Members: GET /chat/group/<id>/members
+- Add: POST /chat/group/<id>/members/add
+- Remove: POST /chat/group/<id>/members/remove
+- Single remove: DELETE /chat/group/<id>/members/<user_id>
+- Mute: PATCH /chat/group/<id>/mute
+- Leave: POST /chat/group/<id>/leave
+- Make admin: POST /chat/group/<id>/make-admin
+- Update description: PATCH /chat/group/<id>/description
+
+E) Realtime updates
+- Backend emits socket events (emit_socket_event)
+- Frontend listens via socket helpers (initSocket/getSocket/on/emit)
+
+================================================================================
+2) DATABASE / STORAGE (DATAVERSE)
+================================================================================
+Dataverse entity sets referenced in backend/chats.py:
+- CONV_ENTITY_SET: crc6f_hr_chat_conversations
+- MEMBERS_ENTITY_SET: crc6f_hr_conversation_memberses
+- MSG_ENTITY_SET: crc6f_hr_messages
+- EMPLOYEE_ENTITY_SET: (employee master, used for name lookups)
+- ANNOTATION_ENTITY_SET: (used for file uploads + download)
+
+Key fields used:
+
+A) Conversations (crc6f_hr_chat_conversations)
+- crc6f_conversationid (string): logical conversation/group id used everywhere
+- crc6f_empname (string): conversation name (group name)
+- crc6f_isgroup (string/bool-ish): "true" for groups
+- createdon (datetime): system field used for created_on display
+
+Best-effort/optional fields (may or may not exist in Dataverse schema):
+- crc6f_created_by (string): creator user_id (stored at group creation if field exists)
+- crc6f_description (string): group description
+- crc6f_icon_url (string): group icon url
+
+B) Conversation members (crc6f_hr_conversation_memberses)
+- crc6f_conversation_id (string): foreign key to crc6f_conversationid
+- crc6f_member_id (string): logical member row id
+- crc6f_user_id (string): employee/user id
+- crc6f_joined_on (datetime string): join timestamp
+
+Role fields (best-effort/optional schema fields):
+- crc6f_is_admin (boolean): admin role
+- crc6f_is_muted (boolean): per-user mute flag for that group
+
+C) Messages (crc6f_hr_messages)
+- crc6f_message_id (string): message id
+- crc6f_conversation_id (string): conversation id
+- crc6f_sender_id (string): sender user id or "system"
+- crc6f_message_type (string): "text" etc
+- crc6f_message_text (string): text body
+- createdon (datetime): used for ordering
+
+D) File storage (annotations)
+- On upload, backend stores an annotation record and links it to message/file metadata.
+- Download endpoint fetches by crc6f_file_id.
+
+================================================================================
+3) BACKEND ROUTES (backend/chats.py)
+================================================================================
+Prefix assumption:
+- Blueprint is mounted under /chat
+
+3.1 Conversations
+
+1) GET /chat/conversations/<user_id>
+- Purpose: returns all conversations for user_id with members + last message summary.
+- Steps:
+  - Query MEMBERS_ENTITY_SET by crc6f_user_id == user
+  - Collect unique crc6f_conversation_id
+  - For each conversation:
+    - Query CONV_ENTITY_SET by crc6f_conversationid
+    - Query MEMBERS_ENTITY_SET for all members in that conversation
+    - Query MSG_ENTITY_SET for last message
+  - Adds best-effort fields: description, icon_url, created_by, created_on, created_by_name
+- Response shape (per conversation):
+  - conversation_id
+  - name / display_name
+  - is_group
+  - avatar (initial)
+  - members: [{ id, name }]
+  - last_message, last_sender, last_sender_name, last_message_time
+  - description, icon_url, created_by, created_by_name, created_on
+
+3.2 Direct chat
+
+2) POST /chat/direct
+- Body: { user_id, target_id }
+- Behavior: find existing direct conversation or create new.
+- Creates membership rows for each.
+- Emits socket: conversation_created
+
+3.3 Group create
+
+3) POST /chat/group
+- Body: { name, members: [user_ids], creator_id }
+- Behavior:
+  - Ensure creator_id is included in members
+  - Create conversation (crc6f_isgroup = true)
+  - Best-effort: store crc6f_created_by
+  - Create member rows:
+    - creator member row: crc6f_is_admin = True
+    - others: crc6f_is_admin = False
+    - crc6f_is_muted = False
+  - Emits socket: conversation_created
+
+3.4 Messages
+
+4) GET /chat/messages/<conversation_id>
+- Fetches messages from MSG_ENTITY_SET, returns normalized list.
+
+5) POST /chat/send-text
+- Body: message payload
+- Stores MSG_ENTITY_SET record
+- Emits socket: new_message
+
+6) POST /chat/send-files
+- multipart/form-data
+  - conversation_id
+  - sender_id
+  - files[]
+- Stores file as annotation + message record
+- Emits socket: new_message
+
+7) GET /chat/file-download/<file_id>
+- Downloads attachment by crc6f_file_id
+
+8) PATCH /chat/messages/<message_id>
+- Body: { new_text }
+- Updates message text
+- Emits socket: message_edited
+
+9) DELETE /chat/messages/<message_id>
+- Soft-delete by replacing text with "[deleted]"
+- Emits socket: message_deleted
+
+3.5 Group members
+
+10) GET /chat/group/<conversation_id>/members
+- Returns members with flags:
+  - { id, name, joined_on, is_admin, is_muted }
+
+11) POST /chat/group/<conversation_id>/members/add
+- Body: { members: [user_ids], sender_id }
+- Admin-only check: _is_group_admin(conversation_id, sender_id)
+- Inserts membership rows for new members
+- Sends system message "<admin> added <names>"
+- Emits socket:
+  - new_message (system)
+  - group_add_members
+
+12) POST or DELETE /chat/group/<conversation_id>/members/remove
+- Body: { members: [user_ids], sender_id }
+- Admin-only check
+- Removes membership rows
+- Sends system message (best-effort)
+- Emits socket:
+  - group_members_removed (main)
+  - group_remove_members (legacy/secondary emit)
+
+13) DELETE /chat/group/<conversation_id>/members/<user_id>
+- Removes a single member row (admin enforcement exists where applicable)
+
+3.6 Mute + leave
+
+14) PATCH /chat/group/<conversation_id>/mute
+- Body: { user_id, mute }
+- Updates member row crc6f_is_muted best-effort
+- Emits socket: group_updated
+
+15) POST /chat/group/<conversation_id>/leave
+- Body: { user_id }
+- Deletes membership row for the user
+- Adds system message "<name> left"
+- Emits socket:
+  - new_message (system)
+  - user_left_conversation
+
+3.7 Admin role
+
+16) POST /chat/group/<conversation_id>/make-admin
+- Body: { actor_id, user_id, is_admin }
+- Admin-only check
+- Updates member row crc6f_is_admin
+- Adds system message "<actor> made <target> an admin"
+- Emits socket:
+  - new_message (system)
+  - group_updated
+
+3.8 Group metadata
+
+17) PATCH /chat/group/<conversation_id>/description
+- Body: { description, sender_id }
+- Admin-only check
+- Updates conversation field crc6f_description
+- Emits socket: group_updated
+
+18) PATCH /chat/group/<conversation_id>/rename
+- Body: { name }
+- Updates conversation name
+- Emits socket: group_renamed
+
+19) DELETE /chat/group/<conversation_id>
+- Deletes group membership rows (and group)
+- Emits socket: group_deleted
+
+3.9 Employees
+
+20) GET /chat/employees/search?q=<text>
+- Searches employee records
+
+21) GET /chat/employees/all
+- Returns all employees
+
+3.10 Direct leave
+
+22) DELETE /chat/direct/<conversation_id>/<user_id>
+- Removes that user membership
+- Emits socket: direct_left
+
+3.11 Read receipts
+
+23) POST /chat/mark-read
+- Body: { conversation_id, user_id }
+- Emits socket: messages_read
+
+================================================================================
+4) SOCKET EVENTS (SERVER -> CLIENT)
+================================================================================
+Emitted events in backend/chats.py:
+- conversation_created
+- new_message
+- group_add_members
+- group_members_removed
+- group_remove_members
+- user_left_conversation
+- group_updated
+- message_edited
+- message_deleted
+- group_renamed
+- group_deleted
+- direct_left
+- messages_read
+
+Front-end listens to these to update:
+- message stream
+- group members / conversation list
+- group metadata (rename, mute status, etc.)
+
+================================================================================
+5) FRONTEND API WRAPPERS (features/chatapi.js)
+================================================================================
+All calls go through apiFetch() (base URL assumed /chat) and use state.user?.id.
+
+Key exported functions:
+- fetchConversations() -> GET /conversations/<me>
+- fetchMessagesForConversation(conversationId) -> GET /messages/<id>
+- sendTextMessage(payload) -> POST /send-text
+- sendWithProgress(formData, onProgress) -> XHR upload helper
+- sendMultipleFilesApi({conversation_id, sender_id, files, ...}) -> uses sendWithProgress
+- editMessageApi(messageId, newText) -> PATCH /messages/<id>
+- deleteMessageApi(messageId) -> DELETE /messages/<id>
+
+Group:
+- getGroupMembers(conversationId) -> GET /group/<id>/members
+- addMembersToGroup(conversationId, memberIds) -> POST /group/<id>/members/add {members, sender_id}
+- removeMembersFromGroup(conversationId, memberIds) -> POST /group/<id>/members/remove {members, sender_id}
+- removeSingleMember(conversationId, userId) -> DELETE /group/<id>/members/<userId>
+- renameGroup(conversationId, newName) -> PATCH /group/<id>/rename
+- deleteGroup(conversationId) -> DELETE /group/<id>
+- muteGroup(conversationId, mute) -> PATCH /group/<id>/mute {user_id, mute}
+- leaveGroup(conversationId) -> POST /group/<id>/leave {user_id}
+- makeGroupAdmin(conversationId, userId, isAdmin) -> POST /group/<id>/make-admin
+- updateGroupDescription(conversationId, description) -> PATCH /group/<id>/description
+
+Direct:
+- leaveDirectChat(conversationId, userId) -> DELETE /direct/<conversationId>/<userId>
+
+================================================================================
+6) FRONTEND UI / ACTIONS / BUTTONS (pages/chats.js)
+================================================================================
+Main DOM areas:
+- Chat list: #chatList
+- Chat header: #chatUserName, #chatHeaderSub, #chatHeaderAvatar
+- Message list: #chatMessages
+- Input bar: #chatMessageInput, #sendMessageBtn
+- Attach menu: #mediaMenuBtn + hidden inputs (image/video/audio/file)
+- Context menus:
+  - #messageMenu (edit/delete)
+  - #chatOptionsMenu (rename group / delete chat)
+
+6.1 Conversation list actions
+- Selecting a chat loads messages and sets window.currentConversationId.
+- refreshConversationList() refreshes the list and rerenders.
+
+6.2 Sending
+- Send button sends typed message.
+- Attach button opens dropdown for:
+  - Photo, Video, Document, Audio
+- Hidden inputs handle file selection.
+- Upload uses sendWithProgress / sendMultipleFilesApi.
+
+6.3 Message actions
+- Message context menu allows:
+  - Edit message -> editMessageApi
+  - Delete message -> deleteMessageApi
+
+6.4 Group info panel (WhatsApp-style slide-in)
+Function: openGroupInfoPanel(conversation_id)
+- Trigger: clicking group name/header element for group conversation
+- UI shows:
+  - Top bar: close (X) and title "Group info"
+  - Large avatar circle (initial or icon_url)
+  - Group name + pencil icon (admin only)
+  - Subtitle: Group · <n> members
+  - Description + pencil icon (admin only)
+  - Created info: "Group created by <name>, <date>" (best-effort)
+  - Mute notifications row
+  - Members count + search icon (search UI not implemented)
+  - Add member row (admin only) -> openAddMembersPanel
+  - Member list with admin badges
+  - Add to favorites row (localStorage favoriteChats)
+  - Exit group row -> leaveGroup
+
+Actions and logic:
+- Mute notifications:
+  - Calls muteGroup(conversation_id, !isMuted)
+  - Reopens panel to refresh state
+- Exit group:
+  - Confirmation prompt
+  - Calls leaveGroup(conversation_id)
+  - refreshConversationList()
+- Edit group name (admin only):
+  - prompt() -> renameGroup(conversation_id, newName)
+  - refreshConversationList()
+  - reopen panel
+- Edit group description (admin only):
+  - prompt() -> updateGroupDescription(conversation_id, newDesc)
+  - refreshConversationList()
+  - reopen panel
+- Member click actions (admin only):
+  - currently implemented via prompt-driven choice:
+    - Make admin (if not already)
+    - Remove from group
+  - calls makeGroupAdmin / removeMembersFromGroup
+  - reopens panel
+
+6.5 Add members panel
+Function: openAddMembersPanel(conversation_id)
+- Fetches employees list via /employees/all
+- Filters out existing members
+- Allows selecting employees to add
+- Calls addMembersToGroup(conversation_id, selectedMemberIds)
+
+================================================================================
+7) CURRENT GROUP ADMIN / CREATOR LOGIC
+================================================================================
+- When group is created via POST /chat/group:
+  - creator_id is forced into the members list
+  - creator member row is created with crc6f_is_admin = True
+  - others crc6f_is_admin = False
+- Admin permissions are enforced server-side for:
+  - add members
+  - remove members
+  - make admin
+  - update group description
+
+================================================================================
+8) WHATSAPP-STYLE GROUP PANEL CSS (index.css)
+================================================================================
+CSS classes added:
+- .group-info-panel (+ .open)
+- .group-info-overlay (+ .open)
+- header/body sections: .group-info-panel-header/.group-info-panel-body
+- avatar: .group-info-avatar
+- members: .group-info-member-item, .group-info-member-avatar, .group-info-member-badge
+- action rows: .group-info-action-row (.green/.red)
+
+================================================================================
+9) WHATSAPP-LIKE FEATURES IMPLEMENTED (LATEST UPDATE)
+================================================================================
+
+PHASE 1 - MESSAGE ENGINE:
+- Message states: sent (single grey tick) → delivered (double grey ticks) → read (double blue ticks)
+- Typing indicators with 3-second auto-stop timeout
+- Typing display with 4-second auto-hide safety net
+- Message deduplication in cache and UI
+- Mark-read API with message_ids for precise read receipts
+
+PHASE 2 - MESSAGE ACTIONS:
+- Reply-to-message: click Reply in message menu → shows reply preview bar above input
+- Reply bubble in messages with click-to-scroll to original
+- Edit message with [edited] label
+- Delete message (soft delete) with "This message was deleted" display
+- Message action menu with icons (Reply, Edit, Delete)
+
+PHASE 3 - MEDIA & FILES:
+- Circular progress indicator for uploads
+- Retry button for failed uploads
+- File type icons for documents
+- Image/video/audio previews
+
+PHASE 4 - GROUP CHAT PARITY:
+- Admin-only UI controls (edit name, description, add member buttons hidden for non-admins)
+- System messages for group events (user added, removed, admin changed, left)
+- Backend enforces admin permissions
+
+PHASE 5 - GROUP INFO PANEL:
+- WhatsApp-style slide-in panel
+- Member search functionality (click search icon → filter members)
+- WhatsApp-style bottom sheet action menu for member actions (Make admin, Remove)
+- Mute/unmute toggle
+- Exit group with confirmation
+
+PHASE 6 - CHAT LIST & HEADER:
+- Unread count badges (green circle with count)
+- Mute icon indicator (bell-slash)
+- Pin icon indicator (thumbtack)
+- Pinned chats sorted to top
+- Clear unread count when opening conversation
+
+PHASE 7 - SOCKET HARDENING:
+- Graceful disconnect handling with "Reconnecting..." indicator
+- Auto re-register and re-join room on reconnect
+- Re-fetch messages after reconnect to sync missed messages
+
+PHASE 8 - EDGE CASES:
+- User removed from group while viewing → shows removal message
+- Group deleted while viewing → shows deletion message
+- Admin demoted while panel open → auto-refresh panel
+- Upload interrupted → retry button available
+
+REMAINING GAPS:
+- Group icon upload endpoint not wired
+- Invite via link not implemented
+- Starred messages not implemented
+- Media/links/docs counts not implemented
+- Favorites is localStorage only (not server-side)
+
+================================================================================
+10) QUICK REFERENCE – ENDPOINTS LIST
+================================================================================
+GET    /chat/conversations/<user_id>
+POST   /chat/direct
+POST   /chat/group
+PATCH  /chat/group/<id>/rename
+DELETE /chat/group/<id>
+GET    /chat/group/<id>/members
+POST   /chat/group/<id>/members/add
+POST   /chat/group/<id>/members/remove
+DELETE /chat/group/<id>/members/<user_id>
+POST   /chat/group/<id>/leave
+PATCH  /chat/group/<id>/mute
+POST   /chat/group/<id>/make-admin
+PATCH  /chat/group/<id>/description
+GET    /chat/messages/<conversation_id>
+POST   /chat/send-text
+POST   /chat/send-files
+GET    /chat/file-download/<file_id>
+PATCH  /chat/messages/<message_id>
+DELETE /chat/messages/<message_id>
+GET    /chat/employees/search?q=
+GET    /chat/employees/all
+DELETE /chat/direct/<conversation_id>/<user_id>
+POST   /chat/mark-read
+
+END OF DOCUMENT

@@ -361,3 +361,34 @@ export function leaveDirectChat(conversationId, userId) {
     method: "DELETE",
   });
 }
+
+// --------------------------------------------------
+// 18) MARK MESSAGES AS READ
+// POST /chat/mark-read
+// Body: { conversation_id, user_id, message_ids }
+// --------------------------------------------------
+export function markMessagesRead(conversationId, messageIds = []) {
+  return apiFetch(`/mark-read`, {
+    method: "POST",
+    body: JSON.stringify({
+      conversation_id: conversationId,
+      user_id: state.user?.id,
+      message_ids: messageIds,
+    }),
+  });
+}
+
+// --------------------------------------------------
+// 19) SEND TEXT MESSAGE WITH REPLY SUPPORT
+// POST /chat/send-text
+// Body: { conversation_id, sender_id, message_text, reply_to }
+// --------------------------------------------------
+export function sendTextMessageWithReply(payload) {
+  return apiFetch(`/send-text`, {
+    method: "POST",
+    body: JSON.stringify({
+      ...payload,
+      sender_id: state.user?.id,
+    }),
+  });
+}
