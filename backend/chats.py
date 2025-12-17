@@ -457,8 +457,12 @@ def create_group():
 
     if not members:
          members = []
-    if creator and creator not in members:
-         members.append(creator)
+    # Ensure creator is always in the group AND inserted first.
+    # This matters for fallback admin detection when schema doesn't support crc6f_is_admin.
+    if creator:
+         # Deduplicate and move creator to front
+         members = [m for m in members if str(m) != str(creator)]
+         members.insert(0, creator)
 
     cid = str(uuid.uuid4())
 
@@ -535,7 +539,8 @@ def _get_member_row(conversation_id, user_id):
 def _is_group_admin(conversation_id, user_id):
     """Best-effort admin check.
     - If membership row has crc6f_is_admin, use it.
-    - Otherwise, fallback to treating the earliest joined member as admin.
+    - Otherwise, prefer conversation's crc6f_created_by.
+    - Finally, fallback to treating the earliest joined member (stable) as admin.
     """
     try:
         me = _get_member_row(conversation_id, user_id)
@@ -547,6 +552,17 @@ def _is_group_admin(conversation_id, user_id):
             if isinstance(v, bool):
                 return v
             return str(v).lower() in ("true", "1", "yes")
+
+        # If the conversation has a creator field, use it.
+        try:
+            cq = f"$filter=crc6f_conversationid eq '{conversation_id}'&$top=1"
+            conv_rows = dataverse_get(CONV_ENTITY_SET, cq).get("value", [])
+            if conv_rows:
+                created_by = conv_rows[0].get("crc6f_created_by")
+                if created_by and str(created_by) == str(user_id):
+                    return True
+        except Exception:
+            pass
 
         q = f"$filter=crc6f_conversation_id eq '{conversation_id}'&$top=500"
         resp = dataverse_get(MEMBERS_ENTITY_SET, q)
