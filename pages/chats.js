@@ -13,6 +13,10 @@ import {
   removeMembersFromGroup,
   renameGroup,
   deleteGroup,
+  getGroupMembers,
+  muteGroup,
+  leaveGroup,
+  makeGroupAdmin,
   leaveDirectChat,
   sendWithProgress,
   sendMultipleFilesApi,
@@ -5129,6 +5133,17 @@ body.dark .msg-time {
     document.getElementById("chatUserName").innerText =
       displayName || "Conversation";
 
+    let headerName = document.getElementById("chatUserName");
+    const newHeaderName = headerName.cloneNode(true);
+    headerName.replaceWith(newHeaderName);
+    headerName = newHeaderName;
+    if (convo.is_group) {
+      headerName.style.cursor = "pointer";
+      headerName.addEventListener("click", () => openGroupInfoPanel(conversation_id));
+    } else {
+      headerName.style.cursor = "default";
+    }
+
     // -----------------------------------
     // HEADER SUB (group members / Online)
     // -----------------------------------
@@ -6140,39 +6155,65 @@ async function fetchGroupMembers(conversationId) {
   }
 }
 
-function openGroupInfoPanel(conversation_id) {
+async function openGroupInfoPanel(conversation_id) {
   const convo = (window.conversationCache || []).find(
     (c) => c.conversation_id === conversation_id
   );
 
   if (!convo) return;
 
+  const me = String(state.user.id);
   let members;
 
-  // ✅ Cache reuse
   if (window.groupMemberCache[conversation_id]) {
     members = window.groupMemberCache[conversation_id];
   } else {
-    members = convo.members || [];
+    try {
+      members = await getGroupMembers(conversation_id);
+    } catch {
+      members = convo.members || [];
+    }
     window.groupMemberCache[conversation_id] = members;
   }
 
-  const me = String(state.user.id);
+  const myRow = (members || []).find((m) => String(m.id) === me) || {};
+  const isMeAdmin = Boolean(myRow.is_admin);
+  const isMuted = Boolean(myRow.is_muted);
 
   // const members = convo.members || [];
 
   // Build member list display + selection
-  const memberListHTML = members
+  const memberListHTML = (members || [])
     .map((m) => {
       const isMe = String(m.id) === me;
+      const isAdmin = Boolean(m.is_admin);
+      const canRemove = isMeAdmin && !isMe;
+      const canMakeAdmin = isMeAdmin && !isMe && !isAdmin;
+
       return `
-        <div class="group-member-item">
+        <div class="group-member-item" style="display:flex;align-items:center;gap:10px;justify-content:space-between;">
+          <div style="display:flex;align-items:center;gap:10px;min-width:0;">
             ${
-              !isMe
+              isMeAdmin && !isMe
                 ? `<input type="checkbox" class="removeMemberChk" value="${m.id}">`
                 : ""
             }
-            <span>${m.name}${isMe ? " (You)" : ""}</span>
+            <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${m.name}${
+              isMe ? " (You)" : ""
+            }${isAdmin ? " <span style=\"color:var(--muted);font-size:12px;\">Admin</span>" : ""}</span>
+          </div>
+          <div style="display:flex;gap:8px;">
+            ${
+              canMakeAdmin
+                ? `<button type="button" class="btn btn-secondary makeAdminBtn" data-user-id="${m.id}" style="padding:6px 10px;font-size:12px;">Make admin</button>`
+                : ""
+            }
+            ${
+              canRemove
+                ? `<button type="button" class="btn btn-danger removeOneBtn" data-user-id="${m.id}" style="padding:6px 10px;font-size:12px;">Remove</button>`
+                : ""
+            }
+          </div>
         </div>`;
     })
     .join("");
@@ -6180,36 +6221,122 @@ function openGroupInfoPanel(conversation_id) {
   // ACTUAL MODAL
   const html = `
     <div class="group-info-container">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">
+        <div style="min-width:0;">
+          <div style="font-size:16px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${
+            convo.display_name || convo.name || "Group"
+          }</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:4px;">${
+            members.length
+          } members</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+          <button id="muteGroupBtn" type="button" class="btn btn-secondary">${
+            isMuted ? "Unmute" : "Mute"
+          } group</button>
+          <button id="leaveGroupBtn" type="button" class="btn btn-danger">Leave group</button>
+        </div>
+      </div>
 
-      <h2 class="modal-title">Group Info</h2>
       <hr class="divider"/>
 
-      <h3 class="section-title">Members (${members.length})</h3>
+      <h3 class="section-title">Members</h3>
 
       <div class="member-list">
         ${memberListHTML}
       </div>
 
-      <div class="actions-row">
+      <div class="actions-row" style="margin-top:12px;display:${
+        isMeAdmin ? "flex" : "none"
+      };gap:10px;">
         <button id="addMembersBtn" class="btn btn-primary">+ Add Members</button>
-        <button id="deleteMembersBtn" class="btn btn-danger">Delete Selected</button>
+        <button id="deleteMembersBtn" class="btn btn-danger">Remove selected</button>
       </div>
-
     </div>
   `;
 
   renderModal("Group Info", html, [], "large");
 
-  // Attach actions
-  document.getElementById("addMembersBtn").onclick = () => {
-    closeModal(); // 🔥 IMPORTANT — prevents double modal/form stacking
-    setTimeout(() => {
-      openAddMembersPanel(conversation_id);
-    }, 10);
-  };
+  const muteBtn = document.getElementById("muteGroupBtn");
+  if (muteBtn) {
+    muteBtn.onclick = async () => {
+      try {
+        await muteGroup(conversation_id, !isMuted);
+        delete window.groupMemberCache[conversation_id];
+        closeModal();
+        setTimeout(() => openGroupInfoPanel(conversation_id), 150);
+      } catch (err) {
+        console.error("muteGroup failed:", err);
+        alert("Failed to update mute");
+      }
+    };
+  }
 
-  document.getElementById("deleteMembersBtn").onclick = () =>
-    performRemoveMembers(conversation_id);
+  const leaveBtn = document.getElementById("leaveGroupBtn");
+  if (leaveBtn) {
+    leaveBtn.onclick = async () => {
+      if (!confirm("Leave this group?")) return;
+      try {
+        await leaveGroup(conversation_id);
+        closeModal();
+        if (typeof window.refreshConversationList === "function") {
+          await window.refreshConversationList();
+        }
+      } catch (err) {
+        console.error("leaveGroup failed:", err);
+        alert("Failed to leave group");
+      }
+    };
+  }
+
+  // Attach actions
+  const addBtn = document.getElementById("addMembersBtn");
+  if (addBtn) {
+    addBtn.onclick = () => {
+      closeModal();
+      setTimeout(() => {
+        openAddMembersPanel(conversation_id);
+      }, 10);
+    };
+  }
+
+  const delBtn = document.getElementById("deleteMembersBtn");
+  if (delBtn) {
+    delBtn.onclick = () => performRemoveMembers(conversation_id);
+  }
+
+  document.querySelectorAll(".removeOneBtn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const uid = btn.dataset.userId;
+      if (!uid) return;
+      if (!confirm("Remove this member?")) return;
+      try {
+        await removeMembersFromGroup(conversation_id, [uid]);
+        delete window.groupMemberCache[conversation_id];
+        closeModal();
+        setTimeout(() => openGroupInfoPanel(conversation_id), 150);
+      } catch (err) {
+        console.error("remove member failed:", err);
+        alert("Failed to remove member");
+      }
+    });
+  });
+
+  document.querySelectorAll(".makeAdminBtn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const uid = btn.dataset.userId;
+      if (!uid) return;
+      try {
+        await makeGroupAdmin(conversation_id, uid, true);
+        delete window.groupMemberCache[conversation_id];
+        closeModal();
+        setTimeout(() => openGroupInfoPanel(conversation_id), 150);
+      } catch (err) {
+        console.error("make admin failed:", err);
+        alert("Failed to make admin");
+      }
+    });
+  });
 }
 
 async function openAddMembersPanel(conversation_id) {

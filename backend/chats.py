@@ -451,12 +451,31 @@ def create_group():
         })
 
         for uid in members:
-            dataverse_create(MEMBERS_ENTITY_SET, {
+            member_payload = {
                 "crc6f_conversation_id": cid,
                 "crc6f_member_id": str(uuid.uuid4()),
                 "crc6f_user_id": uid,
                 "crc6f_joined_on": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            })
+            }
+
+            # Best-effort: persist admin + mute state if the Dataverse schema supports it.
+            # If fields do not exist, fallback to creating without them.
+            if creator and str(uid) == str(creator):
+                member_payload["crc6f_is_admin"] = True
+            else:
+                member_payload["crc6f_is_admin"] = False
+            member_payload["crc6f_is_muted"] = False
+
+            try:
+                dataverse_create(MEMBERS_ENTITY_SET, member_payload)
+            except Exception:
+                fallback = {
+                    "crc6f_conversation_id": cid,
+                    "crc6f_member_id": member_payload["crc6f_member_id"],
+                    "crc6f_user_id": uid,
+                    "crc6f_joined_on": member_payload["crc6f_joined_on"],
+                }
+                dataverse_create(MEMBERS_ENTITY_SET, fallback)
 
       
             
@@ -473,6 +492,46 @@ def create_group():
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": "group_failed", "details": str(e)}), 500
+
+
+def _get_member_row(conversation_id, user_id):
+    q = f"$filter=crc6f_conversation_id eq '{conversation_id}' and crc6f_user_id eq '{user_id}'&$top=1"
+    resp = dataverse_get(MEMBERS_ENTITY_SET, q)
+    rows = resp.get("value", []) if resp else []
+    return rows[0] if rows else None
+
+
+def _is_group_admin(conversation_id, user_id):
+    """Best-effort admin check.
+    - If membership row has crc6f_is_admin, use it.
+    - Otherwise, fallback to treating the earliest joined member as admin.
+    """
+    try:
+        me = _get_member_row(conversation_id, user_id)
+        if me is None:
+            return False
+
+        if "crc6f_is_admin" in me and me.get("crc6f_is_admin") is not None:
+            v = me.get("crc6f_is_admin")
+            if isinstance(v, bool):
+                return v
+            return str(v).lower() in ("true", "1", "yes")
+
+        q = f"$filter=crc6f_conversation_id eq '{conversation_id}'&$top=500"
+        resp = dataverse_get(MEMBERS_ENTITY_SET, q)
+        rows = resp.get("value", []) if resp else []
+        if not rows:
+            return False
+
+        def _joined_key(r):
+            return r.get("crc6f_joined_on") or ""
+
+        rows_sorted = sorted(rows, key=_joined_key)
+        first_uid = rows_sorted[0].get("crc6f_user_id")
+        return str(first_uid) == str(user_id)
+    except Exception:
+        traceback.print_exc()
+        return False
 
 
 # --------------------------------------------------------------
@@ -698,7 +757,17 @@ def get_group_members(conversation_id):
             out.append({
                 "id": uid,
                 "name": name,
-                "joined_on": r.get("crc6f_joined_on")
+                "joined_on": r.get("crc6f_joined_on"),
+                "is_admin": (
+                    bool(r.get("crc6f_is_admin"))
+                    if r.get("crc6f_is_admin") is not None
+                    else False
+                ),
+                "is_muted": (
+                    bool(r.get("crc6f_is_muted"))
+                    if r.get("crc6f_is_muted") is not None
+                    else False
+                ),
             })
 
         
@@ -723,6 +792,12 @@ def add_group_members(conversation_id):
         if not members:
             return jsonify({"error": "members_required"}), 400
 
+        if not sender_id:
+            return jsonify({"error": "sender_id_required"}), 400
+
+        if not _is_group_admin(conversation_id, sender_id):
+            return jsonify({"error": "forbidden", "details": "admin_required"}), 403
+
         # fetch existing members
         q = f"$filter=crc6f_conversation_id eq '{conversation_id}'&$top=1000"
         resp = dataverse_get(MEMBERS_ENTITY_SET, q)
@@ -740,7 +815,19 @@ def add_group_members(conversation_id):
                 "crc6f_user_id": uid,
                 "crc6f_joined_on": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             }
-            dataverse_create(MEMBERS_ENTITY_SET, new_member)
+            # best-effort role fields
+            new_member["crc6f_is_admin"] = False
+            new_member["crc6f_is_muted"] = False
+            try:
+                dataverse_create(MEMBERS_ENTITY_SET, new_member)
+            except Exception:
+                fallback = {
+                    "crc6f_conversation_id": new_member["crc6f_conversation_id"],
+                    "crc6f_member_id": new_member["crc6f_member_id"],
+                    "crc6f_user_id": new_member["crc6f_user_id"],
+                    "crc6f_joined_on": new_member["crc6f_joined_on"],
+                }
+                dataverse_create(MEMBERS_ENTITY_SET, fallback)
             inserted.append(uid)
 
            
@@ -864,6 +951,12 @@ def remove_group_members(conversation_id):
         if not members:
             return jsonify({"error": "members_required"}), 400
 
+        if not sender_id:
+            return jsonify({"error": "sender_id_required"}), 400
+
+        if not _is_group_admin(conversation_id, sender_id):
+            return jsonify({"error": "forbidden", "details": "admin_required"}), 403
+
         or_filters = " or ".join([f"crc6f_user_id eq '{m}'" for m in members])
         q = f"$filter=crc6f_conversation_id eq '{conversation_id}' and ({or_filters})&$top=500"
 
@@ -923,6 +1016,152 @@ def remove_group_members(conversation_id):
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": "remove_members_failed", "details": str(e)}), 500
+
+
+@chat_bp.route("/group/<string:conversation_id>/leave", methods=["POST"])
+def leave_group(conversation_id):
+    """Leave group for the given user_id in request body."""
+    try:
+        payload = request.get_json() or {}
+        user_id = payload.get("user_id")
+        if not user_id:
+            return jsonify({"error": "user_id_required"}), 400
+
+        # Reuse single-member removal logic
+        q = f"$filter=crc6f_conversation_id eq '{conversation_id}' and crc6f_user_id eq '{user_id}'&$top=50"
+        resp = dataverse_get(MEMBERS_ENTITY_SET, q)
+        rows = resp.get("value", []) if resp else []
+
+        deleted = []
+        for r in rows:
+            if _delete_member_record(r):
+                deleted.append(user_id)
+
+        if deleted:
+            user_name = _get_employee_name_by_id(user_id)
+            text = f"{user_name} left"
+            sys_payload = {
+                "message_id": f"sys_{uuid.uuid4()}",
+                "conversation_id": conversation_id,
+                "sender_id": "system",
+                "message_type": "text",
+                "message_text": text,
+            }
+            try:
+                dataverse_create(MSG_ENTITY_SET, {
+                    "crc6f_message_id": sys_payload["message_id"],
+                    "crc6f_conversation_id": conversation_id,
+                    "crc6f_sender_id": "system",
+                    "crc6f_message_type": "text",
+                    "crc6f_message_text": text,
+                })
+            except Exception:
+                pass
+            emit_socket_event("new_message", sys_payload)
+
+        emit_socket_event("user_left_conversation", {
+            "conversation_id": conversation_id,
+            "user_id": user_id,
+        })
+
+        return jsonify({"ok": True, "deleted": deleted}), 200
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": "leave_failed", "details": str(e)}), 500
+
+
+@chat_bp.route("/group/<string:conversation_id>/mute", methods=["PATCH"])
+def mute_group(conversation_id):
+    """Mute/unmute group for a given user_id (best-effort persisted in member row)."""
+    try:
+        payload = request.get_json() or {}
+        user_id = payload.get("user_id")
+        mute = payload.get("mute")
+        if user_id is None or mute is None:
+            return jsonify({"error": "user_id_and_mute_required"}), 400
+
+        q = f"$filter=crc6f_conversation_id eq '{conversation_id}' and crc6f_user_id eq '{user_id}'&$top=1"
+        resp = dataverse_get(MEMBERS_ENTITY_SET, q)
+        rows = resp.get("value", []) if resp else []
+        if not rows:
+            return jsonify({"error": "membership_not_found"}), 404
+
+        rec = rows[0]
+        guid = rec.get("crc6f_hr_conversation_membersid") or extract_guid(rec)
+        if not guid:
+            return jsonify({"error": "cannot_determine_guid"}), 500
+        guid = guid.strip().replace("(", "").replace(")", "")
+
+        # Best-effort update; if field doesn't exist, return ok without persisting.
+        try:
+            dataverse_update(MEMBERS_ENTITY_SET, guid, {"crc6f_is_muted": bool(mute)})
+        except Exception:
+            pass
+
+        emit_socket_event("group_updated", {"conversation_id": conversation_id})
+        return jsonify({"ok": True, "is_muted": bool(mute)}), 200
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": "mute_failed", "details": str(e)}), 500
+
+
+@chat_bp.route("/group/<string:conversation_id>/make-admin", methods=["POST"])
+def make_admin(conversation_id):
+    """Promote a member to admin. Body: { actor_id, user_id, is_admin }"""
+    try:
+        payload = request.get_json() or {}
+        actor_id = payload.get("actor_id")
+        user_id = payload.get("user_id")
+        is_admin = payload.get("is_admin", True)
+
+        if not actor_id or not user_id:
+            return jsonify({"error": "actor_id_and_user_id_required"}), 400
+
+        if not _is_group_admin(conversation_id, actor_id):
+            return jsonify({"error": "forbidden", "details": "admin_required"}), 403
+
+        rec = _get_member_row(conversation_id, user_id)
+        if rec is None:
+            return jsonify({"error": "membership_not_found"}), 404
+
+        guid = rec.get("crc6f_hr_conversation_membersid") or extract_guid(rec)
+        if not guid:
+            return jsonify({"error": "cannot_determine_guid"}), 500
+        guid = guid.strip().replace("(", "").replace(")", "")
+
+        try:
+            dataverse_update(MEMBERS_ENTITY_SET, guid, {"crc6f_is_admin": bool(is_admin)})
+        except Exception:
+            # If schema doesn't support, fail explicitly (admin can't be managed reliably)
+            return jsonify({"error": "admin_field_missing"}), 501
+
+        actor_name = _get_employee_name_by_id(actor_id)
+        target_name = _get_employee_name_by_id(user_id)
+        text = f"{actor_name} made {target_name} an admin"
+        sys_payload = {
+            "message_id": f"sys_{uuid.uuid4()}",
+            "conversation_id": conversation_id,
+            "sender_id": "system",
+            "message_type": "text",
+            "message_text": text,
+        }
+        try:
+            dataverse_create(MSG_ENTITY_SET, {
+                "crc6f_message_id": sys_payload["message_id"],
+                "crc6f_conversation_id": conversation_id,
+                "crc6f_sender_id": "system",
+                "crc6f_message_type": "text",
+                "crc6f_message_text": text,
+            })
+        except Exception:
+            pass
+        emit_socket_event("new_message", sys_payload)
+
+        emit_socket_event("group_updated", {"conversation_id": conversation_id})
+        return jsonify({"ok": True, "user_id": user_id, "is_admin": bool(is_admin)}), 200
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": "make_admin_failed", "details": str(e)}), 500
 
 # --------------------------------------------------------------
 # PATCH — EDIT MESSAGE

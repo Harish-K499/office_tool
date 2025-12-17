@@ -263,7 +263,7 @@ export function getGroupMembers(conversationId) {
 export function addMembersToGroup(conversationId, memberIds) {
   return apiFetch(`/group/${conversationId}/members/add`, {
     method: "POST",
-    body: JSON.stringify({ members: memberIds }),
+    body: JSON.stringify({ members: memberIds, sender_id: state.user?.id }),
   });
 }
 
@@ -274,7 +274,7 @@ export function addMembersToGroup(conversationId, memberIds) {
 export function removeMembersFromGroup(conversationId, memberIds) {
   return apiFetch(`/group/${conversationId}/members/remove`, {
     method: "POST", // IMPORTANT: MUST BE POST (DELETE BODY UNSUPPORTED)
-    body: JSON.stringify({ members: memberIds }),
+    body: JSON.stringify({ members: memberIds, sender_id: state.user?.id }),
   });
 }
 
@@ -298,6 +298,46 @@ export function renameGroup(conversationId, newName) {
 export function deleteGroup(conversationId) {
   return apiFetch(`/group/${conversationId}`, {
     method: "DELETE",
+  });
+}
+
+// --------------------------------------------------
+// 14) MUTE / UNMUTE GROUP
+// PATCH /chat/group/<conversation_id>/mute
+// Body: { user_id, mute }
+// --------------------------------------------------
+export function muteGroup(conversationId, mute) {
+  return apiFetch(`/group/${conversationId}/mute`, {
+    method: "PATCH",
+    body: JSON.stringify({ user_id: state.user?.id, mute: Boolean(mute) }),
+  });
+}
+
+// --------------------------------------------------
+// 15) LEAVE GROUP
+// POST /chat/group/<conversation_id>/leave
+// Body: { user_id }
+// --------------------------------------------------
+export function leaveGroup(conversationId) {
+  return apiFetch(`/group/${conversationId}/leave`, {
+    method: "POST",
+    body: JSON.stringify({ user_id: state.user?.id }),
+  });
+}
+
+// --------------------------------------------------
+// 16) MAKE ADMIN (TOGGLE)
+// POST /chat/group/<conversation_id>/make-admin
+// Body: { actor_id, user_id, is_admin }
+// --------------------------------------------------
+export function makeGroupAdmin(conversationId, userId, isAdmin = true) {
+  return apiFetch(`/group/${conversationId}/make-admin`, {
+    method: "POST",
+    body: JSON.stringify({
+      actor_id: state.user?.id,
+      user_id: userId,
+      is_admin: Boolean(isAdmin),
+    }),
   });
 }
 
