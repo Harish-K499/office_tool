@@ -25,8 +25,18 @@ export const router = async () => {
     const path = window.location.hash.slice(1) || '/';
 
     // If we navigate away from Meet, ensure meet UI artifacts are cleaned up
-    if (path !== '/meet' && typeof (window as any).__cleanupMeetUI === 'function') {
-        try { (window as any).__cleanupMeetUI(); } catch {}
+    if (path !== '/meet') {
+        // Call the cleanup function if it exists
+        if (typeof (window as any).__cleanupMeetUI === 'function') {
+            try { (window as any).__cleanupMeetUI(); } catch {}
+        }
+        // Also forcefully remove any meet-call-modal from the DOM (belt and suspenders)
+        try {
+            const modal = document.getElementById('meet-call-modal');
+            if (modal) {
+                modal.remove();
+            }
+        } catch {}
     }
 
     const pageRenderer = routes[path] || renderHomePage; // Default to home

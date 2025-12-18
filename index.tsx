@@ -236,6 +236,11 @@ const setupRealtimeCallClient = () => {
             if (!isAdmin) {
                 return;
             }
+            // Only process updates when on the Meet page
+            const hash = window.location.hash || '#/';
+            if (!hash.startsWith('#/meet')) {
+                return;
+            }
             const handler = (window as any).__onParticipantUpdate;
             if (typeof handler === 'function') {
                 try {
