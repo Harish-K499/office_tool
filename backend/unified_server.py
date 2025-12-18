@@ -10623,14 +10623,24 @@ def get_onboarding_progress_log(record_id):
 
 @app.route('/google/authorize', methods=['GET'])
 def google_authorize():
+    """
+    Initiates Google OAuth flow.
+    - Uses 'consent' prompt only if force=true query param is passed
+    - Otherwise, uses 'select_account' which won't force re-consent if already authorized
+    """
     try:
         if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
             return jsonify({"success": False, "error": "Google OAuth not configured"}), 500
+        
+        # Check if we should force re-consent (useful for getting new refresh token)
+        force_consent = request.args.get("force", "").lower() == "true"
+        
         flow = _build_google_oauth_flow()
         authorization_url, state = flow.authorization_url(
             access_type="offline",
             include_granted_scopes="true",
-            prompt="consent",
+            # Only force consent if explicitly requested, otherwise just select account
+            prompt="consent" if force_consent else "select_account",
         )
         return redirect(authorization_url)
     except Exception as e:
