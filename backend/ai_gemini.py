@@ -8,8 +8,8 @@ from dotenv import load_dotenv
 load_dotenv("id.env")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyDDgBDqv_9NC9ry0hm0t5mMpdMD0bRoXas")
-GEMINI_MODEL = "gemini-1.5-flash"  # Stable model for quick responses
-GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+GEMINI_MODEL = "gemini-1.5-flash-latest"  # Use latest stable model
+GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1/models/{GEMINI_MODEL}:generateContent"
 
 def build_system_prompt(user_meta: dict) -> str:
     """Build a system prompt for the HR AI assistant."""
