@@ -8,8 +8,10 @@ from dotenv import load_dotenv
 load_dotenv("id.env")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyDDgBDqv_9NC9ry0hm0t5mMpdMD0bRoXas")
-GEMINI_MODEL = "gemini-1.5-flash-latest"  # Use latest stable model
-GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1/models/{GEMINI_MODEL}:generateContent"
+GEMINI_MODEL = "gemini-pro"  # Use stable gemini-pro model
+GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+
+print(f"[AI_GEMINI] Loaded with model: {GEMINI_MODEL}")
 
 def build_system_prompt(user_meta: dict) -> str:
     """Build a system prompt for the HR AI assistant."""
@@ -119,12 +121,17 @@ Please provide a helpful, accurate response based on the available data."""
             ]
         }
         
+        api_url = f"{GEMINI_API_URL}?key={GEMINI_API_KEY}"
+        print(f"[AI_GEMINI] Calling API: {GEMINI_API_URL}")
+        
         response = requests.post(
-            f"{GEMINI_API_URL}?key={GEMINI_API_KEY}",
+            api_url,
             headers=headers,
             json=payload,
             timeout=30
         )
+        
+        print(f"[AI_GEMINI] Response status: {response.status_code}")
         
         if response.status_code != 200:
             return {
