@@ -8,8 +8,8 @@ from dotenv import load_dotenv
 load_dotenv("id.env")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyDDgBDqv_9NC9ry0hm0t5mMpdMD0bRoXas")
-GEMINI_MODEL = "gemini-1.5-flash"
-GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+GEMINI_MODEL = "models/gemini-1.5-flash"
+GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1/{GEMINI_MODEL}:generateContent"
 
 print(f"[AI_GEMINI] Loaded with model: {GEMINI_MODEL}, API Key present: {bool(GEMINI_API_KEY)}")
 
