@@ -115,6 +115,17 @@ const setupRealtimeCallClient = () => {
     console.log('[MEET-RT] setupRealtimeCallClient user=', user, 'rawId=', rawId, 'email=', email, 'isAdmin=', isAdmin, 'roomId=', roomId);
 
     const socket = connectSocket(roomId, isAdmin ? 'admin' : 'employee');
+
+    // Expose for Meet page so it can cancel the call via socket.
+    try {
+      window.__emitMeetCallCancel = (payload) => {
+        try {
+          socket.emit('call:cancel', payload);
+        } catch (e) {
+          console.error('[MEET-RT] failed to emit call:cancel', e);
+        }
+      };
+    } catch {}
     let incomingPayload = null;
     let overlay = null;
     let titleEl = null;
@@ -337,6 +348,16 @@ const setupRealtimeCallClient = () => {
           console.error('Participant update handler error', err);
         }
       }
+    });
+
+    socket.on('call:cancelled', (payload) => {
+      try {
+        const cancelledId = payload?.call_id;
+        if (incomingPayload && cancelledId && incomingPayload.call_id && String(incomingPayload.call_id) !== String(cancelledId)) {
+          return;
+        }
+      } catch {}
+      hideOverlay();
     });
   } catch (err) {
     console.error('Failed to set up realtime client', err);

@@ -4063,8 +4063,10 @@ body.dark .msg-time {
             break;
 
           case "delete":
-            if (confirm("Delete this message?")) {
-              emit("delete_message", { message_id: msgId });
+            if (typeof deleteMessage === "function") {
+              deleteMessage(msgId);
+            } else {
+              alert("Delete function not available");
             }
             break;
         }

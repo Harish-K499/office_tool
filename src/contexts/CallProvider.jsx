@@ -49,14 +49,28 @@ export function CallProvider({ userId, role = 'employee', children }) {
       setAdminUpdates((prev) => ({ ...prev, [call_id]: participants || [] }));
     };
 
+    const handleCancelled = (payload) => {
+      try {
+        const cancelledId = payload?.call_id;
+        if (!cancelledId) return;
+        if (incomingCall && String(incomingCall.callId) !== String(cancelledId)) return;
+      } catch {
+        // fall through
+      }
+      stopRingtone();
+      setIncomingCall(null);
+    };
+
     socket.on('call:ring', handleRing);
     socket.on('call:participant-update', handleParticipantUpdate);
+    socket.on('call:cancelled', handleCancelled);
 
     return () => {
       socket.off('call:ring', handleRing);
       socket.off('call:participant-update', handleParticipantUpdate);
+      socket.off('call:cancelled', handleCancelled);
     };
-  }, [userId, role]);
+  }, [userId, role, incomingCall, stopRingtone]);
 
   const acceptCall = useCallback(() => {
     const call = incomingCall;

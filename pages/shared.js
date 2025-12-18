@@ -2509,6 +2509,7 @@ export const renderMeetPage = async () => {
         const selectedProjects = new Map();
         let projectsCache = [];
         let currentMeetInfo = null;
+        let currentCallId = null;
         let callDecisions = new Map();
         let serverParticipantStatuses = new Map();
         let employeeCards = [];
@@ -2920,6 +2921,26 @@ export const renderMeetPage = async () => {
             stopRingTone();
         };
 
+        const cancelOutgoingCall = () => {
+            try {
+                const callId = currentCallId || currentMeetInfo?.call_id;
+                const adminId = String(state?.user?.id || '').trim() || 'admin';
+                const emitter = window.__emitMeetCallCancel;
+                if (callId && typeof emitter === 'function') {
+                    emitter({ call_id: callId, admin_id: adminId });
+                }
+            } catch (err) {
+                console.warn('cancelOutgoingCall error', err);
+            }
+            try {
+                currentCallId = null;
+                serverParticipantStatuses = new Map();
+                callDecisions = new Map();
+                renderCallList();
+            } catch (_) {}
+            closeCallModal();
+        };
+
         const buildEmployeeCards = () => {
             employeeCards = Array.from(employeesDirectory.entries()).map(([id, meta]) => ({
                 id,
@@ -3190,6 +3211,7 @@ export const renderMeetPage = async () => {
                     throw new Error(data.error || `Failed to create Google Meet (${resp.status})`);
                 }
                 currentMeetInfo = data;
+                currentCallId = data?.call_id || null;
                 callDecisions = new Map();
                 renderCallList();
                 renderMeetResult('success', data);
@@ -3284,7 +3306,12 @@ export const renderMeetPage = async () => {
                 if (closeBtn || cancelBtn) {
                     ev.preventDefault();
                     ev.stopPropagation();
-                    closeCallModal();
+                    // Cancel button should actually stop the outbound call.
+                    if (cancelBtn) {
+                        cancelOutgoingCall();
+                    } else {
+                        closeCallModal();
+                    }
                 }
             });
         }

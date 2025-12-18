@@ -107,6 +107,38 @@ function broadcastParticipantUpdate(call) {
   });
 }
 
+function broadcastCallCancelled(call, reason = 'cancelled') {
+  if (!call) return;
+
+  try {
+    const adminRoom = String(call.admin_id || '').trim().toUpperCase();
+    if (adminRoom) {
+      io.to(adminRoom).emit('call:cancelled', {
+        call_id: call.call_id,
+        admin_id: call.admin_id,
+        reason
+      });
+    }
+  } catch (e) {
+    console.error('[SOCKET-SERVER] broadcastCallCancelled admin emit error:', e);
+  }
+
+  try {
+    (call.participants || []).forEach((p) => {
+      const rawRoom = p.employee_id || p.email;
+      if (!rawRoom) return;
+      const room = String(rawRoom).trim().toUpperCase();
+      io.to(room).emit('call:cancelled', {
+        call_id: call.call_id,
+        admin_id: call.admin_id,
+        reason
+      });
+    });
+  } catch (e) {
+    console.error('[SOCKET-SERVER] broadcastCallCancelled participant emit error:', e);
+  }
+}
+
 app.post('/emit', (req, res) => {
   try {
     const body = req.body || {};
@@ -315,6 +347,44 @@ io.on('connection', (socket) => {
       broadcastParticipantUpdate(call);
     } catch (e) {
       console.error('[SOCKET-SERVER] call:declined error:', e);
+    }
+  });
+
+  socket.on('call:cancel', (payload) => {
+    try {
+      const { call_id, admin_id } = payload || {};
+      console.log('[SOCKET-SERVER] call:cancel received:', { call_id, admin_id });
+      if (!call_id) {
+        console.warn('[SOCKET-SERVER] call:cancel missing call_id');
+        return;
+      }
+
+      const call = activeCalls[call_id];
+      if (!call) {
+        console.warn('[SOCKET-SERVER] call:cancel - call not found for call_id:', call_id);
+        return;
+      }
+
+      // Optional guard: only the call admin can cancel
+      if (admin_id && String(call.admin_id || '').trim().toUpperCase() !== String(admin_id).trim().toUpperCase()) {
+        console.warn('[SOCKET-SERVER] call:cancel rejected - admin_id mismatch', { expected: call.admin_id, got: admin_id });
+        return;
+      }
+
+      // Mark all still-ringing participants as cancelled for admin UI
+      call.participants = (call.participants || []).map((p) => {
+        const status = String(p.status || 'ringing').toLowerCase();
+        if (status === 'accepted' || status === 'declined') return p;
+        return { ...p, status: 'cancelled' };
+      });
+
+      broadcastParticipantUpdate(call);
+      broadcastCallCancelled(call, 'cancelled');
+
+      // Cleanup active call after cancellation
+      delete activeCalls[call_id];
+    } catch (e) {
+      console.error('[SOCKET-SERVER] call:cancel error:', e);
     }
   });
 

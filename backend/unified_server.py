@@ -1285,8 +1285,15 @@ def notify_socket_server(admin_id: str, meet_url: str, participants: list, title
         print("[MEET][SOCKET] socket server response:", resp.status_code, resp.text[:500])
         if resp.status_code >= 400:
             print(f"[MEET][SOCKET] Non-2xx response from socket server: {resp.status_code} {resp.text}")
+            return None
+        try:
+            data = resp.json() or {}
+            return data.get("call_id")
+        except Exception:
+            return None
     except Exception as e:
         print(f"[MEET][SOCKET] Failed to notify socket server: {e}")
+        return None
 
 
 def _ensure_storage_dir():
@@ -10669,7 +10676,9 @@ def start_google_meet():
 
         try:
             if meet_url:
-                notify_socket_server(admin_id, meet_url, participants_for_socket, title)
+                call_id = notify_socket_server(admin_id, meet_url, participants_for_socket, title)
+                if call_id:
+                    response_payload["call_id"] = call_id
         except Exception as notify_err:
             print(f"[MEET][SOCKET] notify_socket_server failed: {notify_err}")
 
