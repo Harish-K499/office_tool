@@ -1,8 +1,9 @@
-
 import { state } from '../state.js';
 import { fetchMonthlyAttendance } from '../features/attendanceApi.js';
 import { getHolidays } from '../features/holidaysApi.js';
 import { renderModal, closeModal } from '../components/modal.js';
+import { API_BASE_URL } from '../config.js';
+import { clearCacheByPrefix } from '../features/cache.js';
 
 // Check if current user is admin (EMP001 or bala.t@vtab.com)
 const isAdminUser = () => {
@@ -494,7 +495,8 @@ const openTeamAttendanceEditModal = (employeeId, day, year, monthIndex) => {
                 if (!selectEl) return;
                 const code = selectEl.value;
                 try {
-                    const res = await fetch('http://localhost:5000/api/attendance/manual-edit', {
+                    const baseUrl = (API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
+                    const res = await fetch(`${baseUrl}/api/attendance/manual-edit`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ employee_id: employeeId, year, month: monthIndex + 1, day, code })
@@ -504,8 +506,33 @@ const openTeamAttendanceEditModal = (employeeId, day, year, monthIndex) => {
                         alert(data.error || 'Failed to update attendance');
                         return;
                     }
+                    
+                    // Clear attendance cache to ensure fresh data is fetched
+                    try {
+                        // Clear cache for this employee's attendance
+                        if (state?.cache?.attendance) {
+                            const cacheKey = `${employeeId.toUpperCase()}|${year}|${monthIndex + 1}`;
+                            delete state.cache.attendance[cacheKey];
+                        }
+                        // Also clear any general attendance cache
+                        clearCacheByPrefix('attendance_');
+                    } catch (cacheErr) {
+                        console.warn('Failed to clear attendance cache:', cacheErr);
+                    }
+                    
                     closeModal();
+                    // Refresh both team and my attendance pages
                     await renderTeamAttendancePage();
+                    // Also refresh my attendance if the edited employee is the current user
+                    if (employeeId.toUpperCase() === String(state.user?.id || '').toUpperCase()) {
+                        // Update local state for immediate reflection
+                        if (state.attendanceData[employeeId]) {
+                            state.attendanceData[employeeId][day] = {
+                                ...state.attendanceData[employeeId][day],
+                                status: code,
+                            };
+                        }
+                    }
                 } catch (err) {
                     console.error('manual-edit failed', err);
                     alert('Failed to update attendance');
