@@ -3306,7 +3306,6 @@ export const renderMeetPage = async () => {
                 if (closeBtn || cancelBtn) {
                     ev.preventDefault();
                     ev.stopPropagation();
-                    // Cancel button should actually stop the outbound call.
                     if (cancelBtn) {
                         cancelOutgoingCall();
                     } else {
@@ -3316,12 +3315,21 @@ export const renderMeetPage = async () => {
             });
         }
 
-        loadEmployeeDirectory()
-            .then(() => {
-                buildEmployeeCards();
-                renderEmployeeGrid();
-            })
-            .catch(() => {});
+        // Direct event listeners as fallback
+        if (callCloseBtn) {
+            callCloseBtn.addEventListener('click', (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                closeCallModal();
+            });
+        }
+        if (callCancelBtn) {
+            callCancelBtn.addEventListener('click', (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                cancelOutgoingCall();
+            });
+        }
 
         if (form) {
             form.addEventListener('submit', (ev) => {
