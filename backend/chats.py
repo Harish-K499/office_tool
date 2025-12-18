@@ -1441,7 +1441,11 @@ def delete_message(message_id):
             guid = guid[1:-1]
 
         dataverse_update(MSG_ENTITY_SET, guid, {
-            "crc6f_message_text": "[deleted]"
+            "crc6f_message_text": "[deleted]",
+            "crc6f_media_url": None,
+            "crc6f_file_name": None,
+            "crc6f_mime_type": None,
+            "crc6f_message_type": "text"
         })
 
         # Invalidate caches for this conversation

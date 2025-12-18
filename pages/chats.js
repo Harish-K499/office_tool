@@ -2808,11 +2808,54 @@ body.dark .msg-time {
       }
     });
     on("group_updated", async ({ conversation_id }) => {
+      // Always refresh conversation list for any group update
+      await window.refreshConversationList();
       if (conversation_id === window.currentConversationId) {
-        await window.refreshConversationList();
         openGroupInfoPanel(conversation_id); // ✅ refresh group info live
       }
     });
+    
+    // 🔵 GROUP RENAMED (Real-time update for group name changes)
+    on("group_renamed", async (data) => {
+      const { conversation_id, name } = data;
+      
+      // Update in conversationCache
+      const convo = (window.conversationCache || []).find(
+        (c) => c.conversation_id === conversation_id
+      );
+      if (convo) {
+        convo.name = name;
+        convo.display_name = name;
+      }
+      
+      // Update in conversationList
+      const convoList = (window.conversationList || []).find(
+        (c) => c.conversation_id === conversation_id
+      );
+      if (convoList) {
+        convoList.name = name;
+        convoList.display_name = name;
+      }
+      
+      // Re-render conversation list
+      const currentFilter = (document.getElementById("chatSearchInput")?.value || "")
+        .trim()
+        .toLowerCase();
+      renderConversationList(currentFilter);
+      
+      // Update header if this is the current conversation
+      if (conversation_id === window.currentConversationId) {
+        const headerName = document.getElementById("chatUserName");
+        if (headerName) headerName.innerText = name;
+        
+        // Refresh group info panel if open
+        const panel = document.getElementById("groupInfoPanel");
+        if (panel && panel.style.display !== "none") {
+          openGroupInfoPanel(conversation_id);
+        }
+      }
+    });
+    
     on("conversation_created", (convo) => {
       // 1️⃣ Remove temp conversation if exists
       const tempIndex = window.conversationCache.findIndex((c) =>
@@ -4426,7 +4469,14 @@ body.dark .msg-time {
     const cid = data?.conversation_id || window.currentConversationId;
     if (cid && window.chatCache && Array.isArray(window.chatCache[cid])) {
       window.chatCache[cid] = window.chatCache[cid].map((m) =>
-        m.message_id === data.message_id ? { ...m, message_text: "[deleted]" } : m
+        m.message_id === data.message_id ? { 
+          ...m, 
+          message_text: "[deleted]",
+          message_type: "text",
+          media_url: null,
+          file_name: null,
+          mime_type: null
+        } : m
       );
     }
 
@@ -5100,18 +5150,39 @@ body.dark .msg-time {
   function markMessageDeleted(messageId) {
     const el = document.querySelector(`[data-msgid="${messageId}"]`);
     if (!el) return;
-    const contentEl = el.querySelector(".msg-content");
-    if (contentEl) {
-      contentEl.textContent = "[deleted]";
-      contentEl.classList.add("deleted");
+    
+    // Find the message bubble content area
+    const bubble = el.querySelector(".msg-bubble");
+    if (bubble) {
+      // Clear all content and replace with [deleted] text
+      const metaEl = bubble.querySelector(".msg-meta");
+      const metaHtml = metaEl ? metaEl.outerHTML : '';
+      bubble.innerHTML = `<div class="msg-content deleted" style="color:var(--muted);font-style:italic;">[deleted]</div>${metaHtml}`;
     } else {
-      el.innerHTML = `<div class="msg-deleted">[deleted]</div>`;
+      const contentEl = el.querySelector(".msg-content");
+      if (contentEl) {
+        contentEl.textContent = "[deleted]";
+        contentEl.classList.add("deleted");
+      } else {
+        // Fallback: replace entire element content
+        const metaEl = el.querySelector(".msg-meta");
+        const metaHtml = metaEl ? metaEl.outerHTML : '';
+        el.innerHTML = `<div class="msg-bubble"><div class="msg-content deleted" style="color:var(--muted);font-style:italic;">[deleted]</div>${metaHtml}</div>`;
+      }
     }
 
+    // Update cache - clear all media fields
     const convId = window.currentConversationId;
     if (convId && window.chatCache && Array.isArray(window.chatCache[convId])) {
       window.chatCache[convId] = window.chatCache[convId].map((m) =>
-        m.message_id === messageId ? { ...m, message_text: "[deleted]" } : m
+        m.message_id === messageId ? { 
+          ...m, 
+          message_text: "[deleted]",
+          message_type: "text",
+          media_url: null,
+          file_name: null,
+          mime_type: null
+        } : m
       );
     }
   }
