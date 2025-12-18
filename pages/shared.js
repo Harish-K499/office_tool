@@ -4016,7 +4016,13 @@ const loadInboxAttendance = async () => {
             attendanceReports = attendanceReports.filter(r => r.status === 'approved' || r.status === 'rejected');
         }
 
-        console.log(`📋 Loaded ${attendanceReports.length} attendance reports for ${currentInboxTab} tab`);
+        // Sort by created_date descending (latest first)
+        attendanceReports.sort((a, b) => {
+            const dateA = new Date(a.created_date || a.submitted_at || '1900-01-01');
+            const dateB = new Date(b.created_date || b.submitted_at || '1900-01-01');
+            return dateB - dateA;
+        });
+        console.log(`📋 Loaded ${attendanceReports.length} attendance reports for ${currentInboxTab} tab (sorted by latest)`);
 
         if (attendanceReports.length === 0) {
             listContainer.innerHTML = `
