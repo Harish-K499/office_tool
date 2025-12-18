@@ -249,7 +249,7 @@ const attachTeamTsEvents = () => {
 };
 
 const openTeamTsEditModal = async (employeeId, workDate) => {
-    const API = 'http://localhost:5000/api';
+    const API = `${apiBase}/api`;
     const empId = String(employeeId || '').toUpperCase();
     if (!empId || !workDate) return;
     let logs = [];
@@ -424,7 +424,7 @@ export const renderMyTasksPage = async () => {
         (arr || []).forEach(p => { projectsIdx[(p.id || p.crc6f_projectid)] = p; });
     } catch { }
 
-    const API = 'http://localhost:5000/api';
+    const API = `${apiBase}/api`;
     let tasks = [];
     let search = '';
 
@@ -745,7 +745,7 @@ export const renderMyTasksPage = async () => {
 };
 
 export const renderMyTimesheetPage = async () => {
-    const API = 'http://localhost:5000/api';
+    const API = `${apiBase}/api`;
     const user = state?.user || window.state?.user || {};
     let empId = String((user.id || user.employee_id || user.employeeId || '')).trim();
     let userNameLc = String((user.name || user.fullName || user.username || '')).trim().toLowerCase();
@@ -1447,7 +1447,7 @@ export const renderMyTimesheetPage = async () => {
 };
 
 export const renderTeamTimesheetPage = async () => {
-    const API = 'http://localhost:5000/api';
+    const API = `${apiBase}/api`;
 
     // Skeleton grid while employees and logs are loading
     try {
@@ -3625,7 +3625,7 @@ const loadInboxTimesheets = async () => {
         }
 
         const qs = params.toString() ? `?${params.toString()}` : '';
-        const resp = await fetch(`http://localhost:5000/api/time-tracker/timesheet/submissions${qs}`);
+        const resp = await fetch(`${apiBase}/api/time-tracker/timesheet/submissions${qs}`);
         const data = await resp.json().catch(() => ({ success: false }));
 
         if (!resp.ok || !data.success) {
@@ -3896,7 +3896,7 @@ const handleTimesheetApprove = async (entryId) => {
     try {
         const adminId = await resolveCurrentEmployeeId();
         const resp = await fetch(
-            `http://localhost:5000/api/time-tracker/timesheet/${encodeURIComponent(entryId)}/approve`,
+            `${apiBase}/api/time-tracker/timesheet/${encodeURIComponent(entryId)}/approve`,
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -3942,7 +3942,7 @@ export const handleTimesheetReject = async (e) => {
     try {
         const adminId = await resolveCurrentEmployeeId();
         const resp = await fetch(
-            `http://localhost:5000/api/time-tracker/timesheet/${encodeURIComponent(entryId)}/reject`,
+            `${apiBase}/api/time-tracker/timesheet/${encodeURIComponent(entryId)}/reject`,
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -3986,7 +3986,7 @@ const loadInboxAttendance = async () => {
             // Completed = approved or rejected. We'll fetch all and client-filter.
             qs = '';
         }
-        const response = await fetch(`http://localhost:5000/api/attendance/submissions${qs}`);
+        const response = await fetch(`${apiBase}/api/attendance/submissions${qs}`);
         const data = await response.json();
 
         if (!data.success) {
@@ -4211,7 +4211,7 @@ const handleAttendanceApprove = async (markerId) => {
     }
 
     try {
-        const response = await fetch(`http://localhost:5000/api/attendance/submissions/${markerId}/approve`, {
+        const response = await fetch(`${apiBase}/api/attendance/submissions/${markerId}/approve`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         });
@@ -4254,7 +4254,7 @@ export const handleAttendanceRejectReport = async (e) => {
     }
 
     try {
-        const response = await fetch(`http://localhost:5000/api/attendance/submissions/${reportId}/reject`, {
+        const response = await fetch(`${apiBase}/api/attendance/submissions/${reportId}/reject`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ reason })
