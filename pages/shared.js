@@ -8,6 +8,8 @@ import { listClients, createClient, updateClient, deleteClient, getNextClientId 
 import { fetchPendingLeaves } from '../features/leaveApi.js';
 import { notifyEmployeeLeaveApproval, notifyEmployeeLeaveRejection, updateNotificationBadge, notifyEmployeeCompOffGranted, notifyEmployeeCompOffRejected } from '../features/notificationApi.js';
 import { listEmployees } from '../features/employeeApi.js';
+import { apiBase } from '../config.js';
+import { cachedFetch, TTL } from '../features/cache.js';
 
 let currentInboxTab = 'awaiting';
 let currentInboxCategory = 'leaves';
@@ -2463,7 +2465,7 @@ export const renderMeetPage = async () => {
     }
 
     setTimeout(() => {
-        const API_BASE = 'http://localhost:5000';
+        const API_BASE = apiBase; // Use global config instead of hardcoded localhost
         const employeesDirectory = new Map();
 
         const form = document.getElementById('meet-form');
@@ -2700,9 +2702,13 @@ export const renderMeetPage = async () => {
         const loadEmployeeDirectory = async () => {
             if (employeesDirectory.size) return employeesDirectory;
             try {
-                const resp = await fetch(`${API_BASE}/api/employees/all`);
-                const data = await resp.json().catch(() => ({}));
-                if (resp.ok && data.success && Array.isArray(data.employees)) {
+                // Use cached fetch for employees - cache for 5 minutes
+                const data = await cachedFetch('meet_employees_all', async () => {
+                    const resp = await fetch(`${API_BASE}/api/employees/all`);
+                    return await resp.json().catch(() => ({}));
+                }, TTL.LONG);
+                
+                if (data.success && Array.isArray(data.employees)) {
                     data.employees.forEach((emp) => {
                         const key = String(emp.employee_id || '').trim().toUpperCase();
                         if (!key) return;

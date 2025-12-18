@@ -2,6 +2,7 @@ import { state } from '../state.js';
 import { getPageContentHTML } from '../utils.js';
 import { renderModal, closeModal } from '../components/modal.js';
 import { listEmployees, createEmployee, updateEmployee, deleteEmployee } from '../features/employeeApi.js';
+import { cachedFetch, TTL, clearCacheByPrefix } from '../features/cache.js';
 
 let empCurrentPage = 1;
 const EMP_PAGE_SIZE = 10;
