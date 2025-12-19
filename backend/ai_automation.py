@@ -2718,6 +2718,7 @@ Please review in HR Tool.
             all_tasks = []
             
             # ========== 1. Fetch tasks from HR_TaskDetails table ==========
+            # This matches what the My Tasks page shows
             try:
                 tasks_url = f"{dv_resource}{dv_api}/crc6f_hr_taskdetailses?$select=crc6f_hr_taskdetailsid,crc6f_taskid,crc6f_taskname,crc6f_taskdescription,crc6f_taskpriority,crc6f_taskstatus,crc6f_assignedto,crc6f_assigneddate,crc6f_duedate,crc6f_projectid,crc6f_boardid"
                 tasks_resp = req.get(tasks_url, headers=headers, timeout=30)
@@ -2746,55 +2747,57 @@ Please review in HR Tool.
             except Exception as te:
                 print(f"[AI] Error fetching from tasks table: {te}")
             
-            # ========== 2. Fetch projects where user is a contributor ==========
-            try:
-                # First get project IDs where user is a contributor
-                contrib_url = f"{dv_resource}{dv_api}/crc6f_hr_projectcontributorses?$filter=crc6f_employeeid eq '{emp_id_upper}'&$select=crc6f_projectid,crc6f_hr_projectcontributorsid"
-                contrib_resp = req.get(contrib_url, headers=headers, timeout=30)
-                
-                user_project_ids = set()
-                if contrib_resp.ok:
-                    contrib_data = contrib_resp.json().get("value", [])
-                    for c in contrib_data:
-                        pid = c.get("crc6f_projectid")
-                        if pid:
-                            user_project_ids.add(pid)
-                
-                # Also check projects where user is the manager
-                projects_url = f"{dv_resource}{dv_api}/crc6f_hr_projectheaders?$select=crc6f_projectid,crc6f_projectname,crc6f_manager,crc6f_projectstatus,crc6f_startdate,crc6f_enddate,crc6f_hr_projectheaderid"
-                projects_resp = req.get(projects_url, headers=headers, timeout=30)
-                
-                if projects_resp.ok:
-                    projects_data = projects_resp.json().get("value", [])
-                    for p in projects_data:
-                        pid = p.get("crc6f_projectid")
-                        manager = (p.get("crc6f_manager") or "").lower()
-                        
-                        # Include if user is contributor OR manager
-                        is_contributor = pid in user_project_ids
-                        is_manager = (emp_id_lower and emp_id_lower in manager) or \
-                                    (emp_name_lower and emp_name_lower in manager) or \
-                                    (emp_email_lower and emp_email_lower in manager)
-                        
-                        if is_contributor or is_manager:
-                            # Add project as a "task" so user can start timer on it
-                            all_tasks.append({
-                                "guid": p.get("crc6f_hr_projectheaderid"),
-                                "task_id": pid,
-                                "task_name": p.get("crc6f_projectname") or pid,
-                                "task_description": f"Project: {p.get('crc6f_projectname')}",
-                                "task_priority": "Normal",
-                                "task_status": p.get("crc6f_projectstatus") or "Active",
-                                "assigned_to": employee_id,
-                                "assigned_date": p.get("crc6f_startdate"),
-                                "due_date": p.get("crc6f_enddate"),
-                                "project_id": pid,
-                                "board_id": None,
-                                "source": "projects_table",
-                                "is_project": True
-                            })
-            except Exception as pe:
-                print(f"[AI] Error fetching from projects table: {pe}")
+            # ========== 2. If no tasks found, fetch projects where user is a contributor ==========
+            # Only show projects if user has no tasks assigned
+            if len(all_tasks) == 0:
+                try:
+                    # First get project IDs where user is a contributor
+                    contrib_url = f"{dv_resource}{dv_api}/crc6f_hr_projectcontributorses?$filter=crc6f_employeeid eq '{emp_id_upper}'&$select=crc6f_projectid,crc6f_hr_projectcontributorsid"
+                    contrib_resp = req.get(contrib_url, headers=headers, timeout=30)
+                    
+                    user_project_ids = set()
+                    if contrib_resp.ok:
+                        contrib_data = contrib_resp.json().get("value", [])
+                        for c in contrib_data:
+                            pid = c.get("crc6f_projectid")
+                            if pid:
+                                user_project_ids.add(pid)
+                    
+                    # Also check projects where user is the manager
+                    projects_url = f"{dv_resource}{dv_api}/crc6f_hr_projectheaders?$select=crc6f_projectid,crc6f_projectname,crc6f_manager,crc6f_projectstatus,crc6f_startdate,crc6f_enddate,crc6f_hr_projectheaderid"
+                    projects_resp = req.get(projects_url, headers=headers, timeout=30)
+                    
+                    if projects_resp.ok:
+                        projects_data = projects_resp.json().get("value", [])
+                        for p in projects_data:
+                            pid = p.get("crc6f_projectid")
+                            manager = (p.get("crc6f_manager") or "").lower()
+                            
+                            # Include if user is contributor OR manager
+                            is_contributor = pid in user_project_ids
+                            is_manager = (emp_id_lower and emp_id_lower in manager) or \
+                                        (emp_name_lower and emp_name_lower in manager) or \
+                                        (emp_email_lower and emp_email_lower in manager)
+                            
+                            if is_contributor or is_manager:
+                                # Add project as a "task" so user can start timer on it
+                                all_tasks.append({
+                                    "guid": p.get("crc6f_hr_projectheaderid"),
+                                    "task_id": pid,
+                                    "task_name": p.get("crc6f_projectname") or pid,
+                                    "task_description": f"Project: {p.get('crc6f_projectname')}",
+                                    "task_priority": "Normal",
+                                    "task_status": p.get("crc6f_projectstatus") or "Active",
+                                    "assigned_to": employee_id,
+                                    "assigned_date": p.get("crc6f_startdate"),
+                                    "due_date": p.get("crc6f_enddate"),
+                                    "project_id": pid,
+                                    "board_id": None,
+                                    "source": "projects_table",
+                                    "is_project": True
+                                })
+                except Exception as pe:
+                    print(f"[AI] Error fetching from projects table: {pe}")
             
             # Deduplicate by guid
             seen_guids = set()
@@ -2808,7 +2811,7 @@ Please review in HR Tool.
             return {
                 "success": True,
                 "tasks": unique_tasks,
-                "message": f"Found {len(unique_tasks)} task(s)/project(s)."
+                "message": f"Found {len(unique_tasks)} task(s)."
             }
             
         except Exception as e:
