@@ -20,6 +20,103 @@ else:
     # Default to local loopback so the backend can call its own API without going over the public internet
     BACKEND_API_INTERNAL_URL = "http://127.0.0.1:5000"
 
+# ================== AI DATAVERSE TABLE ACCESS ==================
+# All Dataverse tables the AI has access to for querying and automation
+AI_DATAVERSE_TABLES = {
+    # Employee Management
+    "employees": {
+        "entity": "crc6f_table12s",
+        "description": "Employee master table with all employee records",
+        "key_fields": ["crc6f_employeeid", "crc6f_firstname", "crc6f_lastname", "crc6f_email", "crc6f_department", "crc6f_designation"]
+    },
+    # Attendance Tracking
+    "attendance": {
+        "entity": "crc6f_table13s",
+        "description": "Daily attendance records with check-in/check-out times",
+        "key_fields": ["crc6f_employeeid", "crc6f_date", "crc6f_checkin", "crc6f_checkout", "crc6f_duration"]
+    },
+    # Leave Management
+    "leave_requests": {
+        "entity": "crc6f_table14s",
+        "description": "Leave requests submitted by employees",
+        "key_fields": ["crc6f_employeeid", "crc6f_leavetype", "crc6f_startdate", "crc6f_enddate", "crc6f_status"]
+    },
+    "leave_balance": {
+        "entity": "crc6f_hr_leavemangements",
+        "description": "Leave balance/quota for each employee",
+        "key_fields": ["crc6f_employeeid", "crc6f_leavetype", "crc6f_balance"]
+    },
+    # Project Management
+    "projects": {
+        "entity": "crc6f_hr_projectheaders",
+        "description": "Project headers with project details",
+        "key_fields": ["crc6f_projectid", "crc6f_projectname", "crc6f_client", "crc6f_manager", "crc6f_projectstatus", "crc6f_startdate", "crc6f_enddate"]
+    },
+    "project_contributors": {
+        "entity": "crc6f_hr_projectcontributorses",
+        "description": "Links employees to projects they contribute to",
+        "key_fields": ["crc6f_employeeid", "crc6f_projectid", "crc6f_hourlyrate"]
+    },
+    "project_boards": {
+        "entity": "crc6f_hr_projectboardses",
+        "description": "Kanban boards for projects",
+        "key_fields": ["crc6f_boardid", "crc6f_projectid", "crc6f_boardname"]
+    },
+    # Task Management
+    "tasks": {
+        "entity": "crc6f_hr_taskdetailses",
+        "description": "Task details assigned to employees within projects",
+        "key_fields": ["crc6f_taskid", "crc6f_taskname", "crc6f_assignedto", "crc6f_projectid", "crc6f_taskstatus", "crc6f_duedate"]
+    },
+    # Asset Management
+    "assets": {
+        "entity": "crc6f_hr_assetdetailses",
+        "description": "Company assets assigned to employees",
+        "key_fields": ["crc6f_assetid", "crc6f_assetname", "crc6f_assignedto", "crc6f_assetstatus"]
+    },
+    # Client Management
+    "clients": {
+        "entity": "crc6f_hr_clients",
+        "description": "Client/customer records",
+        "key_fields": ["crc6f_clientid", "crc6f_clientname", "crc6f_contactemail"]
+    },
+    # Holiday Calendar
+    "holidays": {
+        "entity": "crc6f_hr_holidayses",
+        "description": "Company holiday calendar",
+        "key_fields": ["crc6f_holidaydate", "crc6f_holidayname"]
+    },
+    # Login/Activity Tracking
+    "login_activity": {
+        "entity": "crc6f_hr_login_detailses",
+        "description": "Login events with location and device info",
+        "key_fields": ["crc6f_employeeid", "crc6f_eventtype", "crc6f_timestamp", "crc6f_location"]
+    },
+    # Hierarchy/Reporting
+    "hierarchy": {
+        "entity": "crc6f_hr_hierarchies",
+        "description": "Employee reporting hierarchy (manager relationships)",
+        "key_fields": ["crc6f_employeeid", "crc6f_managerid"]
+    },
+    # Intern Management
+    "interns": {
+        "entity": "crc6f_hr_interndetailses",
+        "description": "Intern training and probation details",
+        "key_fields": ["crc6f_internid", "crc6f_employeeid", "crc6f_paidtrainingstart", "crc6f_probationstart"]
+    }
+}
+
+def get_ai_table_entity(table_name: str) -> str:
+    """Get the Dataverse entity name for an AI-accessible table."""
+    table_info = AI_DATAVERSE_TABLES.get(table_name.lower())
+    if table_info:
+        return table_info["entity"]
+    return None
+
+def list_ai_accessible_tables() -> List[str]:
+    """List all tables the AI can access."""
+    return list(AI_DATAVERSE_TABLES.keys())
+
 # ================== EMPLOYEE CREATION FLOW ==================
 
 EMPLOYEE_FIELDS = [
@@ -2588,52 +2685,131 @@ Please review in HR Tool.
     # ==================== FETCH MY TASKS ====================
     if action["type"] == "fetch_my_tasks":
         try:
-            # Import the function directly to avoid HTTP call (same process)
-            from time_tracking import list_my_tasks as _list_my_tasks_fn
-            from flask import Flask
+            import requests as req
+            from dataverse_helper import get_access_token
             
             employee_id = action.get("employee_id", "")
+            employee_name = action.get("employee_name") or ""
+            employee_email = action.get("employee_email") or ""
+            
             if not employee_id:
                 return {
                     "success": False,
                     "error": "Employee ID is required to fetch tasks."
                 }
             
-            # Call the function directly within a request context
-            # This avoids HTTP overhead and timeout issues on Render
-            from unified_server import app
-            with app.test_request_context(
-                '/api/my-tasks',
-                method='GET',
-                query_string={
-                    'user_id': employee_id,
-                    'user_name': action.get("employee_name") or "",
-                    'user_email': action.get("employee_email") or "",
-                    'role': 'l1'
-                }
-            ):
-                response = _list_my_tasks_fn()
-                # Response is a tuple (jsonify_obj, status_code) or just jsonify_obj
-                if isinstance(response, tuple):
-                    json_response, status_code = response
-                else:
-                    json_response = response
-                    status_code = 200
+            # Normalize employee ID
+            emp_id_upper = employee_id.upper()
+            emp_id_lower = employee_id.lower()
+            emp_name_lower = employee_name.lower() if employee_name else ""
+            emp_email_lower = employee_email.lower() if employee_email else ""
+            
+            token = get_access_token()
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/json",
+                "OData-Version": "4.0",
+            }
+            
+            RESOURCE = os.getenv("RESOURCE", "")
+            DV_API = "/api/data/v9.2"
+            
+            all_tasks = []
+            
+            # ========== 1. Fetch tasks from HR_TaskDetails table ==========
+            try:
+                tasks_url = f"{RESOURCE}{DV_API}/crc6f_hr_taskdetailses?$select=crc6f_hr_taskdetailsid,crc6f_taskid,crc6f_taskname,crc6f_taskdescription,crc6f_taskpriority,crc6f_taskstatus,crc6f_assignedto,crc6f_assigneddate,crc6f_duedate,crc6f_projectid,crc6f_boardid"
+                tasks_resp = req.get(tasks_url, headers=headers, timeout=30)
+                if tasks_resp.ok:
+                    tasks_data = tasks_resp.json().get("value", [])
+                    for t in tasks_data:
+                        assigned_to = (t.get("crc6f_assignedto") or "").lower()
+                        # Match by employee ID, name, or email
+                        if (emp_id_lower and emp_id_lower in assigned_to) or \
+                           (emp_name_lower and emp_name_lower in assigned_to) or \
+                           (emp_email_lower and emp_email_lower in assigned_to):
+                            all_tasks.append({
+                                "guid": t.get("crc6f_hr_taskdetailsid"),
+                                "task_id": t.get("crc6f_taskid"),
+                                "task_name": t.get("crc6f_taskname"),
+                                "task_description": t.get("crc6f_taskdescription"),
+                                "task_priority": t.get("crc6f_taskpriority"),
+                                "task_status": t.get("crc6f_taskstatus"),
+                                "assigned_to": t.get("crc6f_assignedto"),
+                                "assigned_date": t.get("crc6f_assigneddate"),
+                                "due_date": t.get("crc6f_duedate"),
+                                "project_id": t.get("crc6f_projectid"),
+                                "board_id": t.get("crc6f_boardid"),
+                                "source": "tasks_table"
+                            })
+            except Exception as te:
+                print(f"[AI] Error fetching from tasks table: {te}")
+            
+            # ========== 2. Fetch projects where user is a contributor ==========
+            try:
+                # First get project IDs where user is a contributor
+                contrib_url = f"{RESOURCE}{DV_API}/crc6f_hr_projectcontributorses?$filter=crc6f_employeeid eq '{emp_id_upper}'&$select=crc6f_projectid,crc6f_hr_projectcontributorsid"
+                contrib_resp = req.get(contrib_url, headers=headers, timeout=30)
                 
-                data = json_response.get_json()
+                user_project_ids = set()
+                if contrib_resp.ok:
+                    contrib_data = contrib_resp.json().get("value", [])
+                    for c in contrib_data:
+                        pid = c.get("crc6f_projectid")
+                        if pid:
+                            user_project_ids.add(pid)
                 
-                if status_code == 200 and data.get("success"):
-                    tasks = data.get("tasks", [])
-                    return {
-                        "success": True,
-                        "tasks": tasks,
-                        "message": f"Found {len(tasks)} task(s)."
-                    }
-                else:
-                    return {
-                        "success": False,
-                        "error": data.get("error", "Failed to fetch tasks")
-                    }
+                # Also check projects where user is the manager
+                projects_url = f"{RESOURCE}{DV_API}/crc6f_hr_projectheaders?$select=crc6f_projectid,crc6f_projectname,crc6f_manager,crc6f_projectstatus,crc6f_startdate,crc6f_enddate,crc6f_hr_projectheaderid"
+                projects_resp = req.get(projects_url, headers=headers, timeout=30)
+                
+                if projects_resp.ok:
+                    projects_data = projects_resp.json().get("value", [])
+                    for p in projects_data:
+                        pid = p.get("crc6f_projectid")
+                        manager = (p.get("crc6f_manager") or "").lower()
+                        
+                        # Include if user is contributor OR manager
+                        is_contributor = pid in user_project_ids
+                        is_manager = (emp_id_lower and emp_id_lower in manager) or \
+                                    (emp_name_lower and emp_name_lower in manager) or \
+                                    (emp_email_lower and emp_email_lower in manager)
+                        
+                        if is_contributor or is_manager:
+                            # Add project as a "task" so user can start timer on it
+                            all_tasks.append({
+                                "guid": p.get("crc6f_hr_projectheaderid"),
+                                "task_id": pid,
+                                "task_name": p.get("crc6f_projectname") or pid,
+                                "task_description": f"Project: {p.get('crc6f_projectname')}",
+                                "task_priority": "Normal",
+                                "task_status": p.get("crc6f_projectstatus") or "Active",
+                                "assigned_to": employee_id,
+                                "assigned_date": p.get("crc6f_startdate"),
+                                "due_date": p.get("crc6f_enddate"),
+                                "project_id": pid,
+                                "board_id": None,
+                                "source": "projects_table",
+                                "is_project": True
+                            })
+            except Exception as pe:
+                print(f"[AI] Error fetching from projects table: {pe}")
+            
+            # Deduplicate by guid
+            seen_guids = set()
+            unique_tasks = []
+            for t in all_tasks:
+                guid = t.get("guid")
+                if guid and guid not in seen_guids:
+                    seen_guids.add(guid)
+                    unique_tasks.append(t)
+            
+            return {
+                "success": True,
+                "tasks": unique_tasks,
+                "message": f"Found {len(unique_tasks)} task(s)/project(s)."
+            }
+            
         except Exception as e:
             import traceback
             traceback.print_exc()
