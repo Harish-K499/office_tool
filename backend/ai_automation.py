@@ -2686,6 +2686,7 @@ Please review in HR Tool.
     if action["type"] == "fetch_my_tasks":
         try:
             import requests as req
+            import os as _os
             from dataverse_helper import get_access_token
             
             employee_id = action.get("employee_id", "")
@@ -2711,14 +2712,14 @@ Please review in HR Tool.
                 "OData-Version": "4.0",
             }
             
-            RESOURCE = os.getenv("RESOURCE", "")
-            DV_API = "/api/data/v9.2"
+            dv_resource = _os.getenv("RESOURCE", "")
+            dv_api = "/api/data/v9.2"
             
             all_tasks = []
             
             # ========== 1. Fetch tasks from HR_TaskDetails table ==========
             try:
-                tasks_url = f"{RESOURCE}{DV_API}/crc6f_hr_taskdetailses?$select=crc6f_hr_taskdetailsid,crc6f_taskid,crc6f_taskname,crc6f_taskdescription,crc6f_taskpriority,crc6f_taskstatus,crc6f_assignedto,crc6f_assigneddate,crc6f_duedate,crc6f_projectid,crc6f_boardid"
+                tasks_url = f"{dv_resource}{dv_api}/crc6f_hr_taskdetailses?$select=crc6f_hr_taskdetailsid,crc6f_taskid,crc6f_taskname,crc6f_taskdescription,crc6f_taskpriority,crc6f_taskstatus,crc6f_assignedto,crc6f_assigneddate,crc6f_duedate,crc6f_projectid,crc6f_boardid"
                 tasks_resp = req.get(tasks_url, headers=headers, timeout=30)
                 if tasks_resp.ok:
                     tasks_data = tasks_resp.json().get("value", [])
@@ -2748,7 +2749,7 @@ Please review in HR Tool.
             # ========== 2. Fetch projects where user is a contributor ==========
             try:
                 # First get project IDs where user is a contributor
-                contrib_url = f"{RESOURCE}{DV_API}/crc6f_hr_projectcontributorses?$filter=crc6f_employeeid eq '{emp_id_upper}'&$select=crc6f_projectid,crc6f_hr_projectcontributorsid"
+                contrib_url = f"{dv_resource}{dv_api}/crc6f_hr_projectcontributorses?$filter=crc6f_employeeid eq '{emp_id_upper}'&$select=crc6f_projectid,crc6f_hr_projectcontributorsid"
                 contrib_resp = req.get(contrib_url, headers=headers, timeout=30)
                 
                 user_project_ids = set()
@@ -2760,7 +2761,7 @@ Please review in HR Tool.
                             user_project_ids.add(pid)
                 
                 # Also check projects where user is the manager
-                projects_url = f"{RESOURCE}{DV_API}/crc6f_hr_projectheaders?$select=crc6f_projectid,crc6f_projectname,crc6f_manager,crc6f_projectstatus,crc6f_startdate,crc6f_enddate,crc6f_hr_projectheaderid"
+                projects_url = f"{dv_resource}{dv_api}/crc6f_hr_projectheaders?$select=crc6f_projectid,crc6f_projectname,crc6f_manager,crc6f_projectstatus,crc6f_startdate,crc6f_enddate,crc6f_hr_projectheaderid"
                 projects_resp = req.get(projects_url, headers=headers, timeout=30)
                 
                 if projects_resp.ok:
