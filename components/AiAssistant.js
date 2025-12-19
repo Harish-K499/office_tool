@@ -672,8 +672,24 @@ async function showActionSuccess(actionResult) {
             
             // If on My Tasks page, refresh it
             if (window.location.hash.includes('time-my-tasks')) {
-                window.dispatchEvent(new HashChangeEvent('hashchange'));
+                // Force a full page re-render by triggering hashchange
+                setTimeout(() => {
+                    window.dispatchEvent(new HashChangeEvent('hashchange'));
+                }, 100);
             }
+            
+            // Also update any visible task rows directly
+            setTimeout(() => {
+                const taskRows = document.querySelectorAll(`tr[data-guid="${taskGuid}"]`);
+                taskRows.forEach(row => {
+                    const playBtn = row.querySelector('.fa-play');
+                    if (playBtn) {
+                        playBtn.classList.remove('fa-play');
+                        playBtn.classList.add('fa-pause');
+                        playBtn.closest('button')?.setAttribute('title', 'Pause');
+                    }
+                });
+            }, 200);
         } catch (err) {
             console.error('[AI] Failed to start task timer:', err);
         }
