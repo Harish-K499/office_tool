@@ -6,6 +6,7 @@ import json
 import traceback
 import re
 from threading import Lock
+from difflib import SequenceMatcher
 import requests
 import datetime
 from flask import Blueprint, request, jsonify, Response, current_app,send_file, make_response
@@ -16,6 +17,450 @@ import logging
 # BLUEPRINT
 # --------------------------------------------------------------
 chat_bp = Blueprint("chat", __name__, url_prefix="/chat")
+
+# --------------------------------------------------------------
+# CHATBOT AUTOMATION - Helper Functions
+# --------------------------------------------------------------
+
+def fuzzy_match_name(search_name, employees):
+    """Find the best matching employee by name using fuzzy matching."""
+    if not search_name or not employees:
+        return None, []
+    
+    search_lower = search_name.lower().strip()
+    matches = []
+    
+    for emp in employees:
+        emp_id = emp.get("crc6f_employeeid", "")
+        first_name = emp.get("crc6f_firstname", "") or ""
+        last_name = emp.get("crc6f_lastname", "") or ""
+        full_name = f"{first_name} {last_name}".strip()
+        
+        if not full_name:
+            continue
+        
+        full_name_lower = full_name.lower()
+        
+        # Exact match
+        if search_lower == full_name_lower:
+            return emp, [{"employee": emp, "name": full_name, "score": 1.0}]
+        
+        # First name exact match
+        if search_lower == first_name.lower():
+            matches.append({"employee": emp, "name": full_name, "score": 0.95})
+            continue
+        
+        # Partial match using SequenceMatcher
+        ratio = SequenceMatcher(None, search_lower, full_name_lower).ratio()
+        first_ratio = SequenceMatcher(None, search_lower, first_name.lower()).ratio()
+        
+        best_ratio = max(ratio, first_ratio)
+        
+        if best_ratio >= 0.5:  # Threshold for fuzzy matching
+            matches.append({"employee": emp, "name": full_name, "score": best_ratio})
+    
+    # Sort by score descending
+    matches.sort(key=lambda x: x["score"], reverse=True)
+    
+    if matches:
+        return matches[0]["employee"], matches[:5]  # Return best match and top 5
+    
+    return None, []
+
+
+def get_or_create_conversation(user_id, target_id):
+    """Get existing conversation or create a new one between two users."""
+    try:
+        # Find if both already share a conversation
+        q = f"$filter=crc6f_user_id eq '{user_id}' or crc6f_user_id eq '{target_id}'"
+        rows = dataverse_get(MEMBERS_ENTITY_SET, q).get("value", [])
+        
+        map_conv = {}
+        for r in rows:
+            cid = r["crc6f_conversation_id"]
+            map_conv.setdefault(cid, set()).add(r["crc6f_user_id"])
+        
+        for cid, users in map_conv.items():
+            if user_id in users and target_id in users:
+                # Check if direct chat (not group)
+                cq = f"$filter=crc6f_conversationid eq '{cid}'&$top=1"
+                conv = dataverse_get(CONV_ENTITY_SET, cq).get("value", [])
+                if conv and str(conv[0].get("crc6f_isgroup")).lower() != "true":
+                    return cid, False  # Existing conversation
+        
+        # Create new conversation
+        conversation_id = str(uuid.uuid4())
+        
+        conv_payload = {
+            "crc6f_conversationid": conversation_id,
+            "crc6f_empname": f"{user_id} → {target_id}",
+            "crc6f_isgroup": "false",
+        }
+        dataverse_create(CONV_ENTITY_SET, conv_payload)
+        
+        # Create 2 members
+        for uid in (user_id, target_id):
+            mem = {
+                "crc6f_conversation_id": conversation_id,
+                "crc6f_member_id": str(uuid.uuid4()),
+                "crc6f_user_id": uid,
+                "crc6f_joined_on": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }
+            dataverse_create(MEMBERS_ENTITY_SET, mem)
+        
+        return conversation_id, True  # New conversation
+        
+    except Exception as e:
+        print(f"[CHATBOT] Error in get_or_create_conversation: {e}")
+        return None, False
+
+
+def send_message_to_user(sender_id, conversation_id, message_text):
+    """Send a message to a conversation."""
+    try:
+        message_id = str(uuid.uuid4())
+        
+        payload = {
+            "crc6f_message_id": message_id,
+            "crc6f_conversation_id": conversation_id,
+            "crc6f_sender_id": sender_id,
+            "crc6f_message_type": "text",
+            "crc6f_message_text": message_text,
+        }
+        
+        dataverse_create(MSG_ENTITY_SET, payload)
+        
+        # Emit socket event for real-time delivery
+        msg_out = normalize_message(payload)
+        msg_out["status"] = "delivered"
+        emit_socket_event("new_message", msg_out)
+        
+        return {"success": True, "message_id": message_id}
+        
+    except Exception as e:
+        print(f"[CHATBOT] Error sending message: {e}")
+        return {"success": False, "error": str(e)}
+
+
+def get_unread_messages_for_user(user_id):
+    """Get unread messages for a user across all conversations."""
+    try:
+        # Get all conversations for user
+        q = f"$filter=crc6f_user_id eq '{user_id}'&$top=500"
+        mem_rows = dataverse_get(MEMBERS_ENTITY_SET, q).get("value", [])
+        
+        convo_ids = list({m["crc6f_conversation_id"] for m in mem_rows})
+        
+        unread_messages = []
+        emp_map = build_employee_name_map()
+        
+        for cid in convo_ids:
+            # Get messages not sent by user (potential unread)
+            mq = f"$filter=crc6f_conversation_id eq '{cid}' and crc6f_sender_id ne '{user_id}'&$orderby=createdon desc&$top=50"
+            messages = dataverse_get(MSG_ENTITY_SET, mq).get("value", [])
+            
+            # Get conversation name
+            cq = f"$filter=crc6f_conversationid eq '{cid}'&$top=1"
+            conv_resp = dataverse_get(CONV_ENTITY_SET, cq).get("value", [])
+            conv_name = conv_resp[0].get("crc6f_empname", "Unknown") if conv_resp else "Unknown"
+            
+            for msg in messages:
+                sender_id = msg.get("crc6f_sender_id")
+                sender_name = emp_map.get(sender_id, sender_id)
+                
+                unread_messages.append({
+                    "conversation_id": cid,
+                    "conversation_name": conv_name,
+                    "message_id": msg.get("crc6f_message_id"),
+                    "sender_id": sender_id,
+                    "sender_name": sender_name,
+                    "message_text": msg.get("crc6f_message_text"),
+                    "message_type": msg.get("crc6f_message_type"),
+                    "created_on": msg.get("createdon"),
+                })
+        
+        return unread_messages
+        
+    except Exception as e:
+        print(f"[CHATBOT] Error getting unread messages: {e}")
+        return []
+
+
+# --------------------------------------------------------------
+# CHATBOT AUTOMATION ENDPOINTS
+# --------------------------------------------------------------
+
+@chat_bp.route('/chatbot/search-employee', methods=['POST'])
+def chatbot_search_employee():
+    """Search for an employee by name for chatbot automation."""
+    try:
+        data = request.get_json()
+        search_name = data.get('name', '').strip()
+        user_id = data.get('user_id')
+        
+        if not search_name:
+            return jsonify({'error': 'Name is required'}), 400
+        
+        # Get all employees
+        employees = dataverse_get(EMPLOYEE_ENTITY_SET).get("value", [])
+        
+        best_match, all_matches = fuzzy_match_name(search_name, employees)
+        
+        if not best_match:
+            return jsonify({
+                'found': False,
+                'message': f"No employee found matching '{search_name}'",
+                'suggestions': []
+            })
+        
+        # Format matches for response
+        formatted_matches = []
+        for m in all_matches:
+            emp = m["employee"]
+            formatted_matches.append({
+                'employee_id': emp.get("crc6f_employeeid"),
+                'name': m["name"],
+                'score': round(m["score"], 2),
+                'department': emp.get("crc6f_department"),
+                'designation': emp.get("crc6f_designation")
+            })
+        
+        return jsonify({
+            'found': True,
+            'best_match': {
+                'employee_id': best_match.get("crc6f_employeeid"),
+                'name': f"{best_match.get('crc6f_firstname', '')} {best_match.get('crc6f_lastname', '')}".strip(),
+                'department': best_match.get("crc6f_department"),
+                'designation': best_match.get("crc6f_designation")
+            },
+            'all_matches': formatted_matches,
+            'message': f"Found {len(formatted_matches)} matching employee(s)"
+        })
+        
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@chat_bp.route('/chatbot/send-message', methods=['POST'])
+def chatbot_send_message():
+    """Send a message to an employee via chatbot automation."""
+    try:
+        data = request.get_json()
+        sender_id = data.get('sender_id')
+        target_employee_id = data.get('target_employee_id')
+        message_text = data.get('message')
+        
+        if not sender_id or not target_employee_id or not message_text:
+            return jsonify({'error': 'sender_id, target_employee_id, and message are required'}), 400
+        
+        # Get or create conversation
+        conversation_id, is_new = get_or_create_conversation(sender_id, target_employee_id)
+        
+        if not conversation_id:
+            return jsonify({'error': 'Failed to get or create conversation'}), 500
+        
+        # Send the message
+        result = send_message_to_user(sender_id, conversation_id, message_text)
+        
+        if result.get("success"):
+            # Get target employee name
+            emp_map = build_employee_name_map()
+            target_name = emp_map.get(target_employee_id, target_employee_id)
+            
+            return jsonify({
+                'success': True,
+                'message_id': result.get("message_id"),
+                'conversation_id': conversation_id,
+                'is_new_conversation': is_new,
+                'recipient_name': target_name,
+                'message': f"Message sent successfully to {target_name}"
+            })
+        else:
+            return jsonify({'error': result.get("error", "Failed to send message")}), 500
+        
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@chat_bp.route('/chatbot/unread-messages', methods=['POST'])
+def chatbot_get_unread():
+    """Get unread messages for a user."""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        
+        if not user_id:
+            return jsonify({'error': 'user_id is required'}), 400
+        
+        messages = get_unread_messages_for_user(user_id)
+        
+        # Group by sender
+        by_sender = {}
+        for msg in messages:
+            sender = msg["sender_name"]
+            if sender not in by_sender:
+                by_sender[sender] = {
+                    "sender_id": msg["sender_id"],
+                    "sender_name": sender,
+                    "messages": [],
+                    "count": 0
+                }
+            by_sender[sender]["messages"].append(msg)
+            by_sender[sender]["count"] += 1
+        
+        return jsonify({
+            'success': True,
+            'total_unread': len(messages),
+            'by_sender': list(by_sender.values()),
+            'recent_messages': messages[:20]  # Last 20 messages
+        })
+        
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@chat_bp.route('/chatbot/read-conversation', methods=['POST'])
+def chatbot_read_conversation():
+    """Read messages from a specific conversation or with a specific person."""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        target_name = data.get('target_name')
+        target_employee_id = data.get('target_employee_id')
+        limit = data.get('limit', 20)
+        
+        if not user_id:
+            return jsonify({'error': 'user_id is required'}), 400
+        
+        # If target_name provided, find the employee
+        if target_name and not target_employee_id:
+            employees = dataverse_get(EMPLOYEE_ENTITY_SET).get("value", [])
+            best_match, _ = fuzzy_match_name(target_name, employees)
+            if best_match:
+                target_employee_id = best_match.get("crc6f_employeeid")
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': f"No employee found matching '{target_name}'"
+                }), 404
+        
+        if not target_employee_id:
+            return jsonify({'error': 'target_name or target_employee_id is required'}), 400
+        
+        # Find conversation between user and target
+        q = f"$filter=crc6f_user_id eq '{user_id}' or crc6f_user_id eq '{target_employee_id}'"
+        rows = dataverse_get(MEMBERS_ENTITY_SET, q).get("value", [])
+        
+        map_conv = {}
+        for r in rows:
+            cid = r["crc6f_conversation_id"]
+            map_conv.setdefault(cid, set()).add(r["crc6f_user_id"])
+        
+        conversation_id = None
+        for cid, users in map_conv.items():
+            if user_id in users and target_employee_id in users:
+                conversation_id = cid
+                break
+        
+        if not conversation_id:
+            emp_map = build_employee_name_map()
+            target_name = emp_map.get(target_employee_id, target_employee_id)
+            return jsonify({
+                'success': False,
+                'error': f"No conversation found with {target_name}"
+            }), 404
+        
+        # Get messages
+        mq = f"$filter=crc6f_conversation_id eq '{conversation_id}'&$orderby=createdon desc&$top={limit}"
+        messages = dataverse_get(MSG_ENTITY_SET, mq).get("value", [])
+        
+        emp_map = build_employee_name_map()
+        target_name = emp_map.get(target_employee_id, target_employee_id)
+        
+        formatted_messages = []
+        for msg in reversed(messages):  # Reverse to show oldest first
+            sender_id = msg.get("crc6f_sender_id")
+            formatted_messages.append({
+                'sender_id': sender_id,
+                'sender_name': emp_map.get(sender_id, sender_id),
+                'is_me': sender_id == user_id,
+                'message_text': msg.get("crc6f_message_text"),
+                'message_type': msg.get("crc6f_message_type"),
+                'created_on': msg.get("createdon")
+            })
+        
+        return jsonify({
+            'success': True,
+            'conversation_id': conversation_id,
+            'target_name': target_name,
+            'target_employee_id': target_employee_id,
+            'message_count': len(formatted_messages),
+            'messages': formatted_messages
+        })
+        
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@chat_bp.route('/chatbot/reply', methods=['POST'])
+def chatbot_reply():
+    """Reply to the last message from a specific person."""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        target_name = data.get('target_name')
+        target_employee_id = data.get('target_employee_id')
+        reply_text = data.get('message')
+        
+        if not user_id or not reply_text:
+            return jsonify({'error': 'user_id and message are required'}), 400
+        
+        # If target_name provided, find the employee
+        if target_name and not target_employee_id:
+            employees = dataverse_get(EMPLOYEE_ENTITY_SET).get("value", [])
+            best_match, _ = fuzzy_match_name(target_name, employees)
+            if best_match:
+                target_employee_id = best_match.get("crc6f_employeeid")
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': f"No employee found matching '{target_name}'"
+                }), 404
+        
+        if not target_employee_id:
+            return jsonify({'error': 'target_name or target_employee_id is required'}), 400
+        
+        # Get or create conversation
+        conversation_id, is_new = get_or_create_conversation(user_id, target_employee_id)
+        
+        if not conversation_id:
+            return jsonify({'error': 'Failed to get or create conversation'}), 500
+        
+        # Send the reply
+        result = send_message_to_user(user_id, conversation_id, reply_text)
+        
+        if result.get("success"):
+            emp_map = build_employee_name_map()
+            target_name = emp_map.get(target_employee_id, target_employee_id)
+            
+            return jsonify({
+                'success': True,
+                'message_id': result.get("message_id"),
+                'conversation_id': conversation_id,
+                'recipient_name': target_name,
+                'message': f"Reply sent to {target_name}"
+            })
+        else:
+            return jsonify({'error': result.get("error", "Failed to send reply")}), 500
+        
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 
 @chat_bp.route('/chatbot/query', methods=['POST'])
 def chatbot_query():

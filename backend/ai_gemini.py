@@ -2,6 +2,7 @@
 import os
 import json
 import requests
+import re
 from typing import Optional
 from dotenv import load_dotenv
 
@@ -14,6 +15,47 @@ GEMINI_MODEL = "models/gemini-2.0-flash"
 GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1/{GEMINI_MODEL}:generateContent"
 
 print(f"[AI_GEMINI] Loaded with model: {GEMINI_MODEL}, API Key present: {bool(GEMINI_API_KEY)}")
+
+# Chat automation patterns
+CHAT_PATTERNS = {
+    "send_message": [
+        r"(?:send|message|text|write to|dm|ping)\s+(?:a\s+)?(?:message\s+)?(?:to\s+)?([a-zA-Z\s]+?)(?:\s+saying|\s+that|\s+with|\s*$)",
+        r"(?:message|text|dm|ping)\s+([a-zA-Z\s]+)",
+        r"(?:tell|ask)\s+([a-zA-Z\s]+?)(?:\s+that|\s+to|\s*$)",
+    ],
+    "read_messages": [
+        r"(?:read|show|get|check)\s+(?:my\s+)?(?:unread\s+)?messages?(?:\s+from\s+([a-zA-Z\s]+))?",
+        r"(?:what|any)\s+(?:new\s+)?messages?(?:\s+from\s+([a-zA-Z\s]+))?",
+        r"(?:unread|new)\s+messages?",
+    ],
+    "read_conversation": [
+        r"(?:read|show|get|check)\s+(?:my\s+)?(?:conversation|chat|messages?)\s+(?:with|from)\s+([a-zA-Z\s]+)",
+        r"(?:what did|what has)\s+([a-zA-Z\s]+)\s+(?:say|send|write)",
+    ],
+    "reply": [
+        r"(?:reply|respond)\s+(?:to\s+)?([a-zA-Z\s]+?)(?:\s+(?:saying|with|that)\s+(.+))?$",
+    ],
+}
+
+
+def detect_chat_intent(question: str) -> dict:
+    """Detect if the question is a chat automation command."""
+    question_lower = question.lower().strip()
+    
+    for intent, patterns in CHAT_PATTERNS.items():
+        for pattern in patterns:
+            match = re.search(pattern, question_lower, re.IGNORECASE)
+            if match:
+                groups = match.groups()
+                return {
+                    "intent": intent,
+                    "target_name": groups[0].strip() if groups and groups[0] else None,
+                    "message_content": groups[1].strip() if len(groups) > 1 and groups[1] else None,
+                    "original_question": question
+                }
+    
+    return {"intent": None}
+
 
 def build_system_prompt(user_meta: dict) -> str:
     """Build a system prompt for the HR AI assistant."""

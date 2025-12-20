@@ -573,6 +573,40 @@ AUTOMATION_INTENTS = {
         "flow": "task_stop",
         "description": "Stop/pause the currently running task timer"
     },
+    # Chat Automation
+    "send_message": {
+        "keywords": [
+            "send message to", "message to", "text to", "dm to",
+            "send a message", "message", "ping", "write to",
+            "tell", "ask"
+        ],
+        "flow": "chat_send_message",
+        "description": "Send a message to another employee"
+    },
+    "read_messages": {
+        "keywords": [
+            "read messages", "show messages", "check messages",
+            "unread messages", "new messages", "any messages",
+            "my messages", "read my messages"
+        ],
+        "flow": "chat_read_messages",
+        "description": "Read unread messages"
+    },
+    "read_conversation": {
+        "keywords": [
+            "read conversation with", "read chat with", "messages from",
+            "what did", "conversation with", "chat with"
+        ],
+        "flow": "chat_read_conversation",
+        "description": "Read conversation with a specific person"
+    },
+    "reply_message": {
+        "keywords": [
+            "reply to", "respond to", "reply"
+        ],
+        "flow": "chat_reply",
+        "description": "Reply to a message"
+    },
 }
 
 
@@ -1407,7 +1441,281 @@ def handle_task_stop_flow(
     return "⏹️ Stopping your current task timer...", state, action
 
 
-# ================== MAIN AUTOMATION HANDLER ==================
+# ================== CHAT AUTOMATION FLOWS ==================
+
+def _extract_name_from_message(message: str) -> Optional[str]:
+    """Extract a person's name from a chat command message."""
+    import re
+    
+    # Patterns to extract names
+    patterns = [
+        r"(?:send|message|text|dm|ping|write to|tell|ask)\s+(?:a\s+)?(?:message\s+)?(?:to\s+)?([a-zA-Z]+(?:\s+[a-zA-Z]+)?)",
+        r"(?:reply|respond)\s+(?:to\s+)?([a-zA-Z]+(?:\s+[a-zA-Z]+)?)",
+        r"(?:conversation|chat|messages?)\s+(?:with|from)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?)",
+        r"(?:what did|what has)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+(?:say|send|write)",
+    ]
+    
+    message_lower = message.lower().strip()
+    
+    for pattern in patterns:
+        match = re.search(pattern, message_lower, re.IGNORECASE)
+        if match:
+            name = match.group(1).strip()
+            # Filter out common words that aren't names
+            stop_words = ['a', 'the', 'my', 'to', 'for', 'with', 'from', 'message', 'messages']
+            if name.lower() not in stop_words:
+                return name
+    
+    return None
+
+
+def handle_chat_send_message_flow(
+    user_message: str,
+    state: 'ConversationState',
+    user_employee_id: str = None
+) -> Tuple[str, 'ConversationState', Optional[Dict[str, Any]]]:
+    """
+    Handle the send message conversation flow.
+    
+    Flow:
+    1. Extract or ask for recipient name
+    2. Search for matching employee
+    3. Ask for message content
+    4. Send the message
+    """
+    
+    # Starting the flow
+    if state.active_flow != "chat_send_message":
+        state.active_flow = "chat_send_message"
+        state.current_step = 0
+        state.collected_data = {}
+        state.awaiting_confirmation = False
+        
+        # Try to extract name from initial message
+        target_name = _extract_name_from_message(user_message)
+        
+        if target_name:
+            state.collected_data["target_name"] = target_name
+            state.current_step = 1
+            
+            # Return action to search for employee
+            action = {
+                "type": "chat_search_employee",
+                "name": target_name,
+                "sender_id": user_employee_id
+            }
+            return f"🔍 Searching for **{target_name}**...", state, action
+        else:
+            return """📨 **Send a Message**
+
+Who would you like to message? Please provide the **employee's name**.
+
+_(Type **'cancel'** at any time to stop.)_""", state, None
+    
+    # Check for cancel
+    if user_message.strip().lower() in ['cancel', 'stop', 'quit', 'exit', 'nevermind']:
+        state.reset()
+        return "No problem! Message cancelled. Let me know if you need anything else. 👋", state, None
+    
+    # Step 0: Get recipient name
+    if state.current_step == 0:
+        target_name = user_message.strip()
+        state.collected_data["target_name"] = target_name
+        state.current_step = 1
+        
+        action = {
+            "type": "chat_search_employee",
+            "name": target_name,
+            "sender_id": user_employee_id
+        }
+        return f"🔍 Searching for **{target_name}**...", state, action
+    
+    # Step 1: Employee found, ask for message
+    if state.current_step == 1:
+        # Check if we have a confirmed target
+        if state.collected_data.get("target_employee_id"):
+            # User is providing the message content
+            message_text = user_message.strip()
+            
+            if len(message_text) < 1:
+                return "Please enter a message to send.", state, None
+            
+            state.collected_data["message_text"] = message_text
+            state.current_step = 2
+            state.awaiting_confirmation = True
+            
+            target_name = state.collected_data.get("target_name", "the recipient")
+            return f"""📝 **Message Preview:**
+
+**To:** {target_name}
+**Message:** {message_text}
+
+**Send this message?** Type **'yes'** to send or **'no'** to cancel.""", state, None
+        else:
+            # User might be selecting from multiple matches
+            # This is handled by the action result in unified_server.py
+            return "Please select a recipient or type a name.", state, None
+    
+    # Step 2: Confirmation
+    if state.current_step == 2 and state.awaiting_confirmation:
+        answer = user_message.strip().lower()
+        
+        if answer in ['yes', 'y', 'send', 'ok', 'confirm']:
+            action = {
+                "type": "chat_send_message",
+                "sender_id": user_employee_id,
+                "target_employee_id": state.collected_data.get("target_employee_id"),
+                "message": state.collected_data.get("message_text")
+            }
+            state.reset()
+            return "📤 Sending message...", state, action
+        elif answer in ['no', 'n', 'cancel']:
+            state.reset()
+            return "Message cancelled. Let me know if you need anything else! 👋", state, None
+        else:
+            return "Please type **'yes'** to send or **'no'** to cancel.", state, None
+    
+    return "I didn't understand that. Please try again.", state, None
+
+
+def handle_chat_read_messages_flow(
+    user_message: str,
+    state: 'ConversationState',
+    user_employee_id: str = None
+) -> Tuple[str, 'ConversationState', Optional[Dict[str, Any]]]:
+    """
+    Handle reading unread messages.
+    This is a single-step action.
+    """
+    state.reset()
+    
+    if not user_employee_id:
+        return "❌ I couldn't identify your employee ID. Please make sure you're logged in.", state, None
+    
+    action = {
+        "type": "chat_get_unread",
+        "user_id": user_employee_id
+    }
+    return "📬 Fetching your messages...", state, action
+
+
+def handle_chat_read_conversation_flow(
+    user_message: str,
+    state: 'ConversationState',
+    user_employee_id: str = None
+) -> Tuple[str, 'ConversationState', Optional[Dict[str, Any]]]:
+    """
+    Handle reading conversation with a specific person.
+    """
+    
+    # Starting the flow
+    if state.active_flow != "chat_read_conversation":
+        state.active_flow = "chat_read_conversation"
+        state.current_step = 0
+        state.collected_data = {}
+        
+        # Try to extract name from initial message
+        target_name = _extract_name_from_message(user_message)
+        
+        if target_name:
+            state.reset()
+            action = {
+                "type": "chat_read_conversation",
+                "user_id": user_employee_id,
+                "target_name": target_name
+            }
+            return f"📖 Reading conversation with **{target_name}**...", state, action
+        else:
+            return """📖 **Read Conversation**
+
+Whose conversation would you like to read? Please provide the **employee's name**.
+
+_(Type **'cancel'** at any time to stop.)_""", state, None
+    
+    # Check for cancel
+    if user_message.strip().lower() in ['cancel', 'stop', 'quit', 'exit']:
+        state.reset()
+        return "Cancelled. Let me know if you need anything else! 👋", state, None
+    
+    # Get the name and fetch conversation
+    target_name = user_message.strip()
+    state.reset()
+    
+    action = {
+        "type": "chat_read_conversation",
+        "user_id": user_employee_id,
+        "target_name": target_name
+    }
+    return f"📖 Reading conversation with **{target_name}**...", state, action
+
+
+def handle_chat_reply_flow(
+    user_message: str,
+    state: 'ConversationState',
+    user_employee_id: str = None
+) -> Tuple[str, 'ConversationState', Optional[Dict[str, Any]]]:
+    """
+    Handle replying to a message.
+    
+    Flow:
+    1. Extract or ask for recipient name
+    2. Ask for reply content
+    3. Send the reply
+    """
+    
+    # Starting the flow
+    if state.active_flow != "chat_reply":
+        state.active_flow = "chat_reply"
+        state.current_step = 0
+        state.collected_data = {}
+        
+        # Try to extract name from initial message
+        target_name = _extract_name_from_message(user_message)
+        
+        if target_name:
+            state.collected_data["target_name"] = target_name
+            state.current_step = 1
+            return f"💬 **Reply to {target_name}**\n\nWhat would you like to say?", state, None
+        else:
+            return """💬 **Reply to Message**
+
+Who would you like to reply to? Please provide the **employee's name**.
+
+_(Type **'cancel'** at any time to stop.)_""", state, None
+    
+    # Check for cancel
+    if user_message.strip().lower() in ['cancel', 'stop', 'quit', 'exit']:
+        state.reset()
+        return "Reply cancelled. Let me know if you need anything else! 👋", state, None
+    
+    # Step 0: Get recipient name
+    if state.current_step == 0:
+        target_name = user_message.strip()
+        state.collected_data["target_name"] = target_name
+        state.current_step = 1
+        return f"💬 **Reply to {target_name}**\n\nWhat would you like to say?", state, None
+    
+    # Step 1: Get reply content and send
+    if state.current_step == 1:
+        reply_text = user_message.strip()
+        
+        if len(reply_text) < 1:
+            return "Please enter your reply message.", state, None
+        
+        target_name = state.collected_data.get("target_name")
+        state.reset()
+        
+        action = {
+            "type": "chat_reply",
+            "user_id": user_employee_id,
+            "target_name": target_name,
+            "message": reply_text
+        }
+        return f"📤 Sending reply to **{target_name}**...", state, action
+    
+    return "I didn't understand that. Please try again.", state, None
+
+
 
 def process_automation(
     user_message: str,
@@ -1490,6 +1798,31 @@ def process_automation(
                 "state": state.to_dict(),
                 "action": action
             }
+        # Chat automation flows
+        elif state.active_flow == "chat_send_message":
+            response, state, action = handle_chat_send_message_flow(user_message, state, user_employee_id)
+            return {
+                "is_automation": True,
+                "response": response,
+                "state": state.to_dict(),
+                "action": action
+            }
+        elif state.active_flow == "chat_read_conversation":
+            response, state, action = handle_chat_read_conversation_flow(user_message, state, user_employee_id)
+            return {
+                "is_automation": True,
+                "response": response,
+                "state": state.to_dict(),
+                "action": action
+            }
+        elif state.active_flow == "chat_reply":
+            response, state, action = handle_chat_reply_flow(user_message, state, user_employee_id)
+            return {
+                "is_automation": True,
+                "response": response,
+                "state": state.to_dict(),
+                "action": action
+            }
     
     # Check for new automation intent
     intent = detect_automation_intent(user_message)
@@ -1560,6 +1893,39 @@ def process_automation(
             }
         elif intent["flow"] == "task_stop":
             response, state, action = handle_task_stop_flow(user_message, state, user_employee_id)
+            return {
+                "is_automation": True,
+                "response": response,
+                "state": state.to_dict(),
+                "action": action
+            }
+        # Chat automation intents
+        elif intent["flow"] == "chat_send_message":
+            response, state, action = handle_chat_send_message_flow(user_message, state, user_employee_id)
+            return {
+                "is_automation": True,
+                "response": response,
+                "state": state.to_dict(),
+                "action": action
+            }
+        elif intent["flow"] == "chat_read_messages":
+            response, state, action = handle_chat_read_messages_flow(user_message, state, user_employee_id)
+            return {
+                "is_automation": True,
+                "response": response,
+                "state": state.to_dict(),
+                "action": action
+            }
+        elif intent["flow"] == "chat_read_conversation":
+            response, state, action = handle_chat_read_conversation_flow(user_message, state, user_employee_id)
+            return {
+                "is_automation": True,
+                "response": response,
+                "state": state.to_dict(),
+                "action": action
+            }
+        elif intent["flow"] == "chat_reply":
+            response, state, action = handle_chat_reply_flow(user_message, state, user_employee_id)
             return {
                 "is_automation": True,
                 "response": response,
@@ -2887,6 +3253,238 @@ Please review in HR Tool.
             return {
                 "success": False,
                 "error": f"Error stopping task timer: {str(e)}"
+            }
+    
+    # ==================== CHAT AUTOMATION ACTIONS ====================
+    
+    # Search employee for chat
+    if action["type"] == "chat_search_employee":
+        try:
+            import requests as req
+            name = action.get("name", "")
+            sender_id = action.get("sender_id", "")
+            
+            # Call the chatbot search endpoint
+            url = f"{BACKEND_API_INTERNAL_URL}/chat/chatbot/search-employee"
+            resp = req.post(url, json={"name": name, "user_id": sender_id}, timeout=30)
+            
+            if resp.status_code == 200:
+                result = resp.json()
+                if result.get("found"):
+                    best_match = result.get("best_match", {})
+                    return {
+                        "success": True,
+                        "employee": best_match,
+                        "all_matches": result.get("all_matches", []),
+                        "message": f"Found: **{best_match.get('name')}** ({best_match.get('employee_id')})"
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": result.get("message", "No employee found")
+                    }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Search failed: {resp.text[:200]}"
+                }
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {
+                "success": False,
+                "error": f"Error searching employee: {str(e)}"
+            }
+    
+    # Send message via chat
+    if action["type"] == "chat_send_message":
+        try:
+            import requests as req
+            sender_id = action.get("sender_id", "")
+            target_employee_id = action.get("target_employee_id", "")
+            message = action.get("message", "")
+            
+            url = f"{BACKEND_API_INTERNAL_URL}/chat/chatbot/send-message"
+            resp = req.post(url, json={
+                "sender_id": sender_id,
+                "target_employee_id": target_employee_id,
+                "message": message
+            }, timeout=30)
+            
+            if resp.status_code == 200:
+                result = resp.json()
+                if result.get("success"):
+                    return {
+                        "success": True,
+                        "message": f"✅ Message sent to **{result.get('recipient_name')}**!",
+                        "message_id": result.get("message_id"),
+                        "conversation_id": result.get("conversation_id")
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": result.get("error", "Failed to send message")
+                    }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Send failed: {resp.text[:200]}"
+                }
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {
+                "success": False,
+                "error": f"Error sending message: {str(e)}"
+            }
+    
+    # Get unread messages
+    if action["type"] == "chat_get_unread":
+        try:
+            import requests as req
+            user_id = action.get("user_id", "")
+            
+            url = f"{BACKEND_API_INTERNAL_URL}/chat/chatbot/unread-messages"
+            resp = req.post(url, json={"user_id": user_id}, timeout=30)
+            
+            if resp.status_code == 200:
+                result = resp.json()
+                total = result.get("total_unread", 0)
+                by_sender = result.get("by_sender", [])
+                
+                if total == 0:
+                    return {
+                        "success": True,
+                        "message": "📭 You have no new messages!",
+                        "total_unread": 0
+                    }
+                
+                # Format message summary
+                lines = [f"📬 **You have {total} message(s):**\n"]
+                for sender in by_sender[:5]:  # Show top 5 senders
+                    count = sender.get("count", 0)
+                    name = sender.get("sender_name", "Unknown")
+                    latest_msg = sender.get("messages", [{}])[0].get("message_text", "")[:50]
+                    lines.append(f"• **{name}** ({count} message{'s' if count > 1 else ''}): \"{latest_msg}...\"")
+                
+                if len(by_sender) > 5:
+                    lines.append(f"\n_...and {len(by_sender) - 5} more sender(s)_")
+                
+                return {
+                    "success": True,
+                    "message": "\n".join(lines),
+                    "total_unread": total,
+                    "by_sender": by_sender
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Failed to fetch messages: {resp.text[:200]}"
+                }
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {
+                "success": False,
+                "error": f"Error fetching messages: {str(e)}"
+            }
+    
+    # Read conversation with specific person
+    if action["type"] == "chat_read_conversation":
+        try:
+            import requests as req
+            user_id = action.get("user_id", "")
+            target_name = action.get("target_name", "")
+            
+            url = f"{BACKEND_API_INTERNAL_URL}/chat/chatbot/read-conversation"
+            resp = req.post(url, json={
+                "user_id": user_id,
+                "target_name": target_name,
+                "limit": 10
+            }, timeout=30)
+            
+            if resp.status_code == 200:
+                result = resp.json()
+                if result.get("success"):
+                    messages = result.get("messages", [])
+                    target = result.get("target_name", target_name)
+                    
+                    if not messages:
+                        return {
+                            "success": True,
+                            "message": f"📭 No messages found with **{target}**."
+                        }
+                    
+                    # Format conversation
+                    lines = [f"📖 **Conversation with {target}:**\n"]
+                    for msg in messages[-10:]:  # Last 10 messages
+                        sender = "You" if msg.get("is_me") else msg.get("sender_name", "Them")
+                        text = msg.get("message_text", "")[:100]
+                        lines.append(f"**{sender}:** {text}")
+                    
+                    return {
+                        "success": True,
+                        "message": "\n".join(lines),
+                        "messages": messages,
+                        "target_name": target
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": result.get("error", "Failed to read conversation")
+                    }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Failed to read conversation: {resp.text[:200]}"
+                }
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {
+                "success": False,
+                "error": f"Error reading conversation: {str(e)}"
+            }
+    
+    # Reply to message
+    if action["type"] == "chat_reply":
+        try:
+            import requests as req
+            user_id = action.get("user_id", "")
+            target_name = action.get("target_name", "")
+            message = action.get("message", "")
+            
+            url = f"{BACKEND_API_INTERNAL_URL}/chat/chatbot/reply"
+            resp = req.post(url, json={
+                "user_id": user_id,
+                "target_name": target_name,
+                "message": message
+            }, timeout=30)
+            
+            if resp.status_code == 200:
+                result = resp.json()
+                if result.get("success"):
+                    return {
+                        "success": True,
+                        "message": f"✅ Reply sent to **{result.get('recipient_name')}**!",
+                        "message_id": result.get("message_id")
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": result.get("error", "Failed to send reply")
+                    }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Reply failed: {resp.text[:200]}"
+                }
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {
+                "success": False,
+                "error": f"Error sending reply: {str(e)}"
             }
     
     return {
