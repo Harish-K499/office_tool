@@ -5712,7 +5712,7 @@ def create_employee():
         designation = data.get("designation", "")
         doj = data.get("doj")
         contact_number = data.get("contact_number", "")
-        employee_flag = (data.get("employee_flag") or "").strip()
+        employee_flag = (data.get("employee_flag") or "Employee").strip() or "Employee"
 
         # ==================== EXTERNAL DATA UPLOAD CATCH ====================
         # Let Dataverse auto-number when no employee_id supplied
