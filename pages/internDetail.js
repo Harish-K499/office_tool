@@ -622,6 +622,20 @@ export const renderInternDetailPage = async (internId) => {
         try {
           const updated = await updateIntern(state.selectedIntern.intern_id, payload);
           state.selectedIntern = updated;
+
+          // Check if post probation phase is completed
+          const postProb = updated.phases?.postprob;
+          if (postProb) {
+            const { completedDays, totalDays } = getPhaseProgress(postProb);
+            if (totalDays > 0 && completedDays >= totalDays) {
+              // Post probation completed - update employee flag
+              const empId = updated.employee_id;
+              if (empId) {
+                await updateEmployee(empId, { employee_flag: 'Employee' });
+              }
+            }
+          }
+
           exitEditMode(updated);
         } catch (err) {
           console.error('Failed to update intern phases', err);
