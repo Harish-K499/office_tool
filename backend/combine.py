@@ -341,7 +341,7 @@ def leaves_team():
 
 @app.route('/api/attendance/team-month', methods=['GET'])
 def attendance_team_month():
-    """Batch attendance for multiple employees for a given month."""
+    """Batch attendance for multiple employees for a given month, including leave overlays."""
     try:
         year = int(request.args.get('year'))
         month = int(request.args.get('month'))
@@ -377,6 +377,8 @@ def attendance_team_month():
         records = {}
         for r in rows:
             emp_id = (r.get(FIELD_EMPLOYEE_ID) or "").upper()
+            if emp_id not in ids_list:
+                continue
             date_str = r.get(FIELD_DATE)
             checkin = r.get(FIELD_CHECKIN)
             checkout = r.get(FIELD_CHECKOUT)
@@ -411,8 +413,110 @@ def attendance_team_month():
             }
             records.setdefault(emp_id, []).append(rec)
 
+        # Build day map for each employee for easier overlay work
+        per_emp_day_map = {}
+        for emp_id, recs in records.items():
+            per_emp_day_map[emp_id] = {}
+            for rec in recs:
+                if rec.get("day"):
+                    per_emp_day_map[emp_id][rec["day"]] = rec
+
+        # Overlay leave data (approved -> affect status, pending -> metadata only)
+        leave_filter = _build_in_filter("crc6f_employeeid", ids_list)
+        leave_url = (
+            f"{RESOURCE}/api/data/v9.2/{LEAVE_ENTITY}"
+            f"?$filter={leave_filter}"
+            f"&$select=crc6f_employeeid,crc6f_leavetype,crc6f_startdate,crc6f_enddate,"
+            f"crc6f_status,crc6f_paidunpaid,crc6f_leaveid"
+        )
+        leaves_resp = requests.get(leave_url, headers=headers)
+        if leaves_resp.status_code == 200:
+            leaves = leaves_resp.json().get("value", [])
+            month_start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+            month_end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            for lv in leaves:
+                emp_id = (lv.get("crc6f_employeeid") or "").upper()
+                if emp_id not in per_emp_day_map:
+                    per_emp_day_map[emp_id] = {}
+                    records[emp_id] = records.get(emp_id, [])
+
+                lt_raw = (lv.get("crc6f_leavetype") or "").strip()
+                if not lt_raw:
+                    continue
+                status_raw = (lv.get("crc6f_status") or "").strip().lower()
+                if status_raw not in ("approved", "pending"):
+                    continue
+
+                ltl = lt_raw.lower()
+                if "casual" in ltl or ltl == "cl":
+                    lt_code = "CL"
+                elif "sick" in ltl or ltl == "sl":
+                    lt_code = "SL"
+                elif "comp" in ltl or ltl in ("co", "compoff", "comp off", "compensatory off"):
+                    lt_code = "CO"
+                else:
+                    continue
+
+                paid_unpaid = lv.get("crc6f_paidunpaid")
+                sd = lv.get("crc6f_startdate")
+                ed = lv.get("crc6f_enddate") or sd
+                try:
+                    sd_dt = datetime.strptime(sd, "%Y-%m-%d") if sd else None
+                    ed_dt = datetime.strptime(ed, "%Y-%m-%d") if ed else None
+                except Exception:
+                    sd_dt, ed_dt = None, None
+                if not sd_dt:
+                    continue
+                if not ed_dt:
+                    ed_dt = sd_dt
+
+                rng_start = max(sd_dt, month_start_dt)
+                rng_end = min(ed_dt, month_end_dt)
+                if rng_start > rng_end:
+                    continue
+
+                cur = rng_start
+                while cur <= rng_end:
+                    day_idx = cur.day
+                    rec = per_emp_day_map[emp_id].get(day_idx)
+                    if not rec:
+                        rec = {
+                            "date": cur.date().isoformat(),
+                            "day": day_idx,
+                            "attendance_id": None,
+                            "checkIn": None,
+                            "checkOut": None,
+                            "duration": 0.0,
+                            "duration_text": None,
+                            "status": "" if status_raw == "pending" else "A",
+                        }
+                        per_emp_day_map[emp_id][day_idx] = rec
+                        records.setdefault(emp_id, []).append(rec)
+
+                    if status_raw == "approved":
+                        rec["leaveType"] = lt_raw
+                        rec["paid_unpaid"] = paid_unpaid
+                        rec["leaveStart"] = sd
+                        rec["leaveEnd"] = ed
+                        rec["leaveStatus"] = lv.get("crc6f_status")
+                        rec["status"] = lt_code
+                    else:
+                        pending_entry = {
+                            "leaveType": lt_raw,
+                            "status": lv.get("crc6f_status") or "Pending",
+                            "paid_unpaid": paid_unpaid,
+                            "start": sd,
+                            "end": ed,
+                            "leave_id": lv.get("crc6f_leaveid"),
+                        }
+                        existing = rec.get("pendingLeaves") or []
+                        existing.append(pending_entry)
+                        rec["pendingLeaves"] = existing
+                    cur = cur + timedelta(days=1)
+
         return jsonify({"success": True, "records": records, "count": len(rows)})
     except Exception as e:
+        traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
 # ================== LOGIN ROUTE ==================

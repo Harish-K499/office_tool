@@ -3509,6 +3509,10 @@ def get_monthly_attendance(employee_id, year, month):
                     lt_raw = (lv.get("crc6f_leavetype") or "").strip()
                     if not lt_raw:
                         continue
+                    status_raw = (lv.get("crc6f_status") or "").strip().lower()
+                    if status_raw not in ("approved", "pending"):
+                        # Only overlay approved/pending leaves; others shouldn't affect attendance
+                        continue
                     # Determine short code
                     ltl = lt_raw.lower()
                     if "casual" in ltl or ltl == "cl":
@@ -3551,16 +3555,31 @@ def get_monthly_attendance(employee_id, year, month):
                                 "checkOut": None,
                                 "duration": 0.0,
                                 "duration_text": None,
-                                "status": "A",
+                                "status": "" if status_raw == "pending" else "A",
                             }
                             formatted_records.append(rec)
                             by_day[day_idx] = rec
-                        # Overlay leave fields and set status code to leave type
-                        rec["leaveType"] = lt_raw
-                        rec["paid_unpaid"] = paid_unpaid
-                        rec["leaveStart"] = sd
-                        rec["leaveEnd"] = ed
-                        rec["status"] = lt_code
+                        if status_raw == "approved":
+                            # Overlay leave fields; approved leaves affect status/metrics
+                            rec["leaveType"] = lt_raw
+                            rec["paid_unpaid"] = paid_unpaid
+                            rec["leaveStart"] = sd
+                            rec["leaveEnd"] = ed
+                            rec["leaveStatus"] = lv.get("crc6f_status")
+                            rec["status"] = lt_code
+                        else:
+                            # Pending leaves only attach metadata for UI overlay
+                            pending_entry = {
+                                "leaveType": lt_raw,
+                                "status": lv.get("crc6f_status") or "Pending",
+                                "paid_unpaid": paid_unpaid,
+                                "start": sd,
+                                "end": ed,
+                                "leave_id": lv.get("crc6f_leaveid"),
+                            }
+                            existing = rec.get("pendingLeaves") or []
+                            existing.append(pending_entry)
+                            rec["pendingLeaves"] = existing
                         # advance by one day
                         cur = cur + timedelta(days=1)
         except Exception as leave_err:
@@ -4558,13 +4577,13 @@ def get_all_leave_balances(employee_id):
         
         # ============================================================
         # CALCULATE CONSUMED FROM ACTUAL LEAVE HISTORY (REAL-TIME)
-        # Including Approved, Pending, and Cancelled statuses
+        # Only APPROVED paid leaves should reduce the balance
         # ============================================================
         print(f"[DATA] Fetching leave history for {emp} to calculate consumed leaves...")
         
-        # Fetch leave records with Approved, Pending, and Cancelled statuses
+        # Fetch leave records with Approved status (Pending shouldn't reduce balances)
         safe_emp = emp.replace("'", "''")
-        filter_query = f"?$filter=crc6f_employeeid eq '{safe_emp}' and (crc6f_status eq 'Approved' or crc6f_status eq 'Pending' or crc6f_status eq 'Cancelled')"
+        filter_query = f"?$filter=crc6f_employeeid eq '{safe_emp}' and crc6f_status eq 'Approved'"
         leave_url = f"{RESOURCE}/api/data/v9.2/{LEAVE_ENTITY}{filter_query}&$select=crc6f_leavetype,crc6f_totaldays,crc6f_paidunpaid,crc6f_status"
         
         leave_response = requests.get(leave_url, headers=headers)
@@ -4582,11 +4601,12 @@ def get_all_leave_balances(employee_id):
                 total_days = float(record.get("crc6f_totaldays") or 0)
                 paid_unpaid = (record.get("crc6f_paidunpaid") or "").strip().lower()
                 status = (record.get("crc6f_status") or "").strip()
-
+                status_low = status.lower()
+                
                 lt_low = leave_type.lower()
                 
-                # Count PAID leaves with Approved, Pending, or Cancelled status as consumed
-                if paid_unpaid == "paid" and total_days > 0:
+                # Count PAID leaves only when status is Approved
+                if paid_unpaid == "paid" and total_days > 0 and status_low == "approved":
                     # Casual Leave: support both full name and short code CL
                     if "casual" in lt_low or lt_low in ("cl", "casual leave"):
                         cl_consumed += total_days
@@ -11007,6 +11027,30 @@ def get_comp_off():
         )
         compoffs = compoff_response.json().get('value', [])
 
+        # Build quick lookups
+        leave_map = { (c.get("crc6f_employeeid") or "").upper(): c for c in compoffs }
+        normalized_requests = []
+        try:
+            comp_req_url = f"{BASE_URL}/crc6f_compensatoryrequests"
+            comp_req_resp = requests.get(comp_req_url, headers={"Authorization": f"Bearer {token}"})
+            if comp_req_resp.status_code == 200:
+                normalized_requests = [{
+                    "employee_id": (r.get("crc6f_employeeid") or "").upper(),
+                    "status": (r.get("crc6f_status") or "").strip().lower(),
+                    "days": float(r.get("crc6f_totaldays") or 0)
+                } for r in comp_req_resp.json().get("value", [])]
+        except Exception as pending_err:
+            print(f"[WARN] Failed to load comp-off requests: {pending_err}")
+
+        pending_by_emp = {}
+        for req in normalized_requests:
+            emp_key = req["employee_id"]
+            if not emp_key:
+                continue
+            if req["status"] == "pending" and req["days"] > 0:
+                pending_by_emp.setdefault(emp_key, 0.0)
+                pending_by_emp[emp_key] += req["days"]
+
         # 3️⃣ Merge both datasets
         result = []
         for emp in employees:
@@ -11016,18 +11060,18 @@ def get_comp_off():
             full_name = f"{first_name} {last_name}".strip()
 
             # find comp off record for this employee
-            emp_compoff = next(
-                (c for c in compoffs if c.get("crc6f_employeeid") == emp_id),
-                None
-            )
-            print(emp_compoff)
-            available_compoff = emp_compoff.get("crc6f_compoff", 0) if emp_compoff else 0
-            print(available_compoff)
+            emp_key = (emp_id or "").upper()
+            emp_compoff = leave_map.get(emp_key)
+            raw_balance = float(emp_compoff.get("crc6f_compoff", 0) or 0) if emp_compoff else 0
+            pending_days = pending_by_emp.get(emp_key, 0.0)
+            available_compoff = max(0.0, raw_balance - pending_days)
 
             result.append({
                 "employee_id": emp_id,
                 "employee_name": full_name,
-                "available_compoff": available_compoff
+                "available_compoff": available_compoff,
+                "pending_compoff": pending_days,
+                "raw_compoff": raw_balance
             })
 
         return jsonify({"status": "success", "data": result}), 200

@@ -42,7 +42,7 @@ const renderAttendanceTrackerPage = (mode) => {
             }
             return '';
         }
-        const { status, isLate, isManual, isPending, half, EOP, leaveType, compensationType, leaveStart, leaveEnd } = dayData;
+        const { status, isLate, isManual, isPending, half, EOP, leaveType, compensationType, leaveStart, leaveEnd, pendingLeaves = [] } = dayData;
 
         const normalizedStatus = status === 'H' ? 'HL' : status;
         let content = normalizedStatus;
@@ -86,12 +86,26 @@ const renderAttendanceTrackerPage = (mode) => {
             content = `${status} (EOP)`;
         }
 
+        const pendingOverlay = pendingLeaves.length
+            ? `
+                <div class="pending-leave-overlay" title="${pendingLeaves.map(pl => `${pl.leaveType || 'Leave'} (${pl.status || 'Pending'}) ${pl.start || ''}${pl.end ? ` → ${pl.end}` : ''}`).join('\n')}">
+                    <span class="pending-label">Pending</span>
+                    <div class="pending-dates">
+                        ${pendingLeaves.map(pl => `
+                            <span class="pending-chip">${(pl.leaveType || '').split(' ')[0] || 'Leave'}</span>
+                        `).join('')}
+                    </div>
+                </div>
+            `
+            : '';
+
         return `
             <div class="status-cell status-${normalizedStatus.toLowerCase()}">
                 ${content}
                 ${isLate ? '<i class="fa-solid fa-clock-rotate-left late-icon" title="Late entry"></i>' : ''}
                 ${isManual ? '<i class="fa-solid fa-hand manual-icon" title="Manual entry"></i>' : ''}
                 ${isPending ? '<i class="fa-solid fa-triangle-exclamation pending-icon" title="Pending"></i>' : ''}
+                ${pendingOverlay}
             </div>
         `;
     }
@@ -107,6 +121,11 @@ const renderAttendanceTrackerPage = (mode) => {
 
         // Get all employee IDs from the attendance data
         const employeeIds = Object.keys(state.attendanceData);
+    const normalizedMeta = employeeIds.reduce((acc, id) => {
+        const entryName = state.attendanceData[id]?.employeeName;
+        if (entryName) acc[id] = entryName;
+        return acc;
+    }, {});
         console.log('📊 Rendering team attendance for employees:', employeeIds);
 
         // Calculate stats from all attendance data for the entire month
@@ -135,7 +154,10 @@ const renderAttendanceTrackerPage = (mode) => {
         // Generate rows for each employee
         const employeeRows = employeeIds.map(empId => {
             const empData = state.attendanceData[empId] || {};
-            const employeeName = empData.employeeName || empId;
+            const employeeName =
+                normalizedMeta[empId] ||
+                empData.employeeName ||
+                empId;
 
             // Get initials for avatar
             const nameParts = employeeName.split(' ');
@@ -841,14 +863,16 @@ export const renderMyAttendancePage = async () => {
                     checkIn: rec.checkIn,
                     checkOut: rec.checkOut,
                     duration: rec.duration,
-                    // pass-through leave fields if provided by backend overlay
                     leaveType: rec.leaveType,
                     compensationType: rec.paid_unpaid,
                     leaveStart: rec.leaveStart,
                     leaveEnd: rec.leaveEnd,
+                    leaveStatus: rec.leaveStatus,
+                    pendingLeaves: rec.pendingLeaves || [],
                 };
             }
         });
+        attendanceMap.employeeName = state.user?.name || state.user?.full_name || state.user?.id || '';
         state.attendanceData[state.user.id] = attendanceMap;
     } catch (err) {
         console.error('Failed to fetch attendance:', err);
@@ -906,6 +930,7 @@ export const renderTeamAttendancePage = async () => {
     // For emp001 (admin), fetch all employees from Dataverse
     // For other employees, use the filtered list as before
     let employeesToFetch = [];
+    const employeeMeta = {};
 
     try {
         // Load holidays for the current month
@@ -921,20 +946,21 @@ export const renderTeamAttendancePage = async () => {
         // Import the listEmployees function if not already imported
         const { listEmployees } = await import('../features/employeeApi.js');
         const allEmployees = await listEmployees(1, 5000);
-        employeesToFetch = allEmployees.items || [];
+        const employeeIds = (allEmployees.items || []).map(emp => {
+            const empId = String(emp.employee_id || emp.id || '').toUpperCase();
+            if (empId) {
+                employeeMeta[empId] = `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || emp.name || empId;
+            }
+            return empId;
+        }).filter(Boolean);
+        employeesToFetch = employeeIds;
         console.log(`📊 Fetched ${employeesToFetch.length} employees from Dataverse`);
 
         // Clear previous attendance data to avoid stale records
         state.attendanceData = {};
 
         // Fetch attendance for each employee
-        await Promise.all(employeesToFetch.map(async (emp) => {
-            const empId = String(emp.employee_id || emp.id || '').toUpperCase();
-            if (!empId) {
-                console.warn('⚠️ Skipping employee with no ID:', emp);
-                return;
-            }
-
+        await Promise.all(employeesToFetch.map(async (empId) => {
             console.log(`🔄 Fetching attendance for employee: ${empId}`);
             const records = await fetchMonthlyAttendance(empId, year, month);
             console.log(`📊 Fetched ${records.length} attendance records for ${empId}`);
@@ -947,42 +973,30 @@ export const renderTeamAttendancePage = async () => {
                         checkIn: rec.checkIn,
                         checkOut: rec.checkOut,
                         duration: rec.duration,
-                        // pass-through leave fields if provided by backend overlay
                         leaveType: rec.leaveType,
                         compensationType: rec.paid_unpaid,
                         leaveStart: rec.leaveStart,
                         leaveEnd: rec.leaveEnd,
+                        leaveStatus: rec.leaveStatus,
+                        pendingLeaves: rec.pendingLeaves || [],
                     };
                 }
             });
 
-            // Store employee name for display
-            const empName = `${emp.first_name || ''} ${emp.last_name || ''}`.trim() || emp.name || empId;
+            attendanceMap.employeeName = employeeMeta[empId];
 
             // Store both attendance data and employee info
-            state.attendanceData[empId] = {
-                ...attendanceMap,
-                employeeName: empName,
-                employeeId: empId
-            };
+            state.attendanceData[empId] = attendanceMap;
         }));
 
         console.log(`✅ Team attendance loaded for ${Object.keys(state.attendanceData).length} employees`);
     } catch (err) {
         console.error('❌ Failed to fetch team attendance:', err);
+        // Initialize empty attendance data if fetch fails
+        state.attendanceData = {};
     }
 
     renderAttendanceTrackerPage('team');
-};
-
-export const handleAttendanceNav = (direction) => {
-    const currentDate = state.currentAttendanceDate;
-    currentDate.setDate(1); // Avoid month skipping issues
-    if (direction === 'next') {
-        currentDate.setMonth(currentDate.getMonth() + 1);
-    } else {
-        currentDate.setMonth(currentDate.getMonth() - 1);
-    }
 };
 
 // Check if attendance has been submitted for the current month
