@@ -13,18 +13,6 @@ let cachedLoginActivitySummary = [];
 let loginAccountNameIndex = {};
 let cachedEmployeeDirectory = [];
 
-const attachLoginActivityHandlers = (dailySummary = []) => {
-    const editButtons = document.querySelectorAll('.la-edit-btn');
-    editButtons.forEach((btn) => {
-        btn.addEventListener('click', () => {
-            const emp = btn.getAttribute('data-employee-id');
-            const dt = btn.getAttribute('data-date');
-            const row = dailySummary.find((r) => String(r.employee_id) === String(emp) && String(r.date) === String(dt));
-            openEditLoginActivityModal(row);
-        });
-    });
-};
-
 const formatLastLogin = (value) => {
     if (!value) return 'N/A';
     try {
@@ -242,6 +230,13 @@ const resolveEmployeeName = (employeeId) => {
     return loginAccountNameIndex[key] || key;
 };
 
+const buildPresenceBadge = (item) => {
+    const isCheckedIn = !!item.check_in_time && !item.check_out_time;
+    const label = isCheckedIn ? 'Checked In' : 'Offline';
+    const statusClass = isCheckedIn ? 'present' : 'absent';
+    return `<span class="status-badge compact ${statusClass}">${label}</span>`;
+};
+
 const buildLoginActivityHTML = (dailySummary = []) => {
     if (!dailySummary.length) {
         return `
@@ -270,13 +265,9 @@ const buildLoginActivityHTML = (dailySummary = []) => {
             <td>${item.date || ''}</td>
             <td>${formatTime(item.check_in_time)}</td>
             <td>${formatLocation(item.check_in_location)}</td>
+            <td>${buildPresenceBadge(item)}</td>
             <td>${formatTime(item.check_out_time)}</td>
             <td>${formatLocation(item.check_out_location)}</td>
-            <td>
-                <button class="icon-btn la-edit-btn" title="Edit" data-employee-id="${item.employee_id || ''}" data-date="${item.date || ''}">
-                    <i class="fa-solid fa-pen-to-square"></i>
-                </button>
-            </td>
         </tr>
     `}).join('');
 
@@ -284,7 +275,7 @@ const buildLoginActivityHTML = (dailySummary = []) => {
         <div class="card" style="margin-top: 24px;">
             <h3><i class="fa-solid fa-clock-rotate-left"></i> Login Activity</h3>
             <p class="allocation-description">Track employee check-in/out times and locations.</p>
-            <div class="table-container">
+            <div class="table-container login-settings-table">
                 <table class="table">
                     <thead>
                         <tr>
@@ -292,9 +283,9 @@ const buildLoginActivityHTML = (dailySummary = []) => {
                             <th>Date</th>
                             <th>Check-in Time</th>
                             <th>Check-in Location</th>
+                            <th>Presence</th>
                             <th>Check-out Time</th>
                             <th>Check-out Location</th>
-                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -334,7 +325,7 @@ const buildTableHTML = (accounts = []) => {
         <div class="card">
             <h3><i class="fa-solid fa-user-shield"></i> Login Accounts</h3>
             <p class="allocation-description">Manage login access level, status, and attempts for users.</p>
-            <div class="table-container">
+            <div class="table-container login-settings-table">
                 <table class="table">
                     <thead>
                         <tr>
@@ -401,8 +392,6 @@ const refreshLoginSettingsContent = () => {
 
     if (currentLoginSettingsView === 'accounts') {
         attachRowHandlers(cachedLoginAccounts);
-    } else {
-        attachLoginActivityHandlers(cachedLoginActivitySummary);
     }
 
     const addBtn = document.getElementById('add-login-account-btn');
