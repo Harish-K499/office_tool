@@ -1296,9 +1296,12 @@ def _format_intern_record(record: dict) -> dict:
 
 def _fetch_intern_record_by_id(token: str, intern_id: str, include_system: bool = True):
     select_clause = ','.join(_build_intern_select_fields(include_system=include_system))
-    safe_id = (intern_id or '').replace("'", "''")
-    filter_query = f"?$select={select_clause}&$top=1&$filter={INTERN_FIELDS['intern_id']} eq '{safe_id}'"
-    url = f"{RESOURCE}/api/data/v9.2/{INTERN_ENTITY}{filter_query}"
+    raw_id = (intern_id or '').strip()
+    if not raw_id:
+        return None
+    safe_id = raw_id.replace("'", "''")
+    field = INTERN_FIELDS['intern_id']
+    base_query = f"?$select={select_clause}&$top=1"
 
     headers = {
         "Authorization": f"Bearer {token}",
@@ -1307,12 +1310,22 @@ def _fetch_intern_record_by_id(token: str, intern_id: str, include_system: bool 
         "OData-Version": "4.0",
     }
 
-    resp = requests.get(url, headers=headers, timeout=30)
-    if resp.status_code != 200:
-        raise Exception(f"Dataverse returned {resp.status_code}: {resp.text}")
+    def _execute(filter_clause: str):
+        url = f"{RESOURCE}/api/data/v9.2/{INTERN_ENTITY}{base_query}&$filter={filter_clause}"
+        resp = requests.get(url, headers=headers, timeout=30)
+        if resp.status_code != 200:
+            raise Exception(f"Dataverse returned {resp.status_code}: {resp.text}")
+        values = resp.json().get("value", [])
+        return values[0] if values else None
 
-    values = resp.json().get("value", [])
-    return values[0] if values else None
+    # Primary exact match
+    record = _execute(f"{field} eq '{safe_id}'")
+    if record:
+        return record
+
+    # Fallback: case-insensitive match if Dataverse supports tolower
+    record_ci = _execute(f"tolower({field}) eq '{safe_id.lower()}'")
+    return record_ci
 
 
 def _fetch_employee_by_employee_id(token: str, employee_id: str, select_fields=None):
