@@ -231,7 +231,8 @@ export const renderInternDetailPage = async (internId) => {
     const phasesByKey = intern.phases || {};
     const phasesMarkup = PHASE_ORDER
       .map((key) => [key, phasesByKey[key]])
-      .filter(([, phase]) => phase)
+      // Only filter out completely empty phases
+      .filter(([, phase]) => phase && (phase.duration || phase.start || phase.end || phase.salary))
       .map(([key, phase]) => renderPhaseCard(key, phase))
       .join('');
 
