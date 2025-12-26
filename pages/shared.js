@@ -1199,15 +1199,56 @@ export const renderMyTimesheetPage = async () => {
             .ts-table tr:last-child td { border-bottom: none; }
             .ts-table td:first-child, .ts-table td:nth-child(2), .ts-table td:nth-child(3) { text-align: left; }
             .ts-table td div { color: #334155 !important; font-weight: 500; }
-            .ts-select { width: 100%; padding: 8px 10px; border: 1px solid #3d4656; border-radius: 8px; font-size: 13px; background: #1E2633; color: #E5EAF3; }
-            .ts-hour-input { width: 80px; padding: 8px 10px; border: 1px solid #3d4656; border-radius: 10px; text-align: center; font-size: 13px; background: #1E2633; color: #E5EAF3; }
-            .ts-hour-input::placeholder { color: #6b7280; }
-            .ts-hour-input.manual { border-color:#60a5fa; background:#1a2942; color: #E5EAF3; }
+            .ts-select {
+                width: 100%;
+                padding: 8px 10px;
+                border: 1px solid #d7dce4;
+                border-radius: 10px;
+                font-size: 13px;
+                background: #ffffff;
+                color: #1f2937;
+                box-shadow: 0 1px 2px rgba(15,23,42,0.04);
+                transition: border-color 0.15s ease, box-shadow 0.15s ease;
+            }
+            .ts-select:focus-visible {
+                outline: none;
+                border-color: #818cf8;
+                box-shadow: 0 0 0 2px rgba(129,140,248,0.25);
+            }
+            .ts-hour-input {
+                width: 80px;
+                padding: 8px 10px;
+                border: 1px solid #d7dce4;
+                border-radius: 10px;
+                text-align: center;
+                font-size: 13px;
+                background: #ffffff;
+                color: #0f172a;
+                box-shadow: inset 0 -2px 0 rgba(148,163,184,0.15);
+                transition: border-color 0.15s ease, box-shadow 0.15s ease;
+            }
+            .ts-hour-input:focus-visible {
+                outline: none;
+                border-color: #818cf8;
+                box-shadow: 0 0 0 2px rgba(129,140,248,0.25);
+            }
+            .ts-hour-input::placeholder { color: #94a3b8; }
+            .ts-hour-input.manual {
+                border-color:#818cf8;
+                background:#eef2ff;
+                color: #1e1b4b;
+                box-shadow: inset 0 -2px 0 rgba(99,102,241,0.2);
+            }
             .day-col:nth-child(odd) { background: transparent; }
-            .ts-cell-today { background: #1a2942 !important; }
+            .ts-cell-today { background: #eef2ff !important; }
             .day-off { background: transparent !important; }
-            .day-off .ts-hour-input { background: #1a1f2e; border-color: #3d4656; color: #6b7280; }
-            .ts-total { font-weight: 700; color: #F1F5F9; }
+            .day-off .ts-hour-input {
+                background: #f1f5f9;
+                border-color: #e2e8f0;
+                color: #94a3b8;
+                box-shadow: none;
+            }
+            .ts-total { font-weight: 700; color: #0f172a; }
             .ts-actions { text-align: center; }
             .ts-actions .icon-btn { width:36px; height:36px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; background:#f8fafc; border:1px solid #e2e8f0; }
             .ts-footer { padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #e5e7eb; }
