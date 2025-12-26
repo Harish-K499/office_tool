@@ -260,7 +260,17 @@ const renderList = () => {
       .table thead th .like-th:focus{ outline:none; box-shadow:none; }
       .table td, .table th{ padding:16px 20px; }
       .table tr:hover{ background:#f9f9f9; }
-      .actions-cell{ text-align:right; width:48px; }
+      .actions-cell{
+        text-align:center;
+        width:120px;
+        white-space:nowrap;
+      }
+      .actions-cell .icon-btn{
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        margin:0 4px;
+      }
       /* rely on global .status-badge colors from index.css */
       .status-badge{ padding:4px 8px; border-radius:999px; font-size:12px; font-weight:600; }
       .projects-toolbar{ display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:12px; }
