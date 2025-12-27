@@ -112,16 +112,18 @@ export async function runButtonWithLoading(btn, fn) {
   btn.dataset.loading = "true";
 
   const originalHTML = btn.innerHTML;
+  const originalMinWidth = btn.style.minWidth;
+  if (!originalMinWidth) {
+    // preserve current width to avoid jitter
+    btn.style.minWidth = `${btn.getBoundingClientRect().width}px`;
+  }
 
   // Show loading UI
-  btn.innerHTML = `<span class="spinner" style="
-      border: 2px solid rgba(255,255,255,0.3);
-      border-top: 2px solid white;
-      border-radius: 50%;
-      width: 14px; height: 14px;
-      display: inline-block;
-      animation: spin 0.8s linear infinite;
-  "></span>`;
+  btn.innerHTML = `
+    <span class="btn-loader-dots">
+      <span></span><span></span><span></span>
+    </span>
+  `;
   btn.disabled = true;
 
   try {
@@ -131,6 +133,9 @@ export async function runButtonWithLoading(btn, fn) {
     btn.innerHTML = originalHTML;
     btn.disabled = false;
     btn.dataset.loading = "false";
+    if (!originalMinWidth) {
+      btn.style.minWidth = "";
+    }
   }
 }
 
@@ -341,6 +346,7 @@ export const renderChatPage = async () => {
       cursor:pointer;
       transition: background .12s ease, transform .06s ease;
       color:var(--text);
+      border: 1px solid transparent;
     }
 
     .chat-item:hover{
@@ -351,6 +357,17 @@ export const renderChatPage = async () => {
     .chat-item.active{
       background: rgba(91,61,245,0.10);
       box-shadow: inset 0 0 0 1px rgba(91,61,245,0.10);
+    }
+
+    .chat-item.unread {
+      background: rgba(0,168,132,0.08);
+      border-color: rgba(0,168,132,0.25);
+    }
+
+    .chat-item.unread .chat-name,
+    .chat-item.unread .chat-item-preview {
+      font-weight: 600;
+      color: var(--text);
     }
 
     .chat-avatar-sm{
@@ -1065,7 +1082,14 @@ export const renderChatPage = async () => {
     }
 
     .new-chat-row.selected {
-      background: rgba(91, 61, 245, 0.10);
+      background: rgba(0, 168, 132, 0.10);
+      border: 1px solid rgba(0, 168, 132, 0.25);
+      box-shadow: inset 0 0 0 1px rgba(0, 168, 132, 0.06);
+    }
+
+    .new-chat-row.selected .new-chat-name {
+      font-weight: 600;
+      color: var(--text);
     }
 
     .new-chat-row input[type="checkbox"] {
@@ -1122,6 +1146,45 @@ export const renderChatPage = async () => {
     .btn-chat-action:disabled {
       opacity: 0.5;
       cursor: not-allowed;
+    }
+
+    .btn-loader-dots {
+      display: inline-flex;
+      gap: 4px;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .btn-loader-dots span {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: 0.35;
+      animation: btnDotPulse 0.9s ease-in-out infinite;
+    }
+
+    .btn-loader-dots span:nth-child(2) {
+      animation-delay: 0.15s;
+    }
+
+    .btn-loader-dots span:nth-child(3) {
+      animation-delay: 0.3s;
+    }
+
+    @keyframes btnDotPulse {
+      0% {
+        transform: translateY(0);
+        opacity: 0.25;
+      }
+      50% {
+        transform: translateY(-3px);
+        opacity: 1;
+      }
+      100% {
+        transform: translateY(0);
+        opacity: 0.25;
+      }
     }
 
     /* ========================================
@@ -2625,6 +2688,8 @@ body.dark .msg-time {
     // keep wrapper-based `on(...)` code too — this is additive)
     socket.on("new_message", (msg) => {
       const convId = msg.conversation_id;
+      const messageTime =
+        msg.created_on || msg.createdOn || new Date().toISOString();
 
       // 1️⃣ Update chat cache
       if (!window.chatCache[convId]) window.chatCache[convId] = [];
@@ -2644,8 +2709,8 @@ body.dark .msg-time {
       if (convo) {
         convo.last_message = msg.message_text || msg.file_name || "";
         convo.last_sender = msg.sender_id;
-        convo.last_message_time = msg.created_on;
-        
+        convo.last_message_time = messageTime;
+
         // Increment unread count if not current conversation and not my message
         if (convId !== window.currentConversationId && String(msg.sender_id) !== String(state.user?.id)) {
           convo.unread_count = (convo.unread_count || 0) + 1;
@@ -2979,10 +3044,9 @@ body.dark .msg-time {
   document.getElementById("uploadFileBtn").onclick = () =>
     document.getElementById("hiddenFileInput").click();
 
-  // send message: optimistic — emits to socket-server which persists via Python
-  document.getElementById("sendMessageBtn").onclick = () => {
+  const sendMessage = () => {
     const input = document.getElementById("chatMessageInput");
-    if (input?.disabled) return;
+    if (!input || input.disabled) return;
     const text = input.value.trim();
     if (!text || !window.currentConversationId) {
       input.value = "";
@@ -3004,39 +3068,36 @@ body.dark .msg-time {
       status: "sent",
     };
 
-    // Include reply_to if replying to a message
     if (window.replyToMessage) {
       payload.reply_to = window.replyToMessage.message_id;
       payload.reply_to_text = window.replyToMessage.message_text;
       payload.reply_to_sender = window.replyToMessage.sender_name;
     }
 
-    // 1️⃣ Optimistic local UI
     addMessageToUI(payload, true, payload.message_id, {
       is_group: window.currentConversation?.is_group || false,
     });
 
-    // Clear reply state
     clearReplyPreview();
 
-    // 2️⃣ Insert into local cache immediately
     if (!window.chatCache[window.currentConversationId]) {
       window.chatCache[window.currentConversationId] = [];
     }
     window.chatCache[window.currentConversationId].push(payload);
 
-    // 3️⃣ Update conversation's last_message_time to move it to top
     const convo = (window.conversationCache || []).find(
-      c => c.conversation_id === window.currentConversationId
+      (c) => c.conversation_id === window.currentConversationId
     );
     if (convo) {
       convo.last_message_time = payload.created_on;
       convo.last_message = payload.message_text || payload.file_name || "";
       convo.last_sender = payload.sender_id;
-      const currentFilter = (document.getElementById("chatSearchInput")?.value || "")
+      const currentFilter = (
+        document.getElementById("chatSearchInput")?.value || ""
+      )
         .trim()
         .toLowerCase();
-      renderConversationList(currentFilter); // Re-render to move chat to top
+      renderConversationList(currentFilter);
     }
 
     emit("send_message", payload, (err, res) => {
@@ -3055,6 +3116,17 @@ body.dark .msg-time {
     input.value = "";
     emitTypingStop();
   };
+
+  document.getElementById("sendMessageBtn").onclick = sendMessage;
+  const messageInput = document.getElementById("chatMessageInput");
+  if (messageInput) {
+    messageInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+  }
 
   // typing indicator with 3-second auto-stop (WhatsApp behavior)
   const TYPING_TIMEOUT_MS = 3000;
@@ -5355,19 +5427,31 @@ body.dark .msg-time {
     // Get pinned chats from localStorage
     const pinnedChats = JSON.parse(localStorage.getItem("pinnedChats") || "[]");
 
-    // ✅ SORT: Pinned first, then by latest message time (newest first)
-    list = list.sort((a, b) => {
-      const aPinned = pinnedChats.includes(a.conversation_id) ? 1 : 0;
-      const bPinned = pinnedChats.includes(b.conversation_id) ? 1 : 0;
-      
-      // Pinned chats come first
-      if (aPinned !== bPinned) return bPinned - aPinned;
-      
-      // Then sort by time
-      const timeA = a.last_message_time ? new Date(a.last_message_time).getTime() : 0;
-      const timeB = b.last_message_time ? new Date(b.last_message_time).getTime() : 0;
-      return timeB - timeA;
-    });
+    // ✅ SORT: pinned first, then unread, then newest timestamp
+    const currentConvoId = window.currentConversationId
+      ? String(window.currentConversationId)
+      : null;
+    list = list
+      .slice()
+      .sort((a, b) => {
+        const pinnedA = pinnedChats.includes(a.conversation_id) ? 1 : 0;
+        const pinnedB = pinnedChats.includes(b.conversation_id) ? 1 : 0;
+        if (pinnedA !== pinnedB) return pinnedB - pinnedA;
+
+        const unreadA =
+          a.unread_count && String(a.conversation_id) !== currentConvoId ? 1 : 0;
+        const unreadB =
+          b.unread_count && String(b.conversation_id) !== currentConvoId ? 1 : 0;
+        if (unreadA !== unreadB) return unreadB - unreadA;
+
+        const timeA = a.last_message_time
+          ? new Date(a.last_message_time).getTime()
+          : 0;
+        const timeB = b.last_message_time
+          ? new Date(b.last_message_time).getTime()
+          : 0;
+        return timeB - timeA;
+      });
 
     for (const convo of list) {
       let displayName = "";
@@ -5465,6 +5549,10 @@ body.dark .msg-time {
       el.onclick = () => {
         openConversationFromList(convo.conversation_id);
       };
+
+      if (unreadCount > 0 && String(convo.conversation_id) !== currentConvoId) {
+        el.classList.add("unread");
+      }
 
       container.appendChild(el);
 
@@ -7133,10 +7221,18 @@ async function openGroupInfoPanel(conversation_id) {
 
 async function openAddMembersPanel(conversation_id) {
   const employees = await fetchAllEmployees();
+
+  const conversationsSource = [
+    ...(window.conversationCache || []),
+    ...(window.conversationList || []),
+  ];
+
   const convo =
-    window.conversationList.find(
-      (c) => c.conversation_id === conversation_id
-    ) || {};
+    conversationsSource.find(
+      (c) => String(c.conversation_id) === String(conversation_id)
+    ) ||
+    window.currentConversation ||
+    {};
 
   const existingIds = new Set((convo.members || []).map((m) => String(m.id)));
 
