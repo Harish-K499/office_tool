@@ -359,6 +359,10 @@ FIELD_DURATION = "crc6f_duration"
 FIELD_DURATION_INTEXT = "crc6f_duration_intext"
 FIELD_ATTENDANCE_ID_CUSTOM = "crc6f_attendanceid"
 FIELD_RECORD_ID = "crc6f_table13id"
+HALF_DAY_HOURS = 4.0
+FULL_DAY_HOURS = 9.0
+HALF_DAY_SECONDS = int(HALF_DAY_HOURS * 3600)
+FULL_DAY_SECONDS = int(FULL_DAY_HOURS * 3600)
 
 # ================== LEAVE TRACKER CONFIGURATION ==================
 LEAVE_ENTITY = "crc6f_table14s"
@@ -655,6 +659,69 @@ def _format_duration_text_from_hours(hours: float) -> str:
     hours_int = total_seconds // 3600
     minutes_int = (total_seconds % 3600) // 60
     return f"{hours_int} hour(s) {minutes_int} minute(s)"
+
+def _classify_hours(hours: float) -> str:
+    try:
+        hours_val = float(hours)
+    except Exception:
+        hours_val = 0.0
+    if hours_val >= FULL_DAY_HOURS:
+        return "P"
+    if hours_val >= HALF_DAY_HOURS:
+        return "HL"
+    return "A"
+
+def _build_threshold_payload(total_seconds: int) -> dict:
+    safe_seconds = max(0, int(total_seconds or 0))
+    payload = {
+        "half_day_seconds": HALF_DAY_SECONDS,
+        "full_day_seconds": FULL_DAY_SECONDS,
+        "half_day_reached": safe_seconds >= HALF_DAY_SECONDS,
+        "full_day_reached": safe_seconds >= FULL_DAY_SECONDS,
+        "next_threshold_seconds": None,
+    }
+    if safe_seconds < HALF_DAY_SECONDS:
+        payload["next_threshold_seconds"] = HALF_DAY_SECONDS - safe_seconds
+    elif safe_seconds < FULL_DAY_SECONDS:
+        payload["next_threshold_seconds"] = FULL_DAY_SECONDS - safe_seconds
+    return payload
+
+def _init_threshold_flags(existing_hours: float = 0.0) -> dict:
+    existing_seconds = max(0, int(round((existing_hours or 0.0) * 3600)))
+    return {
+        "half": existing_seconds >= HALF_DAY_SECONDS,
+        "full": existing_seconds >= FULL_DAY_SECONDS,
+    }
+
+def _maybe_mark_thresholds(emp_key: str, record_id: str, total_seconds_today: int):
+    if not emp_key or not record_id:
+        return
+    session = active_sessions.get(emp_key)
+    if not session:
+        return
+    flags = session.setdefault("threshold_flags", {"half": False, "full": False})
+    updated = False
+    if total_seconds_today >= HALF_DAY_SECONDS and not flags.get("half"):
+        flags["half"] = True
+        updated = True
+    if total_seconds_today >= FULL_DAY_SECONDS and not flags.get("full"):
+        flags["full"] = True
+        updated = True
+    if not updated:
+        return
+    hours_val = round(max(0, total_seconds_today) / 3600.0, 2)
+    update_payload = {
+        FIELD_DURATION: str(hours_val),
+        FIELD_DURATION_INTEXT: _format_duration_text_from_hours(hours_val),
+    }
+    try:
+        update_record(ATTENDANCE_ENTITY, record_id, update_payload)
+        session["threshold_flags"] = flags
+        session["last_status"] = _classify_hours(hours_val)
+        active_sessions[emp_key] = session
+        print(f"[OK] Persisted live threshold ({'P' if flags['full'] else 'HL'}) for {emp_key}")
+    except Exception as err:
+        print(f"[WARN] Failed to persist live threshold for {emp_key}: {err}")
 
 def _live_session_progress_hours(emp_id: str, target_date: str) -> float:
     """Return elapsed hours for an active session on target_date (if any)."""
