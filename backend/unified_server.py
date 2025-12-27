@@ -2114,7 +2114,6 @@ def checkin():
             print(f"[WARN] Failed to probe existing attendance record: {probe_err}")
 
         existing_hours = 0.0
-        record_checkin_time = None
         record_local_date = formatted_date
         if attendance_record:
             # Reuse existing record for this date (continuation session)
@@ -2127,8 +2126,8 @@ def checkin():
                 attendance_record.get(FIELD_ATTENDANCE_ID_CUSTOM)
                 or generate_random_attendance_id()
             )
-            record_checkin_time = attendance_record.get(FIELD_CHECKIN) or formatted_time
             record_local_date = attendance_record.get(FIELD_DATE) or formatted_date
+
             try:
                 existing_hours = float(attendance_record.get(FIELD_DURATION) or "0")
             except Exception:
@@ -2141,24 +2140,10 @@ def checkin():
                 except Exception:
                     pass
 
-            # Preserve original check-in timestamp when continuing the session
-            checkin_dt = now
-            if record_checkin_time:
-                try:
-                    parts = datetime.strptime(record_checkin_time, "%H:%M:%S")
-                    checkin_dt = local_now.replace(
-                        hour=parts.hour,
-                        minute=parts.minute,
-                        second=parts.second,
-                        microsecond=0,
-                    )
-                except Exception:
-                    checkin_dt = now
-
             active_sessions[key] = {
                 "record_id": record_id,
-                "checkin_time": record_checkin_time,
-                "checkin_datetime": checkin_dt.isoformat(),
+                "checkin_time": formatted_time,
+                "checkin_datetime": local_now.isoformat(),
                 "attendance_id": attendance_id,
                 "local_date": record_local_date,
                 "continued_day": True,
