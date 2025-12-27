@@ -650,6 +650,55 @@ def _login_activity_location_string(event: dict):
             return f"{lat},{lng}"
     return None
 
+def _format_duration_text_from_hours(hours: float) -> str:
+    total_seconds = max(0, int(hours * 3600))
+    hours_int = total_seconds // 3600
+    minutes_int = (total_seconds % 3600) // 60
+    return f"{hours_int} hour(s) {minutes_int} minute(s)"
+
+def _live_session_progress_hours(emp_id: str, target_date: str) -> float:
+    """Return elapsed hours for an active session on target_date (if any)."""
+    if not emp_id or not target_date:
+        return 0.0
+    session = active_sessions.get(emp_id.strip().upper())
+    if not session:
+        return 0.0
+    if session.get("local_date") != target_date:
+        return 0.0
+
+    now_dt = datetime.now()
+    checkin_dt = None
+
+    checkin_iso = session.get("checkin_datetime")
+    if checkin_iso:
+        try:
+            checkin_dt = datetime.fromisoformat(checkin_iso)
+        except Exception:
+            checkin_dt = None
+
+    if checkin_dt is None:
+        checkin_str = session.get("checkin_time")
+        if checkin_str:
+            try:
+                checkin_dt = datetime.strptime(checkin_str, "%H:%M:%S").replace(
+                    year=now_dt.year, month=now_dt.month, day=now_dt.day
+                )
+            except Exception:
+                checkin_dt = None
+
+    if checkin_dt is None:
+        return 0.0
+
+    try:
+        elapsed_seconds = (now_dt - checkin_dt).total_seconds()
+    except Exception:
+        return 0.0
+
+    if elapsed_seconds <= 0:
+        return 0.0
+
+    return elapsed_seconds / 3600.0
+
 def _fetch_login_activity_record(token: str, employee_id: str, date_str: str):
     emp = (employee_id or "").strip().upper()
     dt = (date_str or "").strip()
@@ -3516,11 +3565,18 @@ def get_monthly_attendance(employee_id, year, month):
                 duration_hours = float(duration_str)
             except ValueError:
                 duration_hours = 0
-            
-            # 🟡 Attendance classification based on hours
-            if duration_hours >= 9:
+
+            # Overlay live timer if employee is still checked in for that date
+            live_hours = 0.0
+            if date_str:
+                live_hours = _live_session_progress_hours(normalized_emp_id, date_str)
+            augmented_hours = duration_hours + max(0.0, live_hours)
+            effective_hours = augmented_hours if augmented_hours > duration_hours else duration_hours
+
+            # Attendance classification based on hours (post overlay)
+            if effective_hours >= 9:
                 status = "P"  # Present
-            elif 4 <= duration_hours < 9:
+            elif 4 <= effective_hours < 9:
                 status = "HL"  # Half Day (>=4h and <9h)
             else:
                 status = "A"  # Absent (< 4 hours)
@@ -3532,6 +3588,10 @@ def get_monthly_attendance(employee_id, year, month):
                     day_num = int(date_str.split("-")[-1])
                 except (ValueError, IndexError):
                     pass
+
+            duration_text = r.get(FIELD_DURATION_INTEXT)
+            if augmented_hours > duration_hours:
+                duration_text = _format_duration_text_from_hours(effective_hours)
             
             formatted_records.append({
                 "date": date_str,
@@ -3539,12 +3599,13 @@ def get_monthly_attendance(employee_id, year, month):
                 "attendance_id": r.get(FIELD_ATTENDANCE_ID_CUSTOM),
                 "checkIn": checkin,
                 "checkOut": checkout,
-                "duration": duration_hours,
-                "duration_text": r.get(FIELD_DURATION_INTEXT),
-                "status": status
+                "duration": effective_hours,
+                "duration_text": duration_text,
+                "status": status,
+                "liveAugmented": augmented_hours > duration_hours
             })
         
-        # 🔵 Overlay employee-specific leaves into the same month range (CL/SL/CO)
+        # Overlay employee-specific leaves into the same month range (CL/SL/CO)
         try:
             leaves_url = (
                 f"{RESOURCE}/api/data/v9.2/{LEAVE_ENTITY}"
