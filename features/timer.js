@@ -301,6 +301,8 @@ export const updateTimerButton = () => {
 };
 
 let showExpiryAlert = false;
+let timerStatusInterval = null;
+const TIMER_STATUS_INTERVAL_MS = 30000;
 
 const persistTimerState = (uid, payload) => {
     if (!uid) return;
@@ -310,6 +312,7 @@ const persistTimerState = (uid, payload) => {
 };
 
 const restoreTimerFromBackend = async (uid, storageKeyToClear = null, requestExpiryAlert = false) => {
+
     if (!uid) return false;
     try {
         const base = (API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
@@ -362,6 +365,18 @@ const restoreTimerFromBackend = async (uid, storageKeyToClear = null, requestExp
     state.timer.lastDuration = 0;
     updateTimerButton();
     return false;
+};
+
+const ensureTimerStatusPolling = () => {
+    if (timerStatusInterval) return;
+    const uid = String(state.user.id || '').toUpperCase();
+    if (!uid) return;
+    const poll = async () => {
+        await restoreTimerFromBackend(uid, null, false);
+    };
+    timerStatusInterval = setInterval(() => {
+        poll().catch((err) => console.warn('Timer status poll failed:', err));
+    }, TIMER_STATUS_INTERVAL_MS);
 };
 
 export const loadTimerState = async () => {
