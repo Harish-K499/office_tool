@@ -93,6 +93,50 @@ const normalizeEmployeeId = (value = '') => {
     return raw;
 };
 
+const parseDateSafe = (input) => {
+    if (!input) return null;
+    if (input instanceof Date && !Number.isNaN(input.getTime())) {
+        return input;
+    }
+    if (typeof input === 'number') {
+        const fromNumber = new Date(input);
+        return Number.isNaN(fromNumber.getTime()) ? null : fromNumber;
+    }
+    const str = String(input).trim();
+    if (!str) return null;
+
+    const parsed = Date.parse(str);
+    if (!Number.isNaN(parsed)) {
+        return new Date(parsed);
+    }
+
+    const matchDMY = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+    if (matchDMY) {
+        let [_, dayPart, monthPart, yearPart] = matchDMY;
+        let day = parseInt(dayPart, 10);
+        let month = parseInt(monthPart, 10);
+        let year = parseInt(yearPart, 10);
+        if (year < 100) year += 2000;
+        if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+            return new Date(year, month - 1, day);
+        }
+    }
+
+    const matchMDY = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})$/);
+    if (matchMDY) {
+        let [_, monthPart, dayPart, yearPart] = matchMDY;
+        let day = parseInt(dayPart, 10);
+        let month = parseInt(monthPart, 10);
+        let year = parseInt(yearPart, 10);
+        if (year < 100) year += 2000;
+        if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+            return new Date(year, month - 1, day);
+        }
+    }
+
+    return null;
+};
+
 const extractEmployeeDoj = (employee = {}, fallback = {}) => {
     const candidateFields = [
         'doj',
@@ -592,7 +636,7 @@ const hydrateUserScoreboard = async (data) => {
 
         let daysEmployed = 0;
         if (doj) {
-            const dojDate = new Date(doj);
+            const dojDate = parseDateSafe(doj);
             if (!Number.isNaN(dojDate.getTime())) {
                 const diffMs = today.getTime() - dojDate.getTime();
                 if (diffMs > 0) {
