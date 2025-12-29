@@ -3476,6 +3476,45 @@ def get_status(employee_id):
             except Exception as recover_err:
                 print(f"[WARN] Failed to recover session in status: {recover_err}")
 
+        # Fallback: derive active session from login activity log (survives server restarts)
+        if key not in active_sessions:
+            try:
+                from datetime import date as _date
+                formatted_date = _date.today().isoformat()
+                token = get_access_token()
+                login_rec = _fetch_login_activity_record(token, key, formatted_date)
+                if login_rec:
+                    checkin_time_raw = login_rec.get(LA_FIELD_CHECKIN_TIME)
+                    checkout_time_raw = login_rec.get(LA_FIELD_CHECKOUT_TIME)
+                    if checkin_time_raw and not checkout_time_raw:
+                        checkin_dt = None
+                        try:
+                            checkin_dt = datetime.fromisoformat(checkin_time_raw.replace("Z", "+00:00"))
+                        except Exception:
+                            try:
+                                checkin_dt = datetime.strptime(checkin_time_raw, "%H:%M:%S")
+                                checkin_dt = checkin_dt.replace(
+                                    year=datetime.now().year,
+                                    month=datetime.now().month,
+                                    day=datetime.now().day,
+                                )
+                            except Exception:
+                                checkin_dt = None
+                        if checkin_dt:
+                            session_payload = {
+                                "record_id": None,
+                                "checkin_time": checkin_dt.strftime("%H:%M:%S"),
+                                "checkin_datetime": checkin_dt.isoformat(),
+                                "attendance_id": login_rec.get("crc6f_attendanceid"),
+                                "local_date": formatted_date,
+                                "recovered": True,
+                                "source": "login_activity",
+                            }
+                            active_sessions[key] = session_payload
+                            print(f"[INFO] Recovered session from login activity for {key}")
+            except Exception as login_recover_err:
+                print(f"[WARN] Failed login-activity recovery for {key}: {login_recover_err}")
+
         active = key in active_sessions
         elapsed = 0
         checkin_time = None
