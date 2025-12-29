@@ -1,6 +1,7 @@
 import { getSidebarHTML, getHeaderHTML } from './components/layout.js';
 import { router } from './router.js';
 import { loadTimerState, updateTimerButton, handleTimerClick } from './features/timer.js';
+import { initAttendanceSocket, registerForAttendanceUpdates } from './features/attendanceSocket.js';
 import { closeModal } from './components/modal.js';
 import { showAddEmployeeModal, handleAddEmployee, renderEmployeesPage, showBulkUploadModal, showBulkDeleteModal, handleBulkUpload, showEditEmployeeModal, handleUpdateEmployee, handleDeleteEmployee, handleBulkDeleteConfirm, handleRestoreConfirm } from './pages/employees.js';
 import { handleAddIntern } from './pages/interns.js';
@@ -540,6 +541,10 @@ const init = async () => {
     window.location.hash = '#/';
   }
   router();
+
+  // Initialize attendance socket for real-time multi-device sync
+  initAttendanceSocket();
+  registerForAttendanceUpdates(state.user?.id);
 
   // Load timer state and update display
   loadTimerState().then(() => {

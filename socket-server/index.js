@@ -4,6 +4,7 @@ const cors = require('cors');
 const { Server } = require('socket.io');
 const { v4: uuidv4 } = require('uuid');
 const attachChatModule = require('./chat_module');
+const attachAttendanceModule = require('./attendance_module');
 
 const PORT = process.env.PORT || 4000;
 const allowedOrigins = (process.env.SOCKET_ORIGINS || '')
@@ -30,6 +31,9 @@ const io = new Server(server, {
 
 // Attach chat module so this server handles BOTH meet and chat
 attachChatModule(io);
+
+// Attach attendance module for real-time timer sync across devices
+attachAttendanceModule(io);
 
 const activeCalls = {};
 const userSockets = {};
@@ -216,6 +220,73 @@ app.post('/emit', (req, res) => {
 
         case 'message_deleted': {
           io.emit('message_deleted', data);
+          break;
+        }
+
+        // -----------------------------------------
+        // ATTENDANCE EVENTS (from Flask backend)
+        // -----------------------------------------
+        case 'attendance:checkin': {
+          const { employee_id, checkinTime, checkinTimestamp, baseSeconds } = data || {};
+          if (employee_id) {
+            const uid = String(employee_id).trim().toUpperCase();
+            const room = `attendance:${uid}`;
+            
+            // Update in-memory store
+            const attendanceModule = require('./attendance_module');
+            attendanceModule.activeTimers[uid] = {
+              isRunning: true,
+              checkinTime,
+              checkinTimestamp: checkinTimestamp || Date.now(),
+              baseSeconds: baseSeconds || 0,
+              lastStatus: 'A',
+            };
+            
+            io.to(room).emit('attendance:started', {
+              employee_id: uid,
+              checkinTime,
+              checkinTimestamp: attendanceModule.activeTimers[uid].checkinTimestamp,
+              baseSeconds: baseSeconds || 0,
+            });
+            console.log(`[SOCKET-SERVER] Attendance check-in broadcast for ${uid}`);
+          }
+          break;
+        }
+
+        case 'attendance:checkout': {
+          const { employee_id, checkoutTime, totalSeconds, status } = data || {};
+          if (employee_id) {
+            const uid = String(employee_id).trim().toUpperCase();
+            const room = `attendance:${uid}`;
+            
+            // Clear from in-memory store
+            const attendanceModule = require('./attendance_module');
+            delete attendanceModule.activeTimers[uid];
+            
+            io.to(room).emit('attendance:stopped', {
+              employee_id: uid,
+              checkoutTime,
+              totalSeconds,
+              status,
+            });
+            console.log(`[SOCKET-SERVER] Attendance check-out broadcast for ${uid}`);
+          }
+          break;
+        }
+
+        case 'attendance:status-update': {
+          const { employee_id, totalSeconds, status } = data || {};
+          if (employee_id) {
+            const uid = String(employee_id).trim().toUpperCase();
+            const room = `attendance:${uid}`;
+            io.to(room).emit('attendance:status-update', {
+              employee_id: uid,
+              totalSeconds,
+              status,
+              autoUpdated: true,
+            });
+            console.log(`[SOCKET-SERVER] Attendance status update broadcast for ${uid}: ${status}`);
+          }
           break;
         }
 

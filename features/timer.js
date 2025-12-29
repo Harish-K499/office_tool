@@ -381,6 +381,50 @@ export const loadTimerState = async () => {
     } catch {
         raw = null;
     }
+
+    // If no local state, check server for active session (new device scenario)
+    if (!raw && uid) {
+        try {
+            console.log(`🔍 No local state, checking server for active session: ${uid}`);
+            const base = (API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
+            const response = await fetch(`${base}/api/status/${uid}`);
+            const statusData = await response.json();
+
+            if (statusData.checked_in) {
+                const backendElapsed = typeof statusData.elapsed_seconds === 'number' ? statusData.elapsed_seconds : 0;
+                const backendTotal = typeof statusData.total_seconds_today === 'number' ? statusData.total_seconds_today : 0;
+                const baseFromBackend = Math.max(0, backendTotal - backendElapsed);
+
+                // Calculate start time from server elapsed
+                const syncedStartTime = Date.now() - (backendElapsed * 1000);
+
+                state.timer.isRunning = true;
+                state.timer.startTime = syncedStartTime;
+                state.timer.lastDuration = baseFromBackend;
+
+                // Save to localStorage
+                const today = new Date();
+                const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+                try {
+                    localStorage.setItem(`timerState_${uid}`, JSON.stringify({
+                        isRunning: true,
+                        startTime: syncedStartTime,
+                        date: todayStr,
+                        mode: 'running',
+                        durationSeconds: baseFromBackend,
+                    }));
+                } catch {}
+
+                state.timer.intervalId = setInterval(updateTimerDisplay, 1000);
+                console.log(`✅ Timer synced from server on new device (elapsed: ${backendElapsed}s)`);
+                return;
+            }
+        } catch (err) {
+            console.warn('Failed to check server for active session:', err);
+        }
+        return;
+    }
+
     if (!raw) return;
 
     let parsed;
@@ -431,13 +475,33 @@ export const loadTimerState = async () => {
                     baseFromBackend = Math.max(0, backendTotal - backendElapsed);
                 }
 
+                // Calculate server-synced start time from elapsed seconds
+                // This ensures timer is consistent across devices
+                let syncedStartTime = startTime;
+                if (backendElapsed !== null && backendElapsed > 0) {
+                    // Server knows how long ago check-in happened
+                    syncedStartTime = Date.now() - (backendElapsed * 1000);
+                }
+
                 state.timer.isRunning = true;
-                state.timer.startTime = startTime;
+                state.timer.startTime = syncedStartTime;
                 // Prefer backend-derived base seconds; fall back to local cached duration
                 state.timer.lastDuration =
                     baseFromBackend !== null ? baseFromBackend : (durationSeconds || 0);
+                
+                // Update localStorage with synced values
+                try {
+                    localStorage.setItem(storageKey, JSON.stringify({
+                        isRunning: true,
+                        startTime: syncedStartTime,
+                        date: todayStr,
+                        mode: 'running',
+                        durationSeconds: state.timer.lastDuration,
+                    }));
+                } catch {}
+
                 state.timer.intervalId = setInterval(updateTimerDisplay, 1000);
-                console.log('✅ Timer state restored - user is checked in');
+                console.log(`✅ Timer state restored - synced from server (elapsed: ${backendElapsed}s, base: ${baseFromBackend}s)`);
             } else {
                 state.timer.isRunning = false;
                 state.timer.startTime = null;

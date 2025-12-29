@@ -1,0 +1,197 @@
+// attendance_module.js — Real-time Attendance Timer Sync
+// Handles multi-device check-in/check-out synchronization and auto-status updates
+
+const HALF_DAY_SECONDS = 4 * 3600; // 4 hours
+const FULL_DAY_SECONDS = 9 * 3600; // 9 hours
+
+// In-memory store of active check-ins (synced from backend)
+const activeTimers = {};
+
+// Status thresholds check interval (runs every minute)
+let statusCheckInterval = null;
+
+function deriveStatus(totalSeconds) {
+  if (totalSeconds >= FULL_DAY_SECONDS) return 'P';
+  if (totalSeconds >= HALF_DAY_SECONDS) return 'HL';
+  return 'A';
+}
+
+module.exports = (io) => {
+  console.log('⏱️ Attendance Module Loaded');
+
+  // Start periodic status checker
+  if (statusCheckInterval) clearInterval(statusCheckInterval);
+  statusCheckInterval = setInterval(() => {
+    checkAndBroadcastStatusUpdates(io);
+  }, 60 * 1000); // Check every minute
+
+  io.on('connection', (socket) => {
+    // ----------------------------------------
+    // ATTENDANCE REGISTER - Join user's attendance room
+    // ----------------------------------------
+    socket.on('attendance:register', ({ employee_id }) => {
+      if (!employee_id) return;
+      const uid = String(employee_id).trim().toUpperCase();
+      socket.data.attendance_user_id = uid;
+      const room = `attendance:${uid}`;
+      socket.join(room);
+      console.log(`[ATTENDANCE] ${uid} registered for attendance updates, room: ${room}`);
+
+      // Send current timer state if active
+      const timer = activeTimers[uid];
+      if (timer && timer.isRunning) {
+        const now = Date.now();
+        const elapsedMs = now - timer.checkinTimestamp;
+        const elapsedSeconds = Math.floor(elapsedMs / 1000);
+        const totalSeconds = (timer.baseSeconds || 0) + elapsedSeconds;
+        const status = deriveStatus(totalSeconds);
+
+        socket.emit('attendance:sync', {
+          employee_id: uid,
+          isRunning: true,
+          checkinTimestamp: timer.checkinTimestamp,
+          baseSeconds: timer.baseSeconds || 0,
+          totalSeconds,
+          status,
+          checkinTime: timer.checkinTime,
+        });
+        console.log(`[ATTENDANCE] Sent sync to ${uid}: running, totalSeconds=${totalSeconds}`);
+      } else {
+        socket.emit('attendance:sync', {
+          employee_id: uid,
+          isRunning: false,
+          totalSeconds: 0,
+          status: 'A',
+        });
+      }
+    });
+
+    // ----------------------------------------
+    // ATTENDANCE CHECK-IN - Broadcast to all devices
+    // ----------------------------------------
+    socket.on('attendance:checkin', (payload) => {
+      const { employee_id, checkinTime, checkinTimestamp, baseSeconds = 0 } = payload || {};
+      if (!employee_id) return;
+
+      const uid = String(employee_id).trim().toUpperCase();
+      const room = `attendance:${uid}`;
+
+      // Store in memory
+      activeTimers[uid] = {
+        isRunning: true,
+        checkinTime,
+        checkinTimestamp: checkinTimestamp || Date.now(),
+        baseSeconds: baseSeconds || 0,
+        lastStatus: 'A',
+      };
+
+      // Broadcast to all devices of this user
+      io.to(room).emit('attendance:started', {
+        employee_id: uid,
+        checkinTime,
+        checkinTimestamp: activeTimers[uid].checkinTimestamp,
+        baseSeconds,
+      });
+
+      console.log(`[ATTENDANCE] Check-in broadcast for ${uid} at ${checkinTime}`);
+    });
+
+    // ----------------------------------------
+    // ATTENDANCE CHECK-OUT - Broadcast to all devices
+    // ----------------------------------------
+    socket.on('attendance:checkout', (payload) => {
+      const { employee_id, checkoutTime, totalSeconds, status } = payload || {};
+      if (!employee_id) return;
+
+      const uid = String(employee_id).trim().toUpperCase();
+      const room = `attendance:${uid}`;
+
+      // Clear from memory
+      delete activeTimers[uid];
+
+      // Broadcast to all devices of this user
+      io.to(room).emit('attendance:stopped', {
+        employee_id: uid,
+        checkoutTime,
+        totalSeconds,
+        status,
+      });
+
+      console.log(`[ATTENDANCE] Check-out broadcast for ${uid}, totalSeconds=${totalSeconds}, status=${status}`);
+    });
+
+    // ----------------------------------------
+    // REQUEST SYNC - Client requests current state
+    // ----------------------------------------
+    socket.on('attendance:request-sync', ({ employee_id }) => {
+      if (!employee_id) return;
+      const uid = String(employee_id).trim().toUpperCase();
+
+      const timer = activeTimers[uid];
+      if (timer && timer.isRunning) {
+        const now = Date.now();
+        const elapsedMs = now - timer.checkinTimestamp;
+        const elapsedSeconds = Math.floor(elapsedMs / 1000);
+        const totalSeconds = (timer.baseSeconds || 0) + elapsedSeconds;
+        const status = deriveStatus(totalSeconds);
+
+        socket.emit('attendance:sync', {
+          employee_id: uid,
+          isRunning: true,
+          checkinTimestamp: timer.checkinTimestamp,
+          baseSeconds: timer.baseSeconds || 0,
+          totalSeconds,
+          status,
+          checkinTime: timer.checkinTime,
+        });
+      } else {
+        socket.emit('attendance:sync', {
+          employee_id: uid,
+          isRunning: false,
+          totalSeconds: 0,
+          status: 'A',
+        });
+      }
+    });
+
+    socket.on('disconnect', () => {
+      const uid = socket.data.attendance_user_id;
+      if (uid) {
+        console.log(`[ATTENDANCE] ${uid} disconnected`);
+      }
+    });
+  });
+
+  // Function to check status thresholds and broadcast updates
+  function checkAndBroadcastStatusUpdates(io) {
+    const now = Date.now();
+
+    for (const [uid, timer] of Object.entries(activeTimers)) {
+      if (!timer.isRunning) continue;
+
+      const elapsedMs = now - timer.checkinTimestamp;
+      const elapsedSeconds = Math.floor(elapsedMs / 1000);
+      const totalSeconds = (timer.baseSeconds || 0) + elapsedSeconds;
+      const newStatus = deriveStatus(totalSeconds);
+
+      // Only broadcast if status changed
+      if (timer.lastStatus !== newStatus) {
+        timer.lastStatus = newStatus;
+        const room = `attendance:${uid}`;
+
+        io.to(room).emit('attendance:status-update', {
+          employee_id: uid,
+          totalSeconds,
+          status: newStatus,
+          autoUpdated: true,
+        });
+
+        console.log(`[ATTENDANCE] Auto status update for ${uid}: ${newStatus} (${totalSeconds}s)`);
+      }
+    }
+  }
+};
+
+// Export for external use (e.g., HTTP bridge from Flask)
+module.exports.activeTimers = activeTimers;
+module.exports.deriveStatus = deriveStatus;

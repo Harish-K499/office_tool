@@ -316,6 +316,22 @@ GOOGLE_SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
 SOCKET_SERVER_URL = os.getenv("SOCKET_SERVER_URL", "http://localhost:4000")
 
 
+def _emit_attendance_event(event: str, data: dict):
+    """Emit attendance event to socket server for real-time multi-device sync."""
+    try:
+        resp = requests.post(
+            f"{SOCKET_SERVER_URL}/emit",
+            json={"event": event, "data": data},
+            timeout=3
+        )
+        if resp.status_code < 400:
+            print(f"[ATTENDANCE-SOCKET] Emitted {event} for {data.get('employee_id')}")
+        else:
+            print(f"[ATTENDANCE-SOCKET] Failed to emit {event}: {resp.status_code}")
+    except Exception as e:
+        print(f"[ATTENDANCE-SOCKET] Error emitting {event}: {e}")
+
+
 def _build_google_oauth_flow(state: str | None = None):
     flow_kwargs = {
         "scopes": GOOGLE_SCOPES,
@@ -2251,10 +2267,12 @@ def checkin():
         )
 
         if record_id:
+            checkin_timestamp = int(now.timestamp() * 1000)  # milliseconds for JS
             active_sessions[key] = {
                 "record_id": record_id,
                 "checkin_time": formatted_time,
                 "checkin_datetime": now.isoformat(),
+                "checkin_timestamp": checkin_timestamp,
                 "attendance_id": random_attendance_id,
                 "local_date": formatted_date,
             }
@@ -2262,12 +2280,21 @@ def checkin():
             print(f"[OK] SUCCESS! Record ID: {record_id}")
             print(f"{'='*60}\n")
 
+            # Emit socket event for real-time multi-device sync
+            _emit_attendance_event("attendance:checkin", {
+                "employee_id": normalized_emp_id,
+                "checkinTime": formatted_time,
+                "checkinTimestamp": checkin_timestamp,
+                "baseSeconds": 0,
+            })
+
             return jsonify(
                 {
                     "success": True,
                     "record_id": record_id,
                     "attendance_id": random_attendance_id,
                     "checkin_time": formatted_time,
+                    "checkin_timestamp": checkin_timestamp,
                     "total_seconds_today": 0,
                 }
             )
@@ -3390,6 +3417,14 @@ def checkout():
 
         print("[OK] CHECK-OUT SUCCESS!")
         print(f"{'='*60}\n")
+
+        # Emit socket event for real-time multi-device sync
+        _emit_attendance_event("attendance:checkout", {
+            "employee_id": normalized_emp_id,
+            "checkoutTime": checkout_time_str,
+            "totalSeconds": total_seconds_today,
+            "status": status,
+        })
 
         return jsonify(
             {
