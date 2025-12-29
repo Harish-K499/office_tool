@@ -3334,39 +3334,43 @@ def checkout():
                 "error": "No active check-in found. Please check in first.",
             }), 400
 
-        # Calculate session duration in seconds (fallback to checkin_timestamp if available)
-        # Normalize local_now to a naive datetime so we can subtract even if stored values are naive
+        # Calculate session duration in seconds (prefer checkin_timestamp to avoid timezone skew)
+        # Normalize local_now to naive for legacy fallbacks, but use timestamp diff when available.
         local_now_naive = local_now.replace(tzinfo=None) if getattr(local_now, "tzinfo", None) else local_now
         session_seconds = 0
         try:
-            candidates = []
-            if "checkin_datetime" in session:
-                try:
-                    checkin_dt = datetime.fromisoformat(session["checkin_datetime"])
-                    if checkin_dt.tzinfo:
-                        candidates.append(int((local_now - checkin_dt).total_seconds()))
-                    else:
-                        candidates.append(int((local_now_naive - checkin_dt).total_seconds()))
-                except Exception:
-                    pass
-            if "checkin_time" in session:
-                try:
-                    checkin_time_str = session["checkin_time"]
-                    checkin_dt = datetime.strptime(checkin_time_str, "%H:%M:%S").replace(
-                        year=local_now_naive.year, month=local_now_naive.month, day=local_now_naive.day
-                    )
-                    candidates.append(int((local_now_naive - checkin_dt).total_seconds()))
-                except Exception:
-                    pass
+            ts_diff = None
             if "checkin_timestamp" in session:
                 try:
-                    ts_dt = datetime.fromtimestamp(int(session["checkin_timestamp"]) / 1000.0)
-                    candidates.append(int((local_now_naive - ts_dt).total_seconds()))
+                    checkin_ts = int(session["checkin_timestamp"])
+                    ts_diff = int(max(0, round(local_now.timestamp() - (checkin_ts / 1000.0))))
                 except Exception:
-                    pass
-            # Use the maximum plausible candidate to avoid undercounting
-            if candidates:
-                session_seconds = max(0, max(candidates))
+                    ts_diff = None
+
+            if ts_diff is not None:
+                session_seconds = ts_diff
+            else:
+                candidates = []
+                if "checkin_datetime" in session:
+                    try:
+                        checkin_dt = datetime.fromisoformat(session["checkin_datetime"])
+                        if checkin_dt.tzinfo:
+                            candidates.append(int((local_now - checkin_dt).total_seconds()))
+                        else:
+                            candidates.append(int((local_now_naive - checkin_dt).total_seconds()))
+                    except Exception:
+                        pass
+                if "checkin_time" in session:
+                    try:
+                        checkin_time_str = session["checkin_time"]
+                        checkin_dt = datetime.strptime(checkin_time_str, "%H:%M:%S").replace(
+                            year=local_now_naive.year, month=local_now_naive.month, day=local_now_naive.day
+                        )
+                        candidates.append(int((local_now_naive - checkin_dt).total_seconds()))
+                    except Exception:
+                        pass
+                if candidates:
+                    session_seconds = max(0, max(candidates))
         except Exception as time_err:
             print(f"[WARN] Error calculating session duration: {time_err}")
             session_seconds = 0
