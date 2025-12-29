@@ -3334,20 +3334,34 @@ def checkout():
                 "error": "No active check-in found. Please check in first.",
             }), 400
 
-        # Calculate session duration in seconds
+        # Calculate session duration in seconds (fallback to checkin_timestamp if available)
+        session_seconds = 0
         try:
+            candidates = []
             if "checkin_datetime" in session:
-                checkin_dt = datetime.fromisoformat(session["checkin_datetime"])
-                session_seconds = int((local_now - checkin_dt).total_seconds())
-            elif "checkin_time" in session:
-                # Fallback for older sessions without datetime
-                checkin_time_str = session["checkin_time"]
-                checkin_dt = datetime.strptime(checkin_time_str, "%H:%M:%S").replace(
-                    year=local_now.year, month=local_now.month, day=local_now.day
-                )
-                session_seconds = int((local_now - checkin_dt).total_seconds())
-            else:
-                session_seconds = 0
+                try:
+                    checkin_dt = datetime.fromisoformat(session["checkin_datetime"])
+                    candidates.append(int((local_now - checkin_dt).total_seconds()))
+                except Exception:
+                    pass
+            if "checkin_time" in session:
+                try:
+                    checkin_time_str = session["checkin_time"]
+                    checkin_dt = datetime.strptime(checkin_time_str, "%H:%M:%S").replace(
+                        year=local_now.year, month=local_now.month, day=local_now.day
+                    )
+                    candidates.append(int((local_now - checkin_dt).total_seconds()))
+                except Exception:
+                    pass
+            if "checkin_timestamp" in session:
+                try:
+                    ts_dt = datetime.fromtimestamp(int(session["checkin_timestamp"]) / 1000.0)
+                    candidates.append(int((local_now - ts_dt).total_seconds()))
+                except Exception:
+                    pass
+            # Use the maximum plausible candidate to avoid undercounting
+            if candidates:
+                session_seconds = max(0, max(candidates))
         except Exception as time_err:
             print(f"[WARN] Error calculating session duration: {time_err}")
             session_seconds = 0
@@ -3455,6 +3469,15 @@ def checkout():
             safe_total_seconds = int(total_seconds_today or 0)
             if safe_total_seconds < 0:
                 safe_total_seconds = 0
+            # Guard against undercount: include session_seconds and any base_seconds on the session
+            try:
+                safe_total_seconds = max(
+                    safe_total_seconds,
+                    int(session_seconds or 0),
+                    int(session.get("base_seconds") or 0),
+                )
+            except Exception:
+                pass
         except Exception:
             safe_total_seconds = 0
 
