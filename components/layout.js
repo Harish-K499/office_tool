@@ -160,7 +160,7 @@ export const getHeaderHTML = (user, timer) => `
             <span class="notification-badge" id="notification-badge" style="display: none;">0</span>
         </div>
         <div class="user-profile" id="user-profile" style="position:relative; cursor:pointer;">
-            <div class="user-avatar">${user.initials}</div>
+            <div class="user-avatar ${user.avatarUrl ? 'has-photo' : ''}" ${user.avatarUrl ? `style="background-image:url('${user.avatarUrl}')"` : ''}>${user.initials}</div>
             <span>${user.name}</span>
             <i class="fa-solid fa-chevron-down" style="margin-left:6px;"></i>
             <div class="dropdown-menu" id="user-menu" style="display:none; position:absolute; right:0; top:100%; border-radius:8px; padding:6px; min-width:200px; box-shadow:0 8px 20px rgba(15,23,42,0.45); z-index:1000; background:var(--surface-color); border:1px solid var(--border-color);">
@@ -170,6 +170,10 @@ export const getHeaderHTML = (user, timer) => `
                     ${user.email ? `<div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">${user.email}</div>` : ''}
                     ${user.id ? `<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${user.id}</div>` : ''}
                 </div>
+                <button class="dropdown-item" id="profile-btn" style="width:100%; text-align:left; background:none; border:none; padding:8px 10px; cursor:pointer; font-size:13px; display:flex; align-items:center; gap:6px;">
+                    <i class="fa-solid fa-user"></i>
+                    <span>Profile</span>
+                </button>
                 <button class="dropdown-item" id="logout-btn" style="width:100%; text-align:left; background:none; border:none; padding:8px 10px; cursor:pointer; font-size:13px; display:flex; align-items:center; gap:6px;">
                     <i class="fa-solid fa-arrow-right-from-bracket"></i>
                     <span>Logout</span>

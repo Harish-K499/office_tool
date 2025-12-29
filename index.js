@@ -15,7 +15,7 @@ import {
 } from "./pages/comp_off.js";
 import { handleAttendanceNav, renderMyAttendancePage, renderTeamAttendancePage } from './pages/attendance.js';
 import { state } from './state.js';
-import { listEmployees } from './features/employeeApi.js';
+import { listEmployees, listAllEmployees } from './features/employeeApi.js';
 import { showAssetModal, handleSaveAsset, showDeleteConfirmModal, handleDeleteAsset, handleDeleteAsset as handleAssetDelete } from "./pages/assets.js";
 import { renderAssetsPage, fetchAssets } from './pages/assets.js'; // adjust path
 import { handleInboxRejectLeave, handleAttendanceRejectReport, handleCompOffReject, handleTimesheetReject } from './pages/shared.js';
@@ -580,6 +580,12 @@ const init = async () => {
       }
       return;
     }
+    if (target.closest("#profile-btn")) {
+      openProfilePanel();
+      const menu = document.getElementById("user-menu");
+      if (menu) menu.style.display = "none";
+      return;
+    }
     if (target.id === "add-employee-btn") showAddEmployeeModal();
     if (target.id === "apply-leave-btn") showApplyLeaveModal();
     if (target.id === "request-compoff-btn") showRequestCompOffModal();
@@ -785,14 +791,6 @@ const init = async () => {
     const userProfile = document.getElementById('user-profile');
     if (userMenu && userProfile && !userProfile.contains(e.target) && !userMenu.contains(e.target)) {
       userMenu.style.display = 'none';
-    }
-  });
-
-  document.body.addEventListener('input', (e) => {
-    const target = e.target;
-    if (target.id === 'employee-search-input') {
-      // Reset to page 1 when filtering
-      renderEmployeesPage(target.value, 1);
     }
   });
 
