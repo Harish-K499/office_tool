@@ -961,6 +961,14 @@ body.dark-theme #app-container.sidebar-hidden .nav-link.active i {
   font-weight: 600;
 }
 
+.user-avatar.has-photo {
+  background: none;
+  background-size: cover;
+  background-position: center;
+  color: transparent;
+  border: 1px solid var(--border-color);
+}
+
 /* App Content */
 .app-content {
   flex: 1;
