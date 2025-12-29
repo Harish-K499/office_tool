@@ -90,9 +90,57 @@ const normalizeEmployeeId = (value = '') => {
     if (!raw) return '';
     if (/^EMP\d{3,}$/.test(raw)) return raw;
     if (/^\d+$/.test(raw)) return `EMP${raw.padStart(3, '0')}`;
-    const digits = raw.replace(/\D/g, '');
-    if (digits) return `EMP${digits.padStart(3, '0')}`;
     return raw;
+};
+
+const extractEmployeeDoj = (employee = {}, fallback = {}) => {
+    const candidateFields = [
+        'doj',
+        'date_of_joining',
+        'dateOfJoining',
+        'crc6f_doj',
+        'crc6f_date_of_joining',
+        'crc6f_dateofjoining',
+        'crc6f_joiningdate',
+        'crc6f_startdate',
+        'crc6f_hiredate',
+        'crc6f_employmentstartdate',
+    ];
+    for (const field of candidateFields) {
+        const value = employee?.[field];
+        if (value) return value;
+    }
+    for (const field of candidateFields) {
+        const value = fallback?.[field];
+        if (value) return value;
+    }
+    if (fallback?.doj || fallback?.date_of_joining || fallback?.dateOfJoining) {
+        return fallback.doj || fallback.date_of_joining || fallback.dateOfJoining;
+    }
+    return null;
+};
+
+const findCurrentEmployeeRecord = (employees = [], user = {}, normalizedId = '') => {
+    if (normalizedId) {
+        const byId = employees.find((emp) => normalizeEmployeeId(emp.employee_id || emp.id) === normalizedId);
+        if (byId) return byId;
+    }
+    const nameKey = String(user.name || '').trim().toLowerCase();
+    if (nameKey) {
+        const byName = employees.find((emp) => {
+            const fullName = `${emp.first_name || ''} ${emp.last_name || ''}`.trim().toLowerCase();
+            return fullName && fullName === nameKey;
+        });
+        if (byName) return byName;
+    }
+    const emailKey = String(user.email || '').trim().toLowerCase();
+    if (emailKey) {
+        const byEmail = employees.find(
+            (emp) => String(emp.email || '').trim().toLowerCase() === emailKey,
+        );
+        if (byEmail) return byEmail;
+    }
+    return null;
 };
 
 const buildAttendanceSummary = (records = []) => {
@@ -500,18 +548,11 @@ const hydrateUserScoreboard = async (data) => {
         }
 
         const user = data.user || state.user || {};
-        const empId = normalizeEmployeeId(user.id || user.employee_id);
+        const empId = normalizeEmployeeId(data.resolvedEmployeeId || user.id || user.employee_id);
         const empName = String(user.name || '').trim();
         const email = String(user.email || '').trim();
 
-        const dojSource = data.currentEmployee || {};
-        const doj =
-            dojSource.doj ||
-            dojSource.date_of_joining ||
-            dojSource.dateOfJoining ||
-            user.doj ||
-            user.date_of_joining ||
-            null;
+        const doj = extractEmployeeDoj(data.currentEmployee || {}, user);
 
         const API = 'http://localhost:5000/api';
         const today = new Date();
@@ -661,24 +702,36 @@ const hydrateUserScoreboard = async (data) => {
 const loadDashboardData = async () => {
     const user = state.user || {};
     const employeeIdRaw = String(user.id || user.employee_id || '').trim();
-    const employeeId = normalizeEmployeeId(employeeIdRaw);
+    let resolvedEmployeeId = normalizeEmployeeId(employeeIdRaw);
     const today = new Date();
     const currentYear = today.getFullYear();
     const currentMonth = today.getMonth() + 1;
 
-    // Use cached fetch for all API calls - dramatically reduces load time on re-navigation
-    const [employeesResponse, holidays, attendanceRecords, pendingLeaves, peopleOnLeaveData] = await Promise.all([
-        // Employees - cache for 5 minutes (rarely changes)
-        cachedFetch('employees_list', async () => {
-            try {
-                return await listEmployees(1, 200);
-            } catch (err) {
-                console.warn('⚠️ Failed to fetch employees:', err);
-                return { items: [] };
-            }
-        }, TTL.LONG),
+    const employeesResponse = await cachedFetch('employees_list', async () => {
+        try {
+            return await listEmployees(1, 200);
+        } catch (err) {
+            console.warn('⚠️ Failed to fetch employees:', err);
+            return { items: [] };
+        }
+    }, TTL.LONG);
 
-        // Holidays - cache for 15 minutes (very stable data)
+    const employees = employeesResponse?.items || [];
+    const currentEmployee = findCurrentEmployeeRecord(employees, user, resolvedEmployeeId);
+    if ((!resolvedEmployeeId || resolvedEmployeeId === 'EMP000') && currentEmployee?.employee_id) {
+        resolvedEmployeeId = normalizeEmployeeId(currentEmployee.employee_id);
+    }
+    if (resolvedEmployeeId && state?.user) {
+        const prevId = normalizeEmployeeId(state.user.id || state.user.employee_id || '');
+        if (resolvedEmployeeId !== prevId) {
+            state.user = { ...state.user, id: resolvedEmployeeId };
+            try {
+                localStorage.setItem('auth', JSON.stringify({ authenticated: state.authenticated, user: state.user }));
+            } catch { /* ignore */ }
+        }
+    }
+
+    const [holidays, attendanceRecords, pendingLeaves, peopleOnLeaveData] = await Promise.all([
         cachedFetch('holidays', async () => {
             try {
                 return await getHolidays();
@@ -687,28 +740,26 @@ const loadDashboardData = async () => {
                 return [];
             }
         }, TTL.VERY_LONG),
-
-        // Attendance - cache for 1 minute (changes during the day)
-        employeeId ? cachedFetch(`attendance_${employeeId}_${currentYear}_${currentMonth}`, async () => {
-            try {
-                return await fetchMonthlyAttendance(employeeId, currentYear, currentMonth);
-            } catch (err) {
-                console.warn('⚠️ Failed to fetch attendance:', err);
-                return [];
-            }
-        }, TTL.MEDIUM) : Promise.resolve([]),
-
-        // Pending leaves - cache for 30 seconds (admin needs fresh data)
-        isAdminUser() ? cachedFetch('pending_leaves', async () => {
-            try {
-                return await fetchPendingLeaves();
-            } catch (err) {
-                console.warn('⚠️ Failed to fetch pending leaves:', err);
-                return [];
-            }
-        }, TTL.SHORT) : Promise.resolve([]),
-
-        // People on leave - fetch in parallel now (was sequential before)
+        resolvedEmployeeId
+            ? cachedFetch(`attendance_${resolvedEmployeeId}_${currentYear}_${currentMonth}`, async () => {
+                try {
+                    return await fetchMonthlyAttendance(resolvedEmployeeId, currentYear, currentMonth);
+                } catch (err) {
+                    console.warn('⚠️ Failed to fetch attendance:', err);
+                    return [];
+                }
+            }, TTL.MEDIUM)
+            : Promise.resolve([]),
+        isAdminUser()
+            ? cachedFetch('pending_leaves', async () => {
+                try {
+                    return await fetchPendingLeaves();
+                } catch (err) {
+                    console.warn('⚠️ Failed to fetch pending leaves:', err);
+                    return [];
+                }
+            }, TTL.SHORT)
+            : Promise.resolve([]),
         cachedFetch('people_on_leave', async () => {
             try {
                 const empResp = await cachedFetch('employees_list', () => listEmployees(1, 200), TTL.LONG);
@@ -717,23 +768,19 @@ const loadDashboardData = async () => {
                 console.warn('⚠️ Failed to fetch people on leave:', err);
                 return [];
             }
-        }, TTL.MEDIUM)
+        }, TTL.MEDIUM),
     ]);
 
-    const employees = employeesResponse?.items || [];
     const upcomingHolidays = getUpcomingHolidays(holidays);
     const newJoiners = getNewJoiners(employees);
     const departmentSnapshot = getDepartmentSnapshot(employees);
     const attendanceSummary = buildAttendanceSummary(attendanceRecords);
     const workProgress = buildWorkProgressSeries(attendanceRecords, today);
     const birthdays = getUpcomingBirthdays(employees);
-    const currentEmployee = employees.find((emp) => {
-        const empKey = normalizeEmployeeId(emp.employee_id || emp.id);
-        return empKey && empKey === employeeId;
-    }) || null;
 
     return {
         user,
+        resolvedEmployeeId,
         upcomingHolidays,
         newJoiners,
         departmentSnapshot,
