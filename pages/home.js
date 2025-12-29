@@ -85,6 +85,16 @@ const getUpcomingBirthdays = (employees = []) => {
         .slice(0, 3);
 };
 
+const normalizeEmployeeId = (value = '') => {
+    const raw = String(value || '').trim().toUpperCase();
+    if (!raw) return '';
+    if (/^EMP\d{3,}$/.test(raw)) return raw;
+    if (/^\d+$/.test(raw)) return `EMP${raw.padStart(3, '0')}`;
+    const digits = raw.replace(/\D/g, '');
+    if (digits) return `EMP${digits.padStart(3, '0')}`;
+    return raw;
+};
+
 const buildAttendanceSummary = (records = []) => {
     return records.reduce((acc, rec) => {
         const status = String(rec.status || '').toUpperCase();
@@ -490,12 +500,18 @@ const hydrateUserScoreboard = async (data) => {
         }
 
         const user = data.user || state.user || {};
-        const empId = String(user.id || user.employee_id || '').trim().toUpperCase();
+        const empId = normalizeEmployeeId(user.id || user.employee_id);
         const empName = String(user.name || '').trim();
         const email = String(user.email || '').trim();
 
         const dojSource = data.currentEmployee || {};
-        const doj = dojSource.doj || dojSource.date_of_joining || null;
+        const doj =
+            dojSource.doj ||
+            dojSource.date_of_joining ||
+            dojSource.dateOfJoining ||
+            user.doj ||
+            user.date_of_joining ||
+            null;
 
         const API = 'http://localhost:5000/api';
         const today = new Date();
@@ -644,10 +660,11 @@ const hydrateUserScoreboard = async (data) => {
 
 const loadDashboardData = async () => {
     const user = state.user || {};
+    const employeeIdRaw = String(user.id || user.employee_id || '').trim();
+    const employeeId = normalizeEmployeeId(employeeIdRaw);
     const today = new Date();
     const currentYear = today.getFullYear();
     const currentMonth = today.getMonth() + 1;
-    const employeeId = String(user.id || '').toUpperCase();
 
     // Use cached fetch for all API calls - dramatically reduces load time on re-navigation
     const [employeesResponse, holidays, attendanceRecords, pendingLeaves, peopleOnLeaveData] = await Promise.all([
@@ -710,9 +727,10 @@ const loadDashboardData = async () => {
     const attendanceSummary = buildAttendanceSummary(attendanceRecords);
     const workProgress = buildWorkProgressSeries(attendanceRecords, today);
     const birthdays = getUpcomingBirthdays(employees);
-    const currentEmployee = employees.find(emp =>
-        String(emp.employee_id || emp.id || '').toUpperCase() === employeeId
-    ) || null;
+    const currentEmployee = employees.find((emp) => {
+        const empKey = normalizeEmployeeId(emp.employee_id || emp.id);
+        return empKey && empKey === employeeId;
+    }) || null;
 
     return {
         user,
