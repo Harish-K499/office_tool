@@ -3451,10 +3451,17 @@ def checkout():
         print(f"{'='*60}\n")
 
         # Emit socket event for real-time multi-device sync
+        try:
+            safe_total_seconds = int(total_seconds_today or 0)
+            if safe_total_seconds < 0:
+                safe_total_seconds = 0
+        except Exception:
+            safe_total_seconds = 0
+
         _emit_attendance_event("attendance:checkout", {
             "employee_id": normalized_emp_id,
             "checkoutTime": checkout_time_str,
-            "totalSeconds": total_seconds_today,
+            "totalSeconds": safe_total_seconds,
             "status": status,
         })
 

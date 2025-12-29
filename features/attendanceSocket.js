@@ -196,7 +196,9 @@ function handleTimerSync(data) {
     if (data.isRunning) {
         // Timer is running - sync state
         const serverTimestamp = data.checkinTimestamp;
-        const baseSeconds = data.baseSeconds || 0;
+        const baseSecondsIncoming = typeof data.baseSeconds === 'number' ? data.baseSeconds : 0;
+        const existingBase = typeof state.timer.lastDuration === 'number' ? state.timer.lastDuration : 0;
+        const baseSeconds = Math.max(0, baseSecondsIncoming, existingBase);
 
         // Calculate current elapsed based on server timestamp
         const now = Date.now() + (state.timer.serverOffsetMs || 0);
@@ -239,7 +241,10 @@ function handleTimerSync(data) {
         }
         state.timer.isRunning = false;
         state.timer.startTime = null;
-        state.timer.lastDuration = data.totalSeconds || 0;
+        const incomingTotal = typeof data.totalSeconds === 'number' ? data.totalSeconds : null;
+        const existingTotal = typeof state.timer.lastDuration === 'number' ? state.timer.lastDuration : 0;
+        // Never downgrade due to late/empty sync payloads.
+        state.timer.lastDuration = incomingTotal === null ? existingTotal : Math.max(existingTotal, incomingTotal);
 
         updateTimerButton();
         updateTimerDisplay();
@@ -263,7 +268,9 @@ function handleRemoteCheckin(data) {
     }
 
     const checkinTimestamp = data.checkinTimestamp || Date.now();
-    const baseSeconds = data.baseSeconds || 0;
+    const baseSecondsIncoming = typeof data.baseSeconds === 'number' ? data.baseSeconds : 0;
+    const existingBase = typeof state.timer.lastDuration === 'number' ? state.timer.lastDuration : 0;
+    const baseSeconds = Math.max(0, baseSecondsIncoming, existingBase);
 
     // Update state
     state.timer.isRunning = true;
@@ -315,7 +322,10 @@ function handleRemoteCheckout(data) {
 
     state.timer.isRunning = false;
     state.timer.startTime = null;
-    state.timer.lastDuration = data.totalSeconds || 0;
+    const incomingTotal = typeof data.totalSeconds === 'number' ? data.totalSeconds : null;
+    const existingTotal = typeof state.timer.lastDuration === 'number' ? state.timer.lastDuration : 0;
+    // Never downgrade due to late/empty stopped payloads.
+    state.timer.lastDuration = incomingTotal === null ? existingTotal : Math.max(existingTotal, incomingTotal);
 
     // Update localStorage
     const today = new Date();
@@ -326,7 +336,7 @@ function handleRemoteCheckout(data) {
             startTime: null,
             date: dateStr,
             mode: 'stopped',
-            durationSeconds: data.totalSeconds || 0,
+            durationSeconds: typeof state.timer.lastDuration === 'number' ? state.timer.lastDuration : 0,
         }));
     } catch {}
 
