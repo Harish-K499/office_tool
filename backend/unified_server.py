@@ -611,6 +611,9 @@ LA_FIELD_CHECKIN_TS = "crc6f_checkin_timestamp"      # stored as epoch seconds (
 LA_FIELD_CHECKOUT_TS = "crc6f_checkout_timestamp"    # stored as epoch seconds (Dataverse Int32)
 LA_FIELD_BASE_SECONDS = "crc6f_base_seconds"         # seconds accrued before current session
 LA_FIELD_TOTAL_SECONDS = "crc6f_total_seconds"       # total seconds for the day (at checkout)
+# Aliases for compatibility with older references
+LA_FIELD_CHECKIN_TIMESTAMP = LA_FIELD_CHECKIN_TS
+LA_FIELD_CHECKOUT_TIMESTAMP = LA_FIELD_CHECKOUT_TS
 
 def reverse_geocode_to_city(lat, lng):
     """Convert lat/lng to a city/locality string using Nominatim."""
@@ -900,15 +903,16 @@ def _upsert_login_activity(token: str, employee_id: str, date_str: str, payload:
 
     if existing and existing.get(LOGIN_ACTIVITY_PRIMARY_FIELD):
         # Protect earliest check-in and accumulated base seconds from being overwritten by later retries
-        if LA_FIELD_CHECKIN_TIMESTAMP in patch_payload:
-            existing_ts = existing.get(LA_FIELD_CHECKIN_TIMESTAMP)
-            incoming_ts = patch_payload.get(LA_FIELD_CHECKIN_TIMESTAMP)
+        if LA_FIELD_CHECKIN_TS in patch_payload:
+            existing_ts = existing.get(LA_FIELD_CHECKIN_TS)
+            incoming_ts = patch_payload.get(LA_FIELD_CHECKIN_TS)
             try:
                 if existing_ts and incoming_ts and float(incoming_ts) > float(existing_ts):
                     # keep earlier timestamp
-                    patch_payload.pop(LA_FIELD_CHECKIN_TIMESTAMP, None)
+                    patch_payload.pop(LA_FIELD_CHECKIN_TS, None)
             except Exception:
                 pass
+
         if LA_FIELD_CHECKIN_TIME in patch_payload:
             if existing.get(LA_FIELD_CHECKIN_TIME):
                 # keep original check-in time to avoid overwriting with a later/local-only value
