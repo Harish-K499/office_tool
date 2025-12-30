@@ -20,6 +20,14 @@ let hasDeletedEmployees = false; // Track if deleted employees exist in backend
 let employeeViewMode = 'card';
 let photoDraft = { dataUrl: null, cleared: false };
 
+const cleanDataUrl = (dataUrl) => {
+    if (!dataUrl || typeof dataUrl !== 'string') return undefined;
+    const parts = dataUrl.split(',', 1);
+    if (parts.length === 0) return undefined;
+    const raw = dataUrl.includes(',') ? dataUrl.split(',', 2)[1] : dataUrl;
+    return raw && raw.trim() ? raw.trim() : undefined;
+};
+
 const initPhotoUploader = (initialPhoto = null) => {
     const input = document.getElementById('photo-input');
     const trigger = document.getElementById('upload-photo-btn');
@@ -675,7 +683,7 @@ export const handleAddEmployee = async (e) => {
             doj: document.getElementById('status').value === 'Active' ? new Date().toISOString().split('T')[0] : '',
             active: document.getElementById('status').value === 'Active',
             employee_flag: document.getElementById('employeeFlag').value || 'Employee',
-            profile_picture: photoDraft.cleared ? null : (photoDraft.dataUrl || undefined)
+            profile_picture: photoDraft.cleared ? null : cleanDataUrl(photoDraft.dataUrl)
         };
 
         console.log('🔍 DEBUG - Payload:', payload);
@@ -694,7 +702,7 @@ export const handleAddEmployee = async (e) => {
             employmentType: 'Full-time',
             status: payload.active ? 'Active' : 'Inactive',
             employeeFlag: payload.employee_flag || 'Employee',
-            photo: photoDraft.cleared ? null : (photoDraft.dataUrl || null)
+            photo: photoDraft.cleared ? null : cleanDataUrl(photoDraft.dataUrl) || null
         });
         closeModal();
         renderEmployeesPage();
@@ -810,7 +818,7 @@ export const handleUpdateEmployee = (e) => {
         designation: document.getElementById('designation').value,
         active: document.getElementById('status').value === 'Active',
         employee_flag: document.getElementById('employeeFlag').value || 'Employee',
-        profile_picture: photoDraft.cleared ? null : (photoDraft.dataUrl || undefined)
+        profile_picture: photoDraft.cleared ? null : cleanDataUrl(photoDraft.dataUrl)
     };
 
     updateEmployee(employee_id, payload).then(() => {

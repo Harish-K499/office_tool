@@ -7,7 +7,7 @@ from functools import wraps
 import random
 import string
 import traceback
-import requests, re
+import requests, re, base64
 import os
 import hashlib
 import json
@@ -38,6 +38,9 @@ except Exception:
     ZoneInfo = None
 
 app = Flask(__name__)
+CORS(app)
+
+FIELD_MAPS = {}
 
 app.register_blueprint(contributors_bp)
 app.register_blueprint(boards_bp)
@@ -419,6 +422,26 @@ PROJECTS_ENTITY_CANDIDATES = [
     "crc6f_hr_projectheaderses",  # in some orgs pluralization is with 'es'
 ]
 PROJECTS_ENTITY_RESOLVED = None
+
+def sanitize_profile_picture(photo_str):
+    """Strip data URL prefix and validate base64 string for Dataverse binary column."""
+    if photo_str is None:
+        return None
+    if not isinstance(photo_str, str):
+        raise ValueError("profile_picture must be a base64 string or null")
+    raw = photo_str.strip()
+    if not raw:
+        return None
+    if raw.startswith("data:"):
+        parts = raw.split(",", 1)
+        raw = parts[1] if len(parts) > 1 else ""
+    try:
+        decoded = base64.b64decode(raw, validate=True)
+        if not decoded:
+            return None
+        return base64.b64encode(decoded).decode("ascii")
+    except Exception as exc:
+        raise ValueError(f"Invalid profile_picture base64: {exc}")
 
 # ================== EMPLOYEE MASTER CONFIGURATION ==================
 # Prefer ENV override if provided; otherwise we'll auto-resolve between common sets
@@ -6302,7 +6325,8 @@ def create_employee():
         doj = data.get("doj")
         contact_number = data.get("contact_number", "")
         employee_flag = (data.get("employee_flag") or "Employee").strip() or "Employee"
-        profile_picture = data.get("profile_picture")
+        profile_picture_raw = data.get("profile_picture")
+        profile_picture = sanitize_profile_picture(profile_picture_raw) if field_map.get("profile_picture") else None
 
         # ==================== EXTERNAL DATA UPLOAD CATCH ====================
         # Let Dataverse auto-number when no employee_id supplied
@@ -7038,7 +7062,8 @@ def update_employee_api(employee_id):
         entity_set = get_employee_entity_set(token)
         field_map = get_field_map(entity_set)
         data = request.get_json(force=True)
-        profile_picture = data.get("profile_picture")
+        profile_picture_raw = data.get("profile_picture")
+        profile_picture = sanitize_profile_picture(profile_picture_raw) if field_map.get("profile_picture") else None
 
         headers = {
             "Authorization": f"Bearer {token}",
