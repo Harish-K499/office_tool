@@ -582,17 +582,11 @@ LA_FIELD_CHECKIN_TIME = "crc6f_checkintime"
 LA_FIELD_CHECKOUT_LOCATION = "crc6f_checkoutlocation"
 LA_FIELD_CHECKOUT_TIME = "crc6f_checkouttime"
 # Durable session fields (custom)
-LA_FIELD_CHECKIN_TS = "crc6f_checkin_timestamp"      # expects integer ms
-LA_FIELD_CHECKOUT_TS = "crc6f_checkout_timestamp"    # expects integer ms
+LA_FIELD_CHECKIN_TS = "crc6f_checkin_timestamp"      # stored as epoch seconds (Dataverse Int32)
+LA_FIELD_CHECKOUT_TS = "crc6f_checkout_timestamp"    # stored as epoch seconds (Dataverse Int32)
 LA_FIELD_BASE_SECONDS = "crc6f_base_seconds"         # seconds accrued before current session
 LA_FIELD_TOTAL_SECONDS = "crc6f_total_seconds"       # total seconds for the day (at checkout)
 
-def reverse_geocode_to_city(lat, lng):
-    """Convert lat/lng to city/locality using OpenStreetMap Nominatim API."""
-    if not lat or not lng:
-        return None
-    try:
-        # zoom 16 for tighter locality; addressdetails=1 for richer fields
         url = (
             "https://nominatim.openstreetmap.org/reverse"
             f"?lat={lat}&lon={lng}&format=json&zoom=16&addressdetails=1&accept-language=en-IN"
@@ -2195,7 +2189,7 @@ def checkin():
                 base_seconds = int(session.get("base_seconds") or 0)
                 patch = {
                     LA_FIELD_CHECKIN_TIME: session.get("checkin_time"),
-                    LA_FIELD_CHECKIN_TS: checkin_ts,
+                    LA_FIELD_CHECKIN_TS: int(checkin_ts / 1000) if checkin_ts is not None else None,
                     LA_FIELD_BASE_SECONDS: base_seconds,
                     LA_FIELD_CHECKIN_LOCATION: _login_activity_location_string(event),
                 }
@@ -2265,6 +2259,8 @@ def checkin():
                     pass
 
             checkin_timestamp = int(now.timestamp() * 1000)  # milliseconds for JS
+            checkin_seconds = int(now.timestamp())           # seconds for Dataverse Int32
+
             base_seconds = int(round(existing_hours * 3600)) if existing_hours else 0
             active_sessions[key] = {
                 "record_id": record_id,
@@ -2278,9 +2274,10 @@ def checkin():
 
             # Persist durable session fields to login activity
             try:
+                token = get_access_token()
                 _upsert_login_activity(token, normalized_emp_id, formatted_date, {
                     LA_FIELD_CHECKIN_TIME: formatted_time,
-                    LA_FIELD_CHECKIN_TS: checkin_timestamp,
+                    LA_FIELD_CHECKIN_TS: checkin_seconds,
                     LA_FIELD_BASE_SECONDS: base_seconds,
                     LA_FIELD_CHECKIN_LOCATION: _login_activity_location_string(event),
                 })
@@ -2337,6 +2334,8 @@ def checkin():
 
         if record_id:
             checkin_timestamp = int(now.timestamp() * 1000)  # milliseconds for JS
+            checkin_seconds = int(now.timestamp())           # seconds for Dataverse Int32
+
             active_sessions[key] = {
                 "record_id": record_id,
                 "checkin_time": formatted_time,
@@ -2363,7 +2362,7 @@ def checkin():
                 token = get_access_token()
                 _upsert_login_activity(token, normalized_emp_id, formatted_date, {
                     LA_FIELD_CHECKIN_TIME: formatted_time,
-                    LA_FIELD_CHECKIN_TS: checkin_timestamp,
+                    LA_FIELD_CHECKIN_TS: checkin_seconds,
                     LA_FIELD_BASE_SECONDS: 0,
                     LA_FIELD_CHECKIN_LOCATION: _login_activity_location_string(event),
                 })
@@ -3165,7 +3164,7 @@ def delete_login_account(login_id):
 #                 pass
 #             return jsonify({"status": "failed", "message": "Invalid Username or Password"}), 401
 
-#         record_id = record.get("crc6f_hr_login_detailsid") or record.get("id")
+#         record_id = record.get("crc6f_hr_login_detailsid")
 #         status = (record.get("crc6f_user_status") or "Active")
 #         attempts = int(record.get("crc6f_loginattempts") or 0)
 #         stored_hash = record.get("crc6f_password") or ""
@@ -3358,25 +3357,40 @@ def checkout():
                                 or rec.get("cr6f_table13id")
                                 or rec.get("id")
                             )
-                            # Reconstruct checkin datetime from today's date + checkin time
+                            attendance_id = (
+                                rec.get(FIELD_ATTENDANCE_ID_CUSTOM)
+                                or generate_random_attendance_id()
+                            )
                             try:
-                                checkin_dt = datetime.strptime(checkin_time, "%H:%M:%S").replace(
-                                    year=now.year, month=now.month, day=now.day
-                                )
-                            except:
-                                checkin_dt = now  # Fallback
-                            session = {
+                                existing_hours = float(rec.get(FIELD_DURATION) or "0")
+                            except Exception:
+                                existing_hours = 0.0
+                            # If we had to generate a new attendance ID for an existing record,
+                            # patch it back to Dataverse (best-effort).
+                            if attendance_id and not rec.get(FIELD_ATTENDANCE_ID_CUSTOM):
+                                try:
+                                    update_record(ATTENDANCE_ENTITY, record_id, {FIELD_ATTENDANCE_ID_CUSTOM: attendance_id})
+                                except Exception:
+                                    pass
+
+                            checkin_timestamp = int(now.timestamp() * 1000)  # milliseconds for JS
+                            checkin_seconds = int(now.timestamp())           # seconds for Dataverse Int32
+
+                            base_seconds = int(round(existing_hours * 3600)) if existing_hours else 0
+                            active_sessions[key] = {
                                 "record_id": record_id,
                                 "checkin_time": checkin_time,
-                                "checkin_datetime": checkin_dt.isoformat(),
-                                "attendance_id": rec.get(FIELD_ATTENDANCE_ID_CUSTOM),
-                                "recovered": True,
+                                "checkin_datetime": now.isoformat(),
+                                "checkin_timestamp": checkin_timestamp,
+                                "attendance_id": attendance_id,
+                                "local_date": formatted_date,
+                                "base_seconds": base_seconds,
                             }
-                            active_sessions[key] = session
+
                             print(f"[INFO] Recovered session from Dataverse for {key}")
             except Exception as recover_err:
                 print(f"[WARN] Failed to recover session from Dataverse: {recover_err}")
-        
+
         if not session:
             return jsonify({
                 "success": False,
@@ -3515,14 +3529,15 @@ def checkout():
         # Persist checkout to login activity for durability
         try:
             checkout_timestamp = int(local_now.timestamp() * 1000)
+            checkout_seconds = int(local_now.timestamp())
             base_seconds_prev = int(session.get("base_seconds") or 0)
             token = locals().get("token") or get_access_token()
             _upsert_login_activity(token, normalized_emp_id, (session.get("local_date") or local_now.date().isoformat()), {
                 LA_FIELD_CHECKIN_TIME: session.get("checkin_time"),
-                LA_FIELD_CHECKIN_TS: session.get("checkin_timestamp"),
+                LA_FIELD_CHECKIN_TS: int((session.get("checkin_timestamp") or 0) / 1000),
                 LA_FIELD_BASE_SECONDS: base_seconds_prev,
                 LA_FIELD_CHECKOUT_TIME: checkout_time_str,
-                LA_FIELD_CHECKOUT_TS: checkout_timestamp,
+                LA_FIELD_CHECKOUT_TS: checkout_seconds,
                 LA_FIELD_TOTAL_SECONDS: total_seconds_today,
                 LA_FIELD_CHECKOUT_LOCATION: _login_activity_location_string(event),
             })
@@ -3640,19 +3655,36 @@ def get_status(employee_id):
                                 or rec.get("cr6f_table13id")
                                 or rec.get("id")
                             )
+                            attendance_id = (
+                                rec.get(FIELD_ATTENDANCE_ID_CUSTOM)
+                                or generate_random_attendance_id()
+                            )
                             try:
-                                checkin_dt = datetime.strptime(checkin_time_rec, "%H:%M:%S").replace(
-                                    year=now.year, month=now.month, day=now.day
-                                )
-                            except:
-                                checkin_dt = now
+                                existing_hours = float(rec.get(FIELD_DURATION) or "0")
+                            except Exception:
+                                existing_hours = 0.0
+                            # If we had to generate a new attendance ID for an existing record,
+                            # patch it back to Dataverse (best-effort).
+                            if attendance_id and not rec.get(FIELD_ATTENDANCE_ID_CUSTOM):
+                                try:
+                                    update_record(ATTENDANCE_ENTITY, record_id, {FIELD_ATTENDANCE_ID_CUSTOM: attendance_id})
+                                except Exception:
+                                    pass
+
+                            checkin_timestamp = int(now.timestamp() * 1000)  # milliseconds for JS
+                            checkin_seconds = int(now.timestamp())           # seconds for Dataverse Int32
+
+                            base_seconds = int(round(existing_hours * 3600)) if existing_hours else 0
                             active_sessions[key] = {
                                 "record_id": record_id,
                                 "checkin_time": checkin_time_rec,
-                                "checkin_datetime": checkin_dt.isoformat(),
-                                "attendance_id": rec.get(FIELD_ATTENDANCE_ID_CUSTOM),
-                                "recovered": True,
+                                "checkin_datetime": now.isoformat(),
+                                "checkin_timestamp": checkin_timestamp,
+                                "attendance_id": attendance_id,
+                                "local_date": formatted_date,
+                                "base_seconds": base_seconds,
                             }
+
                             print(f"[INFO] Recovered session from Dataverse for status check: {key}")
             except Exception as recover_err:
                 print(f"[WARN] Failed to recover session in status: {recover_err}")
@@ -3696,9 +3728,10 @@ def get_status(employee_id):
                             # Prefer durable timestamp + base seconds for accurate elapsed
                             try:
                                 if checkin_ts_raw is not None:
-                                    session_payload["checkin_timestamp"] = int(checkin_ts_raw)
+                                    session_payload["checkin_timestamp"] = _to_epoch_ms(checkin_ts_raw)
                             except Exception:
                                 pass
+
                             try:
                                 if base_seconds_raw is not None:
                                     session_payload["base_seconds"] = int(base_seconds_raw)
