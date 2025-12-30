@@ -3752,7 +3752,21 @@ def get_status(employee_id):
                     checkout_time_raw = login_rec.get(LA_FIELD_CHECKOUT_TIME)
                     checkin_ts_raw = login_rec.get(LA_FIELD_CHECKIN_TS)
                     base_seconds_raw = login_rec.get(LA_FIELD_BASE_SECONDS)
-                    if checkin_time_raw and not checkout_time_raw:
+                    total_seconds_raw = login_rec.get(LA_FIELD_TOTAL_SECONDS)
+
+                    # Treat zero-duration checkout (equal timestamps) as still active
+                    checkout_is_effectively_null = False
+                    try:
+                        if checkout_time_raw and checkin_time_raw:
+                            if str(checkout_time_raw) == str(checkin_time_raw):
+                                ts_in = login_rec.get(LA_FIELD_CHECKIN_TS)
+                                ts_out = login_rec.get(LA_FIELD_CHECKOUT_TS)
+                                if (ts_in is not None and ts_out is not None and int(ts_in) == int(ts_out)) or int(total_seconds_raw or 0) <= 0:
+                                    checkout_is_effectively_null = True
+                    except Exception:
+                        pass
+
+                    if checkin_time_raw and (not checkout_time_raw or checkout_is_effectively_null):
                         checkin_dt = None
                         try:
                             checkin_dt = datetime.fromisoformat(checkin_time_raw.replace("Z", "+00:00"))
@@ -3854,36 +3868,39 @@ def get_status(employee_id):
                 session = active_sessions[key]
                 checkin_time = session.get("checkin_time")
                 attendance_id = session.get("attendance_id")
+                base_seconds = int(session.get("base_seconds") or 0)
                 # Prefer durable timestamp for elapsed to avoid timezone/parse issues
                 checkin_ts_val = session.get("checkin_timestamp")
                 if checkin_ts_val is not None:
-                    try:
-                        checkin_ts_int = int(checkin_ts_val)
-                        elapsed = int(max(0, round(datetime.now().timestamp() - (checkin_ts_int / 1000.0))))
-                    except Exception:
-                        elapsed = 0
+                    elapsed = int(max(0, round(datetime.now().timestamp() - (checkin_ts_val / 1000.0))))
                 if elapsed <= 0:
-                    # Fallback to datetime parse
                     checkin_dt = datetime.fromisoformat(session["checkin_datetime"])
                     elapsed = int((datetime.now() - checkin_dt).total_seconds())
                 if elapsed <= 0 and session.get("checkin_time"):
-                    # Final fallback: derive from today's date + checkin_time (hh:mm:ss)
-                    try:
-                        ct_str = session["checkin_time"]
-                        ct_dt = datetime.strptime(ct_str, "%H:%M:%S").replace(
-                            year=datetime.now().year, month=datetime.now().month, day=datetime.now().day
-                        )
-                        elapsed = int((datetime.now() - ct_dt).total_seconds())
-                    except Exception:
-                        pass
+                    ct_str = session["checkin_time"]
+                    ct_dt = datetime.strptime(ct_str, "%H:%M:%S").replace(year=datetime.now().year, month=datetime.now().month, day=datetime.now().day)
+                    elapsed = int((datetime.now() - ct_dt).total_seconds())
                 if elapsed < 0:
                     elapsed = 0
+                # Add base_seconds from earlier sessions to the running total
+                total_seconds_today = max(total_seconds_today, base_seconds + elapsed)
             except Exception as e:
-                print(f"[WARN] Failed to compute elapsed for status: {e}")
+                print(f"[WARN] elapsed calc error: {e}")
                 elapsed = 0
 
-        # Base seconds from today's Dataverse record
-        total_seconds_today = 0
+        # If Dataverse total_seconds is available for today, prefer it as base aggregation when higher
+        try:
+            token = get_access_token()
+            from datetime import date as _date
+            formatted_date = _date.today().isoformat()
+            la_rec = _fetch_login_activity_record(token, key, formatted_date)
+            if la_rec:
+                la_total = int(la_rec.get(LA_FIELD_TOTAL_SECONDS) or 0)
+                if la_total > total_seconds_today:
+                    total_seconds_today = la_total
+        except Exception:
+            pass
+
         try:
             from datetime import date as _date
             formatted_date = _date.today().isoformat()
