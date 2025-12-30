@@ -2040,24 +2040,21 @@ function showEditContributorModal(projectId, recordId, contributor) {
         }
       );
 
-      let data = {};
-      try {
-        data = await res.json();
-      } catch {
-        data = {};
-      }
+      const data = await res.json().catch(() => ({}));
 
       if (res.ok) {
         alert("✅ Contributor updated successfully!");
         closeModal();
         fetchContributors(projectId);
+      } else {
         console.error("❌ Update failed:", data);
         alert("❌ Update failed: " + (data.error || "Unknown error"));
       }
     } catch (err) {
-    console.error("🔥 Error deleting contributor:", err);
-    throw err;
-  }
+      console.error("🔥 Error updating contributor:", err);
+      alert("Server or network error during update.");
+    }
+  };
 }
 function showContributorModal(projectId, contributor = null) {
   const isEdit = !!contributor;
