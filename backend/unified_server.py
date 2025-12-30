@@ -899,6 +899,28 @@ def _upsert_login_activity(token: str, employee_id: str, date_str: str, payload:
     }
 
     if existing and existing.get(LOGIN_ACTIVITY_PRIMARY_FIELD):
+        # Protect earliest check-in and accumulated base seconds from being overwritten by later retries
+        if LA_FIELD_CHECKIN_TIMESTAMP in patch_payload:
+            existing_ts = existing.get(LA_FIELD_CHECKIN_TIMESTAMP)
+            incoming_ts = patch_payload.get(LA_FIELD_CHECKIN_TIMESTAMP)
+            try:
+                if existing_ts and incoming_ts and float(incoming_ts) > float(existing_ts):
+                    # keep earlier timestamp
+                    patch_payload.pop(LA_FIELD_CHECKIN_TIMESTAMP, None)
+            except Exception:
+                pass
+        if LA_FIELD_CHECKIN_TIME in patch_payload:
+            if existing.get(LA_FIELD_CHECKIN_TIME):
+                # keep original check-in time to avoid overwriting with a later/local-only value
+                patch_payload.pop(LA_FIELD_CHECKIN_TIME, None)
+        if LA_FIELD_BASE_SECONDS in patch_payload:
+            try:
+                existing_base = float(existing.get(LA_FIELD_BASE_SECONDS) or 0)
+                incoming_base = float(patch_payload.get(LA_FIELD_BASE_SECONDS) or 0)
+                patch_payload[LA_FIELD_BASE_SECONDS] = max(existing_base, incoming_base)
+            except Exception:
+                pass
+
         record_id = str(existing.get(LOGIN_ACTIVITY_PRIMARY_FIELD)).strip("{}")
         url = f"{BASE_URL}/{LOGIN_ACTIVITY_ENTITY}({record_id})"
         patch_headers = {**headers, "If-Match": "*"}
@@ -4872,6 +4894,127 @@ def delete_project(record_id):
         entity_set = get_projects_entity(token)
         delete_record(entity_set, record_id)
         return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/projects/bulk", methods=["POST"])
+def bulk_create_projects():
+    """
+    Bulk create projects from JSON payload.
+    Expected body: { "projects": [ { crc6f_projectid, crc6f_projectname, crc6f_client,
+                                     crc6f_noofcontributors, crc6f_projectstatus,
+                                     crc6f_startdate, crc6f_enddate,
+                                     crc6f_estimationcost?, crc6f_manager?, crc6f_projectdescription? }, ... ] }
+    """
+    try:
+        token = get_access_token()
+        entity_set = get_projects_entity(token)
+        data = request.get_json(force=True) or {}
+        projects = data.get("projects") or []
+        if not isinstance(projects, list) or not projects:
+            return jsonify({"success": False, "error": "projects array required"}), 400
+
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "OData-MaxVersion": "4.0",
+            "OData-Version": "4.0",
+            "Content-Type": "application/json",
+        }
+
+        results = []
+        for idx, row in enumerate(projects, start=1):
+            try:
+                pid = (row.get("crc6f_projectid") or "").strip()
+                pname = (row.get("crc6f_projectname") or "").strip()
+                client = (row.get("crc6f_client") or "").strip()
+                status = (row.get("crc6f_projectstatus") or "").strip()
+                contributors = row.get("crc6f_noofcontributors")
+                start_dt = (row.get("crc6f_startdate") or "").strip()
+                end_dt = (row.get("crc6f_enddate") or "").strip()
+                if not pid or not pname or not client or contributors is None or not status or not start_dt:
+                    raise ValueError("Missing required fields (projectid, projectname, client, contributors, status, startdate)")
+
+                # Ensure unique project id
+                safe_pid = pid.replace("'", "''")
+                check_url = f"{RESOURCE}/api/data/v9.2/{entity_set}?$select=crc6f_projectid&$filter=crc6f_projectid eq '{safe_pid}'&$top=1"
+                chk = requests.get(check_url, headers=headers)
+                if chk.status_code == 200 and chk.json().get("value"):
+                    raise ValueError("Project ID already exists")
+
+                payload = {
+                    "crc6f_projectid": pid,
+                    "crc6f_projectname": pname,
+                    "crc6f_client": client,
+                    "crc6f_manager": row.get("crc6f_manager"),
+                    "crc6f_projectstatus": status,
+                    "crc6f_startdate": start_dt,
+                    "crc6f_enddate": end_dt,
+                    "crc6f_estimationcost": row.get("crc6f_estimationcost"),
+                    "crc6f_noofcontributors": row.get("crc6f_noofcontributors"),
+                    "crc6f_projectdescription": row.get("crc6f_projectdescription"),
+                }
+                create_record(entity_set, payload)
+                results.append({"index": idx, "projectid": pid, "status": "created"})
+            except Exception as row_err:
+                results.append({"index": idx, "projectid": row.get("crc6f_projectid"), "status": "error", "error": str(row_err)})
+
+        ok = [r for r in results if r["status"] == "created"]
+        errors = [r for r in results if r["status"] == "error"]
+        status_code = 207 if errors else 201
+        return jsonify({"success": True, "created": len(ok), "errors": errors, "results": results}), status_code
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/projects/bulk-delete", methods=["POST"])
+def bulk_delete_projects():
+    """
+    Bulk delete projects by project id list.
+    Expected body: { "project_ids": ["VTAB001", "VTAB002", ...] }
+    """
+    try:
+        token = get_access_token()
+        entity_set = get_projects_entity(token)
+        data = request.get_json(force=True) or {}
+        ids = data.get("project_ids") or data.get("ids") or []
+        if not isinstance(ids, list) or not ids:
+            return jsonify({"success": False, "error": "project_ids array required"}), 400
+
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "OData-MaxVersion": "4.0",
+            "OData-Version": "4.0",
+        }
+
+        results = []
+        for pid in ids:
+            try:
+                pid_norm = (pid or "").strip()
+                if not pid_norm:
+                    raise ValueError("Empty project id")
+                safe_pid = pid_norm.replace("'", "''")
+                url = f"{RESOURCE}/api/data/v9.2/{entity_set}?$select=crc6f_hr_projectheaderid&$filter=crc6f_projectid eq '{safe_pid}'&$top=1"
+                resp = requests.get(url, headers=headers, timeout=15)
+                if resp.status_code != 200:
+                    raise ValueError(f"Lookup failed: {resp.text}")
+                vals = resp.json().get("value", [])
+                if not vals:
+                    raise ValueError("Project not found")
+                rec_id = vals[0].get("crc6f_hr_projectheaderid")
+                if not rec_id:
+                    raise ValueError("Record ID missing")
+                delete_record(entity_set, rec_id)
+                results.append({"projectid": pid_norm, "status": "deleted"})
+            except Exception as row_err:
+                results.append({"projectid": pid, "status": "error", "error": str(row_err)})
+
+        ok = [r for r in results if r["status"] == "deleted"]
+        errors = [r for r in results if r["status"] == "error"]
+        status_code = 207 if errors else 200
+        return jsonify({"success": True, "deleted": len(ok), "errors": errors, "results": results}), status_code
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
