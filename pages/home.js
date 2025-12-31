@@ -770,17 +770,28 @@ const loadDashboardData = async () => {
     const currentYear = today.getFullYear();
     const currentMonth = today.getMonth() + 1;
 
+    // Fetch employees (paged) and, if not found, fall back to full directory
     const employeesResponse = await cachedFetch('employees_list', async () => {
         try {
-            return await listEmployees(1, 200);
+            return await listEmployees(1, 500);
         } catch (err) {
             console.warn('⚠️ Failed to fetch employees:', err);
             return { items: [] };
         }
     }, TTL.LONG);
 
-    const employees = employeesResponse?.items || [];
-    const currentEmployee = findCurrentEmployeeRecord(employees, user, resolvedEmployeeId);
+    let employees = employeesResponse?.items || [];
+    let currentEmployee = findCurrentEmployeeRecord(employees, user, resolvedEmployeeId);
+
+    if (!currentEmployee) {
+        try {
+            const all = await listAllEmployees();
+            employees = all || employees;
+            currentEmployee = findCurrentEmployeeRecord(employees, user, resolvedEmployeeId);
+        } catch (err) {
+            console.warn('⚠️ Failed to fetch full employee directory:', err);
+        }
+    }
     if ((!resolvedEmployeeId || resolvedEmployeeId === 'EMP000') && currentEmployee?.employee_id) {
         resolvedEmployeeId = normalizeEmployeeId(currentEmployee.employee_id);
     }
@@ -985,12 +996,16 @@ export const renderHomePage = async () => {
         console.log('⚡ Instant load from page cache');
         appContent.innerHTML = cachedPage.html;
         // Re-hydrate interactive elements
+        hydrateUserScoreboard(cachedPage.data || {});
         hydrateAnnouncementsCard();
         scheduleNotificationRefresh();
         // Refresh data in background (stale-while-revalidate pattern)
         loadDashboardData().then(data => {
             const freshHtml = getPageContentHTML('', buildDashboardLayout(data));
             cachePageState('/', freshHtml, data);
+            // Re-apply hydration with fresh data
+            hydrateUserScoreboard(data);
+            hydrateAnnouncementsCard();
         }).catch(() => {});
         return;
     }
