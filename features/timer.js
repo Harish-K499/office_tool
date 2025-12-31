@@ -7,6 +7,20 @@ const HALF_DAY_SECONDS = 4 * 3600;
 const FULL_DAY_SECONDS = 9 * 3600;
 
 /**
+ * Legacy attendance status derivation helper
+ * ------------------------------------------
+ * Used only for attendance marking / display fallback.
+ * MUST NOT control running state.
+ * Running is controlled exclusively by attendanceStatus
+ * (CHECKED_IN / CHECKED_OUT) from server/socket.
+ */
+function deriveAttendanceStatusFromSeconds(totalSeconds = 0) {
+    if (totalSeconds >= FULL_DAY_SECONDS) return 'P';
+    if (totalSeconds >= HALF_DAY_SECONDS) return 'HL';
+    return 'A';
+}
+
+/**
  * AUTHORITATIVE SOURCE OF TRUTH
  * -----------------------------
  * Server-generated UTC check-in timestamp.
