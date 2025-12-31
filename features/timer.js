@@ -458,6 +458,7 @@ export const loadTimerState = async () => {
                 state.timer.isRunning = true;
                 state.timer.startTime = syncedStartTime;
                 state.timer.lastDuration = baseFromBackend;
+                state.timer.authoritativeCheckinAt = statusData.checkin_timestamp || null;
 
                 const today = new Date();
                 const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -468,6 +469,7 @@ export const loadTimerState = async () => {
                         date: todayStr,
                         mode: 'running',
                         durationSeconds: baseFromBackend,
+                        authoritativeCheckinAt: state.timer.authoritativeCheckinAt,
                     }));
                 } catch {}
                 if (state.timer.intervalId) clearInterval(state.timer.intervalId);
@@ -478,6 +480,13 @@ export const loadTimerState = async () => {
             } else {
                 // Backend says no active session; clear any stale local cache silently
                 try { localStorage.removeItem(storageKey); } catch {}
+                state.timer.isRunning = false;
+                state.timer.startTime = null;
+                state.timer.authoritativeCheckinAt = null;
+                if (state.timer.intervalId) {
+                    clearInterval(state.timer.intervalId);
+                    state.timer.intervalId = null;
+                }
             }
         } catch (err) {
             console.warn('Failed to fetch backend status during loadTimerState:', err);
