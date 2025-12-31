@@ -8,6 +8,7 @@ import { renderMyAttendancePage } from '../pages/attendance.js';
 
 let socket = null;
 let isConnected = false;
+let syncIntervalId = null;
 
 let serverOffsetMs = 0;
 
@@ -62,6 +63,7 @@ export function initAttendanceSocket() {
         const uid = String(state.user?.id || '').toUpperCase();
         if (uid) {
             socket.emit('attendance:register', { employee_id: uid });
+            socket.emit('attendance:request-sync', { employee_id: uid });
         }
     });
 
@@ -100,6 +102,15 @@ export function initAttendanceSocket() {
 
     if (typeof window !== 'undefined') {
         window.attendanceSocket = socket;
+        // Periodic sync to keep drift low
+        if (syncIntervalId) clearInterval(syncIntervalId);
+        syncIntervalId = setInterval(() => {
+            requestTimerSync();
+        }, 90 * 1000);
+        // Sync when tab regains focus
+        window.addEventListener('focus', () => {
+            requestTimerSync();
+        });
     }
 
     return socket;
