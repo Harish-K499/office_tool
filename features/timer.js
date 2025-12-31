@@ -260,7 +260,7 @@ const startTimer = async () => {
                     };
                     localStorage.setItem(uid ? `timerState_${uid}` : 'timerState', JSON.stringify(payload));
                 } catch {}
-                maybeUpdateLiveAttendanceStatus(state.timer.lastDuration, { force: true });
+                updateTimerDisplay();
             }
 
             console.log('✅ Check-in confirmed by backend:', checkin_time);
@@ -386,6 +386,20 @@ const stopTimer = async () => {
             const finalStatus = deriveAttendanceStatusFromSeconds(Math.max(state.timer.lastDuration || 0, lastSeconds || 0));
             state.timer.lastAutoStatus = finalStatus;
             maybeUpdateLiveAttendanceStatus(state.timer.lastDuration || 0, { force: true });
+
+            // Clear authoritative anchor on successful checkout; running state is now stopped
+            state.timer.authoritativeCheckinAt = null;
+            try {
+                const payload = {
+                    isRunning: false,
+                    startTime: null,
+                    date: dateStr,
+                    mode: 'stopped',
+                    durationSeconds: state.timer.lastDuration,
+                    authoritativeCheckinAt: state.timer.authoritativeCheckinAt,
+                };
+                localStorage.setItem(uid ? `timerState_${uid}` : 'timerState', JSON.stringify(payload));
+            } catch {}
 
             console.log('✅ Check-out confirmed by backend:', checkout_time);
 

@@ -193,11 +193,10 @@ function handleTimerSync(data) {
     const uid = String(state.user?.id || '').toUpperCase();
     if (data.employee_id !== uid) return;
 
-    if (data.checkinTimestamp) {
-        state.timer.authoritativeCheckinAt = data.checkinTimestamp;
-    }
-
     if (data.isRunning) {
+        if (data.checkinTimestamp) {
+            state.timer.authoritativeCheckinAt = data.checkinTimestamp;
+        }
         // Timer is running - sync state
         const serverTimestamp = data.checkinTimestamp;
         const baseSecondsIncoming = typeof data.baseSeconds === 'number' ? data.baseSeconds : 0;
@@ -246,6 +245,7 @@ function handleTimerSync(data) {
         }
         state.timer.isRunning = false;
         state.timer.startTime = null;
+        state.timer.authoritativeCheckinAt = null;
         const incomingTotal = typeof data.totalSeconds === 'number' ? data.totalSeconds : null;
         const existingTotal = typeof state.timer.lastDuration === 'number' ? state.timer.lastDuration : 0;
         // Never downgrade due to late/empty sync payloads.
@@ -266,14 +266,14 @@ function handleRemoteCheckin(data) {
     const uid = String(state.user?.id || '').toUpperCase();
     if (data.employee_id !== uid) return;
 
-    if (data.checkinTimestamp) {
-        state.timer.authoritativeCheckinAt = data.checkinTimestamp;
-    }
-
     // If we're already running, ignore (we initiated this)
     if (state.timer.isRunning && state.timer.startTime) {
         console.log('[ATTENDANCE-SOCKET] Ignoring remote check-in (already running locally)');
         return;
+    }
+
+    if (data.checkinTimestamp) {
+        state.timer.authoritativeCheckinAt = data.checkinTimestamp;
     }
 
     const checkinTimestamp = data.checkinTimestamp || Date.now();
@@ -332,6 +332,7 @@ function handleRemoteCheckout(data) {
 
     state.timer.isRunning = false;
     state.timer.startTime = null;
+    state.timer.authoritativeCheckinAt = null;
     const incomingTotal = typeof data.totalSeconds === 'number' ? data.totalSeconds : null;
     const existingTotal = typeof state.timer.lastDuration === 'number' ? state.timer.lastDuration : 0;
     // Never downgrade due to late/empty stopped payloads.
