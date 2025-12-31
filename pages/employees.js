@@ -833,6 +833,7 @@ export const handleUpdateEmployee = (e) => {
     const employee_id = document.getElementById('editEmployeeId').value;
     const payload = {
         employee_id,
+
         first_name: document.getElementById('firstName').value,
         last_name: document.getElementById('lastName').value,
         email: document.getElementById('email').value,
@@ -842,48 +843,39 @@ export const handleUpdateEmployee = (e) => {
         designation: document.getElementById('designation').value,
         active: document.getElementById('status').value === 'Active',
         employee_flag: document.getElementById('employeeFlag').value || 'Employee',
-        profile_picture: photoDraft.cleared ? null : cleanDataUrl(photoDraft.dataUrl)
+        profile_picture: photoDraft.cleared ? null : cleanDataUrl(photoDraft.dataUrl),
     };
 
-    updateEmployee(employee_id, payload).then((updated) => {
-        // Update local cache
-        const idx = state.employees.findIndex(x => x.id === employee_id);
-        if (idx >= 0) {
-            state.employees[idx] = {
-                ...state.employees[idx],
-                name: `${payload.first_name} ${payload.last_name}`.trim(),
-                email: payload.email,
-                location: payload.contact_number,
-                contactNumber: payload.address,
-                jobTitle: payload.designation,
-                department: payload.department,
-                status: payload.active ? 'Active' : 'Inactive',
-                employeeFlag: payload.employee_flag || state.employees[idx].employeeFlag,
-                photo: normalizePhoto(photoDraft.cleared ? null : (photoDraft.dataUrl || updated?.photo || state.employees[idx].photo || null))
-            };
-        }
-        // If the edited employee is the logged-in user, update header avatar
-        if (state.user && (state.user.id === employee_id || state.user.employee_id === employee_id)) {
-            state.user.avatarUrl = state.employees[idx]?.photo || state.user.avatarUrl;
-            applyHeaderAvatar();
-        }
-        closeModal();
-        renderEmployeesPage();
-    }).catch(err => {
-        console.error('Failed to update employee:', err);
-        alert(`Failed to update employee: ${err.message || err}`);
-    });
-};
-
-export const handleDeleteEmployee = (employeeId) => {
-    if (!confirm('Are you sure you want to delete this employee?')) return;
-    deleteEmployee(employeeId).then(() => {
-        state.employees = state.employees.filter(e => e.id !== employeeId);
-        renderEmployeesPage();
-    }).catch(err => {
-        console.error('Failed to delete employee:', err);
-        alert(`Failed to delete employee: ${err.message || err}`);
-    });
+    updateEmployee(employee_id, payload)
+        .then(() => {
+            try { if (state?.cache?.employees) state.cache.employees = {}; } catch {}
+            const photoData = cleanDataUrl(payload.profile_picture) || null;
+            const idx = state.employees.findIndex((x) => x.id === employee_id);
+            if (idx >= 0) {
+                state.employees[idx] = {
+                    ...state.employees[idx],
+                    name: `${payload.first_name || ''} ${payload.last_name || ''}`.trim(),
+                    email: payload.email,
+                    location: payload.contact_number,
+                    jobTitle: payload.designation,
+                    contactNumber: payload.address,
+                    department: payload.department,
+                    status: payload.active ? 'Active' : 'Inactive',
+                    employeeFlag: payload.employee_flag || state.employees[idx].employeeFlag,
+                    photo: photoData !== null ? photoData : state.employees[idx].photo,
+                };
+            }
+            if (state.user && (state.user.id === employee_id || state.user.employee_id === employee_id)) {
+                if (photoData !== null) state.user.avatarUrl = photoData;
+                applyHeaderAvatar();
+            }
+            closeModal();
+            renderEmployeesPage();
+        })
+        .catch((err) => {
+            console.error('Failed to update employee:', err);
+            alert(`Failed to update employee: ${err.message || err}`);
+        });
 };
 
 export const showBulkUploadModal = () => {
