@@ -3762,23 +3762,9 @@ def get_status(employee_id):
                     base_seconds_raw = login_rec.get(LA_FIELD_BASE_SECONDS)
                     total_seconds_raw = login_rec.get(LA_FIELD_TOTAL_SECONDS)
 
-                    # Treat zero-duration or older checkout as still active
-                    checkout_is_effectively_null = False
-                    try:
-                        ts_in = login_rec.get(LA_FIELD_CHECKIN_TS)
-                        ts_out = login_rec.get(LA_FIELD_CHECKOUT_TS)
-                        if checkout_time_raw and checkin_time_raw:
-                            # Same timestamp or zero total → ignore checkout
-                            if str(checkout_time_raw) == str(checkin_time_raw) or int(total_seconds_raw or 0) <= 0:
-                                checkout_is_effectively_null = True
-                            # If checkout_ts exists but is older than the stored checkin_ts, prefer check-in as active
-                            elif ts_in is not None and ts_out is not None:
-                                if int(ts_out) < int(ts_in):
-                                    checkout_is_effectively_null = True
-                    except Exception:
-                        pass
-
-                    if checkin_time_raw and (not checkout_time_raw or checkout_is_effectively_null):
+                    # Only treat as active if there is a check-in AND no checkout recorded.
+                    # If checkout exists (even with zero/older totals), assume stopped to avoid false reactivation.
+                    if checkin_time_raw and not checkout_time_raw:
                         checkin_dt = None
                         try:
                             checkin_dt = datetime.fromisoformat(checkin_time_raw.replace("Z", "+00:00"))
