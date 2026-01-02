@@ -752,6 +752,7 @@ export const showEditEmployeeModal = (employeeId) => {
         alert('Employee not found');
         return;
     }
+    const existingPhoto = normalizePhoto(emp.photo || emp.profile_picture || emp.avatarUrl);
     photoDraft = { dataUrl: null, cleared: false };
     const [firstPrefill, ...lastParts] = (emp.name || '').split(' ');
     const lastPrefill = lastParts.join(' ');
@@ -835,7 +836,7 @@ export const showEditEmployeeModal = (employeeId) => {
         <input type="hidden" id="editEmployeeId" name="editEmployeeId" value="${emp.id}">
     `;
     renderModal('Edit Employee', formHTML, 'update-employee-btn');
-    setTimeout(() => initPhotoUploader(emp.photo || null), 50);
+    setTimeout(() => initPhotoUploader(existingPhoto || null), 50);
 };
 
 export const handleUpdateEmployee = (e) => {
