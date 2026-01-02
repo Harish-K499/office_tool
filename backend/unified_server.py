@@ -3722,22 +3722,27 @@ def get_status(employee_id):
                                 existing_hours = float(rec.get(FIELD_DURATION) or "0")
                             except Exception:
                                 existing_hours = 0.0
-                            # If we had to generate a new attendance ID for an existing record,
-                            # patch it back to Dataverse (best-effort).
                             if attendance_id and not rec.get(FIELD_ATTENDANCE_ID_CUSTOM):
                                 try:
                                     update_record(ATTENDANCE_ENTITY, record_id, {FIELD_ATTENDANCE_ID_CUSTOM: attendance_id})
                                 except Exception:
                                     pass
 
-                            checkin_timestamp = int(now.timestamp() * 1000)  # milliseconds for JS
-                            checkin_seconds = int(now.timestamp())           # seconds for Dataverse Int32
-
+                            # Use stored check-in time for accurate elapsed; fall back to now if parse fails
+                            try:
+                                checkin_dt = datetime.strptime(checkin_time_rec, "%H:%M:%S").replace(
+                                    year=datetime.now().year,
+                                    month=datetime.now().month,
+                                    day=datetime.now().day,
+                                )
+                            except Exception:
+                                checkin_dt = datetime.now()
+                            checkin_timestamp = int(checkin_dt.timestamp() * 1000)  # ms for JS
                             base_seconds = int(round(existing_hours * 3600)) if existing_hours else 0
                             active_sessions[key] = {
                                 "record_id": record_id,
                                 "checkin_time": checkin_time_rec,
-                                "checkin_datetime": now.isoformat(),
+                                "checkin_datetime": checkin_dt.isoformat(),
                                 "checkin_timestamp": checkin_timestamp,
                                 "attendance_id": attendance_id,
                                 "local_date": formatted_date,
