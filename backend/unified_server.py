@@ -6641,7 +6641,7 @@ def create_employee():
             payload[field_map['employee_flag']] = employee_flag
 
         # Profile picture (base64/data URL or null to clear)
-        if field_map.get('profile_picture') is not None:
+        if has_profile_picture_field and field_map.get('profile_picture') is not None:
             if profile_picture is None:
                 payload[field_map['profile_picture']] = None
             elif isinstance(profile_picture, str):
@@ -7302,8 +7302,9 @@ def update_employee_api(employee_id):
         entity_set = get_employee_entity_set(token)
         field_map = get_field_map(entity_set)
         data = request.get_json(force=True)
-        profile_picture_raw = data.get("profile_picture")
-        profile_picture = sanitize_profile_picture(profile_picture_raw) if field_map.get("profile_picture") else None
+        has_profile_picture_field = "profile_picture" in data
+        profile_picture_raw = data.get("profile_picture") if has_profile_picture_field else None
+        profile_picture = sanitize_profile_picture(profile_picture_raw) if has_profile_picture_field and field_map.get("profile_picture") else None
 
         headers = {
             "Authorization": f"Bearer {token}",

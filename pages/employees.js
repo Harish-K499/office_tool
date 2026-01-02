@@ -866,6 +866,9 @@ export const handleUpdateEmployee = (e) => {
         payload.profile_picture = null;
     } else if (photoDraft.dataUrl) {
         payload.profile_picture = cleanDataUrl(photoDraft.dataUrl);
+    } else if (initialPhotoRef) {
+        // Preserve existing photo explicitly so backend keeps it (dataverse update may ignore omitted field)
+        payload.profile_picture = cleanDataUrl(initialPhotoRef);
     }
 
     updateEmployee(employee_id, payload)
