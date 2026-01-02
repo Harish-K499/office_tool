@@ -609,6 +609,9 @@ export const renderBulkUploadPage = async () => {
 
 export const showAddEmployeeModal = () => {
     photoDraft = { dataUrl: null, cleared: false };
+    initialPhotoRef = null;
+    const previewClass = 'avatar-preview';
+    const previewStyle = '';
     const formHTML = `
         <div class="modal-form modern-form employee-form">
             <div class="form-section">
