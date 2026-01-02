@@ -3516,6 +3516,13 @@ body.dark-theme .icon-btn.header-theme-toggle i {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7);
 }
 
+.employee-avatar.has-photo {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  color: transparent;
+}
+
 /* Dark Theme Avatar Fixes - Bright and Vibrant */
 body.dark-theme .employee-avatar {
   color: white;
