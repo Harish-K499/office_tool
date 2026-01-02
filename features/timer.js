@@ -383,11 +383,23 @@ export const updateTimerButton = () => {
     }
 };
 
+const storageAvailable = () => {
+    try {
+        const k = '__ls_probe__';
+        localStorage.setItem(k, '1');
+        localStorage.removeItem(k);
+        return true;
+    } catch {
+        return false;
+    }
+};
+
 export const loadTimerState = async () => {
     // Always prefer authoritative backend state if available
     const uid = String(state.user.id || '').toUpperCase();
     const storageKey = uid ? `timerState_${uid}` : 'timerState';
     const baseUrl = (API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
+    const canUseStorage = storageAvailable();
 
     // 1) Backend-first: if backend says we're checked in, restore and return
     if (uid) {
@@ -406,15 +418,17 @@ export const loadTimerState = async () => {
 
                 const today = new Date();
                 const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-                try {
-                    localStorage.setItem(storageKey, JSON.stringify({
-                        isRunning: true,
-                        startTime: syncedStartTime,
-                        date: todayStr,
-                        mode: 'running',
-                        durationSeconds: baseFromBackend,
-                    }));
-                } catch {}
+                if (canUseStorage) {
+                    try {
+                        localStorage.setItem(storageKey, JSON.stringify({
+                            isRunning: true,
+                            startTime: syncedStartTime,
+                            date: todayStr,
+                            mode: 'running',
+                            durationSeconds: baseFromBackend,
+                        }));
+                    } catch {}
+                }
                 if (state.timer.intervalId) clearInterval(state.timer.intervalId);
                 state.timer.intervalId = setInterval(updateTimerDisplay, 1000);
                 updateTimerDisplay();
@@ -432,10 +446,12 @@ export const loadTimerState = async () => {
 
     // 2) Fallback to local cache if backend unreachable
     let raw = null;
-    try {
-        raw = localStorage.getItem(storageKey);
-    } catch {
-        raw = null;
+    if (canUseStorage) {
+        try {
+            raw = localStorage.getItem(storageKey);
+        } catch {
+            raw = null;
+        }
     }
 
     if (!raw) return;
