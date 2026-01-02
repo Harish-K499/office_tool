@@ -3904,6 +3904,40 @@ body.dark-theme .onboarding-card .view-details-btn span {
   box-shadow: var(--shadow-md);
 }
 
+.profile-photo-upload {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.avatar-preview {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: var(--surface-alt);
+  border: 1px dashed var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.85rem;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  overflow: hidden;
+  position: relative;
+}
+
+.avatar-preview::after {
+  content: attr(data-placeholder);
+}
+
+.avatar-preview.has-photo {
+  border: none;
+  background-color: #fff;
+}
+
 .profile-detail-item {
   display: flex;
   align-items: center;
