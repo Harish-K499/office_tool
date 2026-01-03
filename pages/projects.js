@@ -1137,14 +1137,22 @@ const renderProjectDetails = (id, tab) => {
       .form-grid{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
       @media (max-width: 900px){ .form-grid{ grid-template-columns:1fr; } }
       .table td,.table th{ padding:14px 16px; }
-      .kan-wrap{ display:flex; gap:12px; align-items:flex-start; overflow:auto; }
-      .kan-col{ min-width:260px; background:var(--surface-alt); border:1px dashed var(--border-color); padding:10px; border-radius:8px; }
-      .kan-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; color:var(--text-primary); }
-      .kan-card{ background:var(--surface-color); border:1px solid var(--border-color); border-radius:8px; padding:10px; margin-bottom:10px; box-shadow:0 1px 2px rgba(0,0,0,.04); }
-      .badge{ padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; }
+      .kan-wrap{ display:flex; gap:16px; align-items:flex-start; overflow:auto; padding:8px 4px; }
+      .kan-list{ min-width:260px; padding:12px; border-radius:12px; box-shadow:0 1px 3px rgba(0,0,0,.06); border:1px solid #e2e8f0; }
+      .kan-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; color:#0f172a; font-weight:700; }
+      .kan-head .badge{ background:#e5edff; color:#1d4ed8; }
+      .kan-card{ background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:10px 12px; margin-bottom:10px; box-shadow:0 2px 4px rgba(0,0,0,.08); transition:transform 120ms ease, box-shadow 120ms ease; }
+      .kan-card:hover{ transform:translateY(-2px); box-shadow:0 4px 10px rgba(0,0,0,.08); }
+      .badge{ padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; display:inline-block; }
       .badge.low{ background:#e8f0fe; color:#1a73e8; }
       .badge.medium{ background:#fff4e5; color:#c07400; }
-      .badge.high{ background:#fdecea; color:#d93025; }
+      .badge.high{ background:#fde7e9; color:#c62828; }
+      .priority{ padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; text-transform:capitalize; }
+      .priority.low{ background:#e8f0fe; color:#1a73e8; }
+      .priority.medium{ background:#fff4e5; color:#c07400; }
+      .priority.high{ background:#fde7e9; color:#c62828; }
+      .card-meta{ display:flex; justify-content:space-between; gap:8px; font-size:12px; color:#475467; margin-top:6px; }
+      .card-meta .label{ color:#6b7280; font-weight:600; }
       .avatar{ width:28px; height:28px; border-radius:50%; background:var(--primary-color); color:#fff; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; }
       .due-pill{ padding:4px 8px; border-radius:999px; background:#f3f4f6; font-size:11px; }
       .due-pill.overdue{ background:#fdecea; color:#d93025; }
@@ -2660,15 +2668,15 @@ if (typeof window !== "undefined") {
 function getDefaultColor(name) {
   switch (name.trim().toLowerCase()) {
     case "new":
-      return "#E0E0E0"; // light grey
+      return "#d9d9d9"; // soft grey
     case "in progress":
-      return "#FFF7C5"; // light yellow
-    case "completed":
-      return "#C8FACC"; // light green
+      return "#fff4b8"; // pastel yellow
     case "hold":
-      return "#FFCCCC"; // light red
+      return "#fcd4d4"; // pastel pink
+    case "completed":
+      return "#d5f6de"; // pastel green
     default:
-      return "#F4F4F4"; // very light grey
+      return "#f4f4f4"; // very light grey
   }
 }
 
@@ -2711,10 +2719,16 @@ const crmTab = async (project) => {
     ),
   }));
 
+  const boardName =
+    new URLSearchParams(window.location.hash.split("?")[1] || "").get(
+      "boardName"
+    ) || boardParam;
+
   const listsHtml = grouped
-    .map(
-      (col) => `
-      <div class="kan-list" data-col="${col.name}">
+    .map((col) => {
+      const bg = getDefaultColor(col.name);
+      return `
+      <div class="kan-list" data-col="${col.name}" style="background:${bg}; border-color:${bg};">
         <div class="kan-head">
           <strong>${col.name}</strong>
           <span class="badge">${col.items.length}</span>
@@ -2723,11 +2737,14 @@ const crmTab = async (project) => {
           .map((t, idx) => taskCardHtml(t, idx))
           .join("") || `<div class="placeholder-text">No tasks</div>`}
       </div>
-    `
-    )
+    `;
+    })
     .join("");
 
   return `
+    <div class="board-header" style="margin-bottom:10px; font-weight:700; color:#0f172a;">
+      Board: ${boardName}
+    </div>
     <div class="kan-wrap">
       ${listsHtml}
     </div>
@@ -2786,8 +2803,7 @@ const taskCardHtml = (t, index) => {
       
       <div class="task-separator"></div>
 
-
-      <div class="card-bottom">
+      <div class="card-bottom" style="margin-top:6px;">
         <span class="due-pill ${dueColor}">${dueString}</span>
       </div>
     </div>
