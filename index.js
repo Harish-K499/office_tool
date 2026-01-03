@@ -1050,9 +1050,6 @@ const init = async () => {
   };
 
   if (pageShell && (headerActions || headerGreeting)) {
-
-    // On desktop, start with the sidebar hidden and reveal only via left-edge hover.
-    // On smaller screens, keep the sidebar visible.
     if (isDesktopViewport()) {
       setSidebarHidden(true);
     } else {
@@ -1091,26 +1088,21 @@ const init = async () => {
   }
 
   if (sidebarEl && appContainer) {
-    // Reveal sidebar when hovering over the collapsed icon rail,
-    // and collapse again when moving sufficiently away.
-    document.addEventListener('mousemove', (event) => {
-      if (!isDesktopViewport()) return;
+    const toggleBtn = document.getElementById('sidebar-toggle-btn');
+    const toggleSidebar = () => setSidebarHidden(!sidebarHidden);
 
-      const sidebarWidth = sidebarEl.offsetWidth || 280;
+    // Toggle via header button
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleSidebar();
+      });
+    }
 
-      if (sidebarHidden) {
-        // When collapsed, expand if cursor is within the visible rail area
-        const expandThreshold = sidebarWidth + 8;
-        if (event.clientX <= expandThreshold) {
-          setSidebarHidden(false);
-          return;
-        }
-      } else {
-        // When expanded, collapse once cursor moves far enough away from sidebar
-        const hideThreshold = sidebarWidth + 24;
-        if (event.clientX > hideThreshold) {
-          setSidebarHidden(true);
-        }
+    // When collapsed on desktop, a direct click on the sidebar rail expands it.
+    sidebarEl.addEventListener('click', () => {
+      if (isDesktopViewport() && sidebarHidden) {
+        setSidebarHidden(false);
       }
     });
 
