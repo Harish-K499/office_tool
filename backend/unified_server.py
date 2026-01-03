@@ -3361,16 +3361,13 @@ def checkout():
             normalized_emp_id = format_employee_id(int(normalized_emp_id))
         key = normalized_emp_id
 
-        # Verify this employee has an active check-in
+        # Verify this employee has an active check-in (may recover below)
         session = active_sessions.get(key)
-        if not session:
-            return jsonify({
-                "success": False,
-                "error": "No active check-in found. Please check in first.",
-            }), 400
 
         # Use client time if available
         local_now = _coerce_client_local_datetime(client_time, timezone_str) or datetime.now()
+        now = local_now
+
         checkout_time_str = local_now.strftime("%H:%M:%S")
 
         # Log the check-out event with location
@@ -3381,7 +3378,8 @@ def checkout():
         # This handles server restarts where active_sessions is cleared
         if not session:
             try:
-                formatted_date = now.date().isoformat()
+                formatted_date = local_now.date().isoformat()
+
                 token = get_access_token()
                 headers = {
                     "Authorization": f"Bearer {token}",
@@ -3408,6 +3406,7 @@ def checkout():
                                 or rec.get("cr6f_table13id")
                                 or rec.get("id")
                             )
+
                             attendance_id = (
                                 rec.get(FIELD_ATTENDANCE_ID_CUSTOM)
                                 or generate_random_attendance_id()
@@ -3419,6 +3418,10 @@ def checkout():
                             # If we had to generate a new attendance ID for an existing record,
                             # patch it back to Dataverse (best-effort).
                             if attendance_id and not rec.get(FIELD_ATTENDANCE_ID_CUSTOM):
+                                try:
+                                    update_record(ATTENDANCE_ENTITY, record_id, {FIELD_ATTENDANCE_ID_CUSTOM: attendance_id})
+                                except Exception:
+                                    pass
 
                             # Derive check-in timestamp from stored check-in time (not "now")
                             try:
@@ -3435,7 +3438,6 @@ def checkout():
                                 "record_id": record_id,
                                 "checkin_time": checkin_time,
                                 "checkin_datetime": checkin_dt.isoformat(),
-
                                 "checkin_timestamp": checkin_timestamp,
                                 "attendance_id": attendance_id,
                                 "local_date": formatted_date,
@@ -3443,9 +3445,11 @@ def checkout():
                             }
 
                             print(f"[INFO] Recovered session from Dataverse for {key}")
-            except Exception as recover_err:
-                print(f"[WARN] Failed to recover session from Dataverse: {recover_err}")
+            except Exception as e:
+                print(f"[WARN] Failed to recover session from Dataverse: {e}")
 
+        # After recovery attempt, ensure session exists
+        session = active_sessions.get(key)
         if not session:
             return jsonify({
                 "success": False,
