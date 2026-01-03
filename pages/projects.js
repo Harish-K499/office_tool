@@ -1068,18 +1068,16 @@ const renderProjectDetails = (id, tab) => {
     window.location.hash = "#/time-projects";
     return;
   }
-  // Temporary fallback: CRM tab is currently disabled, redirect to Boards tab
+  // CRM tab is currently disabled; normalize to boards without looping
   if (tab === "crm") {
-    const fallbackHash = `#/time-projects?id=${encodeURIComponent(
-      id
-    )}&tab=boards`;
-    window.location.hash = fallbackHash;
-    renderProjectDetails(id, "boards");
-    return;
+    tab = "boards";
+    const qs = new URLSearchParams(window.location.hash.split("?")[1] || "");
+    qs.set("tab", "boards");
+    window.location.hash = `#/time-projects?${qs.toString()}`;
   }
   const { canManage } = getProjectAccess();
 
-  const tabs = ["details", "contributors", "boards", "crm"];
+  const tabs = ["details", "contributors", "boards"];
 
   const tabsHtml = `
   <div class="tabs">
