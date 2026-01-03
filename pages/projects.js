@@ -1068,6 +1068,15 @@ const renderProjectDetails = (id, tab) => {
     window.location.hash = "#/time-projects";
     return;
   }
+  // Temporary fallback: CRM tab is currently disabled, redirect to Boards tab
+  if (tab === "crm") {
+    const fallbackHash = `#/time-projects?id=${encodeURIComponent(
+      id
+    )}&tab=boards`;
+    window.location.hash = fallbackHash;
+    renderProjectDetails(id, "boards");
+    return;
+  }
   const { canManage } = getProjectAccess();
 
   const tabs = ["details", "contributors", "boards", "crm"];
