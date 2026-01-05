@@ -916,9 +916,9 @@ def _upsert_login_activity(token: str, employee_id: str, date_str: str, payload:
                 patch_payload.pop(LA_FIELD_CHECKIN_TIME, None)
         if LA_FIELD_BASE_SECONDS in patch_payload:
             try:
-                existing_base = float(existing.get(LA_FIELD_BASE_SECONDS) or 0)
-                incoming_base = float(patch_payload.get(LA_FIELD_BASE_SECONDS) or 0)
-                patch_payload[LA_FIELD_BASE_SECONDS] = max(existing_base, incoming_base)
+                existing_base = int(float(existing.get(LA_FIELD_BASE_SECONDS) or 0))
+                incoming_base = int(float(patch_payload.get(LA_FIELD_BASE_SECONDS) or 0))
+                patch_payload[LA_FIELD_BASE_SECONDS] = int(max(existing_base, incoming_base))
             except Exception:
                 pass
 
@@ -2315,7 +2315,22 @@ def checkin():
             checkin_timestamp = int(local_now.timestamp() * 1000)  # milliseconds for JS
             checkin_seconds = int(local_now.timestamp())           # seconds for Dataverse Int32
 
+            # Calculate base_seconds from existing duration OR login activity total_seconds
+            # This ensures continuation sessions preserve accumulated time from previous checkout
             base_seconds = int(round(existing_hours * 3600)) if existing_hours else 0
+            if base_seconds == 0:
+                # Fallback: check login activity for total_seconds from previous checkout
+                try:
+                    la_token = get_access_token()
+                    la_rec = _fetch_login_activity_record(la_token, normalized_emp_id, formatted_date)
+                    if la_rec:
+                        la_total = la_rec.get(LA_FIELD_TOTAL_SECONDS)
+                        if la_total is not None:
+                            base_seconds = int(la_total)
+                            print(f"[INFO] Continuation base_seconds from login activity: {base_seconds}s")
+                except Exception as la_err:
+                    print(f"[WARN] Failed to fetch login activity for base_seconds: {la_err}")
+
             active_sessions[key] = {
                 "record_id": record_id,
                 "checkin_time": formatted_time,
