@@ -208,7 +208,33 @@ module.exports = (io) => {
         });
 
         console.log(`[ATTENDANCE] Auto status update for ${uid}: ${newStatus} (${totalSeconds}s)`);
+
+        // Persist status to backend (fire-and-forget)
+        persistStatusToBackend(uid, totalSeconds, newStatus);
       }
+    }
+  }
+
+  // Persist auto-updated status to backend Dataverse
+  async function persistStatusToBackend(employeeId, totalSeconds, status) {
+    try {
+      const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
+      const response = await fetch(`${backendUrl}/api/attendance/auto-status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employee_id: employeeId,
+          total_seconds: totalSeconds,
+          status: status,
+        }),
+      });
+      if (response.ok) {
+        console.log(`[ATTENDANCE] Persisted auto-status ${status} for ${employeeId} to backend`);
+      } else {
+        console.warn(`[ATTENDANCE] Failed to persist auto-status for ${employeeId}: ${response.status}`);
+      }
+    } catch (err) {
+      console.warn(`[ATTENDANCE] Error persisting auto-status for ${employeeId}:`, err.message);
     }
   }
 };

@@ -2324,7 +2324,18 @@ def checkin():
                 "base_seconds": base_seconds,
             }
 
-            # Persist durable session fields to login activity
+            # CRITICAL: Clear checkout fields in Dataverse when re-checking in (continuation)
+            # This ensures get_status won't think user is checked out after a re-checkin
+            try:
+                update_record(ATTENDANCE_ENTITY, record_id, {
+                    FIELD_CHECKOUT: None,  # Clear checkout time
+                    FIELD_CHECKIN: formatted_time,  # Update checkin time to current
+                })
+                print(f"[OK] Cleared checkout field for continuation check-in: {record_id}")
+            except Exception as clear_err:
+                print(f"[WARN] Failed to clear checkout field on continuation: {clear_err}")
+
+            # Persist durable session fields to login activity (clear checkout fields too)
             try:
                 token = get_access_token()
                 _upsert_login_activity(token, normalized_emp_id, formatted_date, {
@@ -2332,6 +2343,8 @@ def checkin():
                     LA_FIELD_CHECKIN_TS: checkin_seconds,
                     LA_FIELD_BASE_SECONDS: base_seconds,
                     LA_FIELD_CHECKIN_LOCATION: _login_activity_location_string(event),
+                    LA_FIELD_CHECKOUT_TIME: None,  # Clear checkout time
+                    LA_FIELD_CHECKOUT_TS: None,    # Clear checkout timestamp
                 })
             except Exception as e:
                 print(f"[WARN] Failed to persist login activity (continuation) for {key}: {e}")
@@ -3640,6 +3653,84 @@ def checkout():
         )
     except Exception as e:
         print(f"\n[ERROR] CHECK-OUT ERROR: {str(e)}\n")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/attendance/auto-status', methods=['POST'])
+def auto_status_update():
+    """Auto-update attendance status when timer crosses thresholds (4h=HL, 8h=P).
+    
+    Called by socket server when status changes automatically.
+    Updates the Dataverse attendance record with the new status.
+    """
+    try:
+        data = request.json or {}
+        employee_id_raw = (data.get('employee_id') or '').strip()
+        total_seconds = data.get('total_seconds', 0)
+        status = data.get('status', 'A')
+        
+        if not employee_id_raw:
+            return jsonify({"success": False, "error": "Employee ID required"}), 400
+        
+        normalized_emp_id = employee_id_raw.upper()
+        if normalized_emp_id.isdigit():
+            normalized_emp_id = format_employee_id(int(normalized_emp_id))
+        
+        # Find today's attendance record
+        from datetime import date as _date
+        formatted_date = _date.today().isoformat()
+        token = get_access_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "OData-MaxVersion": "4.0",
+            "OData-Version": "4.0",
+        }
+        filter_query = (
+            f"?$filter={FIELD_EMPLOYEE_ID} eq '{normalized_emp_id}' "
+            f"and {FIELD_DATE} eq '{formatted_date}'"
+        )
+        url = f"{RESOURCE}/api/data/v9.2/{ATTENDANCE_ENTITY}{filter_query}"
+        resp = requests.get(url, headers=headers, timeout=20)
+        
+        if resp.status_code != 200:
+            return jsonify({"success": False, "error": "Failed to fetch attendance record"}), 500
+        
+        vals = resp.json().get("value", [])
+        if not vals:
+            return jsonify({"success": False, "error": "No attendance record found for today"}), 404
+        
+        rec = vals[0]
+        record_id = rec.get(FIELD_RECORD_ID) or rec.get("cr6f_table13id") or rec.get("id")
+        
+        if not record_id:
+            return jsonify({"success": False, "error": "Record ID not found"}), 500
+        
+        # Calculate hours from seconds
+        total_hours = round(total_seconds / 3600, 2)
+        hours_int = int(total_hours)
+        minutes_int = int((total_seconds % 3600) / 60)
+        readable_duration = f"{hours_int} hour(s) {minutes_int} minute(s)"
+        
+        # Update the attendance record with new status and duration
+        update_payload = {
+            FIELD_DURATION: str(total_hours),
+            FIELD_DURATION_INTEXT: readable_duration,
+        }
+        if FIELD_STATUS:
+            update_payload[FIELD_STATUS] = status
+        
+        update_record(ATTENDANCE_ENTITY, record_id, update_payload)
+        print(f"[OK] Auto-status update for {normalized_emp_id}: {status} ({total_hours}h)")
+        
+        return jsonify({
+            "success": True,
+            "employee_id": normalized_emp_id,
+            "status": status,
+            "total_hours": total_hours,
+        })
+    except Exception as e:
+        print(f"[ERROR] Auto-status update error: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 
