@@ -2318,21 +2318,24 @@ def checkin():
             checkin_timestamp = int(local_now.timestamp() * 1000)  # milliseconds for JS
             checkin_seconds = int(local_now.timestamp())           # seconds for Dataverse Int32
 
-            # Calculate base_seconds from existing duration OR login activity total_seconds
+            # Calculate base_seconds from existing duration OR login activity
             # This ensures continuation sessions preserve accumulated time from previous checkout
             base_seconds = int(round(existing_hours * 3600)) if existing_hours else 0
-            if base_seconds == 0:
-                # Fallback: check login activity for total_seconds from previous checkout
-                try:
-                    la_token = get_access_token()
-                    la_rec = _fetch_login_activity_record(la_token, normalized_emp_id, formatted_date)
-                    if la_rec:
-                        la_total = la_rec.get(LA_FIELD_TOTAL_SECONDS)
-                        if la_total is not None:
-                            base_seconds = int(la_total)
-                            print(f"[INFO] Continuation base_seconds from login activity: {base_seconds}s")
-                except Exception as la_err:
-                    print(f"[WARN] Failed to fetch login activity for base_seconds: {la_err}")
+            
+            # Always check login activity and use the MAXIMUM value to prevent time loss
+            try:
+                la_token = get_access_token()
+                la_rec = _fetch_login_activity_record(la_token, normalized_emp_id, formatted_date)
+                if la_rec:
+                    # Check both base_seconds and total_seconds, use the highest
+                    la_base = int(la_rec.get(LA_FIELD_BASE_SECONDS) or 0)
+                    la_total = int(la_rec.get(LA_FIELD_TOTAL_SECONDS) or 0)
+                    la_max = max(la_base, la_total)
+                    if la_max > base_seconds:
+                        base_seconds = la_max
+                        print(f"[INFO] Continuation base_seconds from login activity: {base_seconds}s (base={la_base}, total={la_total})")
+            except Exception as la_err:
+                print(f"[WARN] Failed to fetch login activity for base_seconds: {la_err}")
 
             active_sessions[key] = {
                 "record_id": record_id,
@@ -4167,12 +4170,23 @@ def get_status(employee_id):
             # Prefer active session record
             if active and active_sessions.get(key, {}).get("record_id"):
                 record_id = active_sessions[key]["record_id"]
+
             # Fallback to last fetched attendance record
             if not record_id and 'rec' in locals():
                 record_id = rec.get(FIELD_RECORD_ID) or rec.get("cr6f_table13id") or rec.get("id")
             if record_id and active:
                 # Update duration at threshold crossings (4h=HL, 8h=P)
                 _maybe_mark_thresholds(key, record_id, total_seconds_today)
+                # Persist running total into login activity so recoveries don't lose elapsed time
+                try:
+                    token = get_access_token()
+                    from datetime import date as _date
+                    formatted_date = _date.today().isoformat()
+                    _upsert_login_activity(token, key, formatted_date, {
+                        LA_FIELD_BASE_SECONDS: int(total_seconds_today)
+                    })
+                except Exception as la_err:
+                    print(f"[WARN] Failed to persist live total_seconds to login activity for {key}: {la_err}")
         except Exception as status_persist_err:
             print(f"[WARN] Failed to persist mid-day status for {key}: {status_persist_err}")
 
@@ -4184,6 +4198,7 @@ def get_status(employee_id):
             "total_seconds_today": total_seconds_today,
             "status": status,
         })
+
     except Exception as e:
         print(f"[ERROR] status error: {e}")
         return jsonify({"checked_in": False, "error": str(e)}), 500
