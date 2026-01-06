@@ -4262,7 +4262,7 @@ def get_status(employee_id):
                 record_id = active_sessions[key]["record_id"]
 
             # Fallback to last fetched attendance record
-            if not record_id and 'rec' in locals():
+            if not record_id and 'rec' in locals() and rec is not None:
                 record_id = rec.get(FIELD_RECORD_ID) or rec.get("cr6f_table13id") or rec.get("id")
             if record_id and active:
                 # Update duration at threshold crossings (4h=HL, 8h=P)
