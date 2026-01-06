@@ -499,6 +499,34 @@ export const loadTimerState = async () => {
     const canUseStorage = storageAvailable();
     const todayStr = getTodayDateStr();
 
+    // Initialize timerDateStr for midnight detection
+    timerDateStr = todayStr;
+
+    // CRITICAL: Check localStorage for stale date and clear if from previous day
+    // This ensures timer resets even if backend returns stale data or fails
+    if (canUseStorage) {
+        try {
+            const storedRaw = localStorage.getItem(primaryKey) || localStorage.getItem(fallbackKey);
+            if (storedRaw) {
+                const stored = JSON.parse(storedRaw);
+                if (stored.date && stored.date !== todayStr) {
+                    console.log(`[TIMER] Clearing stale localStorage (stored: ${stored.date}, today: ${todayStr})`);
+                    localStorage.removeItem(primaryKey);
+                    localStorage.removeItem(fallbackKey);
+                    // Reset in-memory state as well
+                    state.timer.isRunning = false;
+                    state.timer.startTime = null;
+                    state.timer.lastDuration = 0;
+                    state.timer.lastAutoStatus = null;
+                    updateTimerButton();
+                    updateTimerDisplay();
+                }
+            }
+        } catch (e) {
+            console.warn('[TIMER] Error checking localStorage date:', e);
+        }
+    }
+
     // 1) Backend-first: fetch status from backend to sync across devices
     if (uid) {
         try {
