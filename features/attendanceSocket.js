@@ -21,6 +21,12 @@ let lastUserActionTimestamp = 0;
 const HALF_DAY_SECONDS = 4 * 3600;
 const FULL_DAY_SECONDS = 9 * 3600;
 
+// Helper to get today's date string in YYYY-MM-DD format (client local time)
+function getTodayDateStr() {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+}
+
 function resolveSocketUrl() {
     // Try environment variables first
     if (typeof import.meta !== 'undefined' && import.meta.env) {
@@ -226,6 +232,14 @@ function handleTimerSync(data) {
     updateServerOffset(data);
     const uid = String(state.user?.id || '').toUpperCase();
     if (data.employee_id !== uid) return;
+
+    // CRITICAL: Check if socket data is from a different day (stale data due to timezone mismatch)
+    // If socket sends data with a date that doesn't match client's local today, ignore it
+    const todayStr = getTodayDateStr();
+    if (data.date && data.date !== todayStr) {
+        console.log(`[ATTENDANCE-SOCKET] Ignoring sync - stale date (socket: ${data.date}, today: ${todayStr})`);
+        return;
+    }
 
     // If we just loaded backend state or had a recent user action, ignore socket sync
     // This prevents stale socket data from overriding correct backend/local state

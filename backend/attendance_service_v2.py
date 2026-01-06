@@ -485,7 +485,16 @@ def get_status_v2(employee_id):
         
         # SERVER TIME IS TRUTH
         now_utc = get_server_now_utc()
-        today_date = now_utc.strftime("%Y-%m-%d")
+        
+        # Use client's timezone to determine "today" (handles midnight correctly)
+        # This ensures 12:01 AM IST is Jan 7 for IST users, not Jan 6 (which UTC would give)
+        try:
+            client_tz = ZoneInfo(tz_name)
+            client_now = now_utc.astimezone(client_tz)
+            today_date = client_now.strftime("%Y-%m-%d")
+        except Exception:
+            # Fallback to UTC if timezone parsing fails
+            today_date = now_utc.strftime("%Y-%m-%d")
         
         # Get both records
         existing_att = fetch_attendance_record(employee_id, today_date)
