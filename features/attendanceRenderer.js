@@ -8,7 +8,7 @@ import { API_BASE_URL } from '../config.js';
 const BASE_URL = (API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
 
 // ================== CONFIGURATION ==================
-const STATUS_REFRESH_INTERVAL_MS = 60000; // Refresh status every 60 seconds
+const STATUS_REFRESH_INTERVAL_MS = 30000; // Refresh status every 30 seconds (more frequent)
 const DISPLAY_UPDATE_INTERVAL_MS = 1000;  // Update display every 1 second (visual only)
 
 // Module state (NOT persisted, reset on page load)
@@ -193,17 +193,9 @@ function calculateCurrentElapsed() {
         };
     }
     
-    // Active session - calculate elapsed
-    const baseSeconds = timing?.total_seconds_today || 0;
-    const elapsedAtFetch = timing?.elapsed_seconds || 0;
-    
-    // Time passed since we fetched status (for visual interpolation only)
-    const localNow = Date.now();
-    const msSinceFetch = localNow - fetchedAt;
-    const secondsSinceFetch = Math.floor(msSinceFetch / 1000);
-    
-    // Total = base + elapsed at fetch time + seconds since fetch
-    const totalSeconds = baseSeconds + elapsedAtFetch + secondsSinceFetch;
+    // Active session - backend already calculated total seconds
+    // NO LOCAL CALCULATION - backend is source of truth
+    const totalSeconds = timing?.total_seconds_today || 0;
     
     return {
         totalSeconds: Math.max(0, totalSeconds),
