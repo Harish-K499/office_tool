@@ -305,20 +305,20 @@ export const renderMeetPage = async () => {
         </div>
     </div>
 
-    <div id="meet-call-modal" class="meet-call-modal incoming-call-overlay hidden" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; z-index: 9999;">
-        <div class="meet-call-modal-card incoming-call-modal">
+    <div id="meet-call-modal" class="incoming-call-overlay" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; display: none; align-items: center; justify-content: center; z-index: 9999; background: rgba(0,0,0,0.7);">
+        <div class="incoming-call-modal" style="min-width: 400px;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
                 <div>
-                    <h3 style="margin:0; font-size:18px;">Calling Participants</h3>
-                    <p style="margin:4px 0 0; font-size:13px; color:#6b7280;">Notifications sent to all participants</p>
+                    <h3 style="margin:0; font-size:18px; color: white;">Calling Participants</h3>
+                    <p style="margin:4px 0 0; font-size:13px; color:#9ca3af;">Notifications sent to all participants</p>
                 </div>
-                <button type="button" id="meet-call-close" aria-label="Close" style="cursor: pointer; background: transparent; border: none; color: #e5e7eb; font-size: 20px; padding: 8px; border-radius: 8px;">
+                <button type="button" id="meet-call-close" aria-label="Close" style="cursor: pointer; background: rgba(255,255,255,0.1); border: none; color: white; font-size: 20px; padding: 8px 12px; border-radius: 8px;">
                     <i class="fa-solid fa-xmark"></i>
                 </button>
             </div>
-            <div id="meet-call-list"></div>
-            <div style="margin-top: 12px; display: flex; justify-content: flex-end;">
-                <button type="button" id="meet-call-cancel" class="incoming-call-btn incoming-call-btn-decline">
+            <div id="meet-call-list" style="max-height: 300px; overflow-y: auto;"></div>
+            <div style="margin-top: 16px; display: flex; gap: 12px; justify-content: flex-end;">
+                <button type="button" id="meet-call-cancel" style="background: #dc2626; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px;">
                     <i class="fa-solid fa-phone-slash"></i> End Call
                 </button>
             </div>
@@ -572,7 +572,7 @@ export const renderMeetPage = async () => {
         // Show call modal
         const showCallModal = () => {
             if (!callModal || !callList) return;
-            callModal.classList.remove('hidden');
+            callModal.style.display = 'flex';
             
             callList.innerHTML = '';
             selectedEmployees.forEach(empId => {
@@ -580,13 +580,13 @@ export const renderMeetPage = async () => {
                 if (!emp) return;
                 
                 const row = document.createElement('div');
-                row.style.cssText = 'border: 1px solid rgba(148, 163, 184, 0.35); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;';
+                row.style.cssText = 'border: 1px solid rgba(148, 163, 184, 0.35); border-radius: 14px; padding: 12px 14px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.05);';
                 row.innerHTML = `
                     <div>
-                        <strong>${emp.name}</strong>
-                        <div style="font-size: 12px; color: #6b7280;">${emp.email || emp.id}</div>
+                        <strong style="color: white;">${emp.name}</strong>
+                        <div style="font-size: 12px; color: #9ca3af;">${emp.email || emp.id}</div>
                     </div>
-                    <span class="badge badge-secondary">Notified</span>
+                    <span style="background: #22c55e; color: white; padding: 4px 12px; border-radius: 12px; font-size: 12px;">Notified</span>
                 `;
                 callList.appendChild(row);
             });
@@ -594,19 +594,43 @@ export const renderMeetPage = async () => {
 
         // Close call modal
         const closeCallModal = () => {
-            if (callModal) callModal.classList.add('hidden');
+            console.log('[MEET] Closing modal');
+            if (callModal) {
+                callModal.style.display = 'none';
+            }
         };
 
+        // Attach event listeners
         if (callBtn) {
             callBtn.addEventListener('click', startCall);
         }
 
         if (callCloseBtn) {
-            callCloseBtn.addEventListener('click', closeCallModal);
+            console.log('[MEET] Attaching close button listener');
+            callCloseBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                closeCallModal();
+            });
         }
 
         if (callCancelBtn) {
-            callCancelBtn.addEventListener('click', closeCallModal);
+            console.log('[MEET] Attaching cancel button listener');
+            callCancelBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                closeCallModal();
+                showToast('Call ended', 'info');
+            });
+        }
+
+        // Also close on backdrop click
+        if (callModal) {
+            callModal.addEventListener('click', (e) => {
+                if (e.target === callModal) {
+                    closeCallModal();
+                }
+            });
         }
 
         // Initialize
