@@ -3,7 +3,7 @@ import { state } from '../state.js';
 import { getPageContentHTML } from '../utils.js';
 import { showToast } from '../components/toast.js';
 import { apiBase } from '../config.js';
-import { cachedFetch, TTL } from '../features/cache.js';
+import { listAllEmployees } from '../features/employeeApi.js';
 
 export const renderMeetPage = async () => {
     const tz = (() => {
@@ -360,35 +360,53 @@ export const renderMeetPage = async () => {
         let filteredEmployees = [];
         let currentMeetInfo = null;
         let isDropdownOpen = false;
+        let employeesLoaded = false;
 
         // Load employees
         const loadEmployees = async () => {
             try {
-                const data = await cachedFetch('meet_employees_all', async () => {
-                    const resp = await fetch(`${API_BASE}/api/employees/all`);
-                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                    return await resp.json();
-                }, TTL.LONG);
-                
-                if (data.success && Array.isArray(data.employees)) {
-                    allEmployees = data.employees.map(emp => ({
-                        id: String(emp.employee_id || '').trim().toUpperCase(),
-                        name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim(),
-                        email: emp.email || '',
-                        designation: emp.designation || '',
-                        department: emp.department || ''
-                    })).filter(e => e.id);
-                    
-                    allEmployees.forEach(emp => {
-                        employeesDirectory.set(emp.id, emp);
-                    });
-                    
-                    filteredEmployees = [...allEmployees];
-                    console.log(`[MEET] Loaded ${allEmployees.length} employees`);
-                }
+                employeesLoaded = false;
+                renderDropdown();
+
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Employee fetch timeout (12s)')), 12000)
+                );
+
+                // Use the same employee API the rest of the app uses (has proper base URL + timed logging)
+                const rawEmployees = await Promise.race([
+                    listAllEmployees(false),
+                    timeoutPromise
+                ]);
+
+                // If we got an empty list (can happen if a bad cache was warmed), force refresh once.
+                const finalEmployees = Array.isArray(rawEmployees) && rawEmployees.length === 0
+                    ? await Promise.race([listAllEmployees(true), timeoutPromise])
+                    : rawEmployees;
+
+                allEmployees = (finalEmployees || []).map(emp => ({
+                    id: String(emp.employee_id || '').trim().toUpperCase(),
+                    name: `${emp.first_name || ''} ${emp.last_name || ''}`.trim(),
+                    email: emp.email || '',
+                    designation: emp.designation || '',
+                    department: emp.department || ''
+                })).filter(e => e.id);
+
+                employeesDirectory.clear();
+                allEmployees.forEach(emp => employeesDirectory.set(emp.id, emp));
+
+                filteredEmployees = [...allEmployees];
+                employeesLoaded = true;
+                console.log('[MEET] Employees loaded for dropdown:', {
+                    apiBase: API_BASE,
+                    count: allEmployees.length,
+                });
+
+                renderDropdown();
             } catch (err) {
                 console.error('[MEET] Failed to load employees:', err);
-                showToast('Failed to load employees', 'error');
+                employeesLoaded = true;
+                renderDropdown();
+                showToast(err?.message || 'Failed to load employees', 'error');
             }
         };
 
@@ -396,6 +414,11 @@ export const renderMeetPage = async () => {
         const renderDropdown = () => {
             if (!employeeDropdown) return;
             employeeDropdown.innerHTML = '';
+
+            if (!employeesLoaded) {
+                employeeDropdown.innerHTML = '<div style="padding: 12px; text-align: center; color: #9ca3af;">Loading employees…</div>';
+                return;
+            }
             
             if (filteredEmployees.length === 0) {
                 employeeDropdown.innerHTML = '<div style="padding: 12px; text-align: center; color: #9ca3af;">No employees found</div>';
