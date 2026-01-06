@@ -470,8 +470,9 @@ async function showActionSuccess(actionResult) {
         console.log(`[AI] Check-in initiated at: ${actionResult.checkin_time}`);
         
         try {
-            // Import timer functions and state
-            const { updateTimerButton, updateTimerDisplay } = await import('../features/timer.js');
+            // Import V2 attendance renderer (backend-authoritative)
+            const { updateTimerDisplay, fetchAttendanceStatus } = await import('../features/attendanceRenderer.js');
+            const updateTimerButton = updateTimerDisplay;
             
             const uid = String(state.user?.id || '').toUpperCase();
             const today = new Date();
@@ -551,8 +552,9 @@ async function showActionSuccess(actionResult) {
         console.log(`[AI] Check-out initiated at: ${actionResult.checkout_time}`);
         
         try {
-            // Import timer functions
-            const { updateTimerButton, updateTimerDisplay } = await import('../features/timer.js');
+            // Import V2 attendance renderer (backend-authoritative)
+            const { updateTimerDisplay, fetchAttendanceStatus } = await import('../features/attendanceRenderer.js');
+            const updateTimerButton = updateTimerDisplay;
             
             const uid = String(state.user?.id || '').toUpperCase();
             const today = new Date();

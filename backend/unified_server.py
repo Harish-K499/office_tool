@@ -31,6 +31,7 @@ from project_tasks import tasks_bp
 from project_column import columns_bp
 from chats import chat_bp
 from time_tracking import bp_time
+from attendance_service_v2 import attendance_v2_bp
 
 try:
     from zoneinfo import ZoneInfo
@@ -48,6 +49,7 @@ app.register_blueprint(tasks_bp)
 app.register_blueprint(columns_bp)
 app.register_blueprint(bp_time)
 app.register_blueprint(chat_bp)
+app.register_blueprint(attendance_v2_bp)  # Backend-authoritative attendance (v2)
 
 def _coerce_client_local_datetime(client_time_str, timezone_name):
     """Convert client-supplied ISO timestamp into the user's local timezone if possible."""
@@ -2370,11 +2372,24 @@ def _fetch_login_by_username(username: str, token: str, headers: dict):
 def _update_login_record(record_id: str, payload: dict, headers: dict, token: str):
     login_table = get_login_table(token)
     record_id = (record_id or '').strip("{}")
-    payload = _apply_login_rpt(dict(payload or {}))
+    base_payload = dict(payload or {})
     url = f"{BASE_URL}/{login_table}({record_id})"
-    r = requests.patch(url, headers=headers, json=payload)
-    r.raise_for_status()
-    return True
+    
+    # Try with RPT fields first, fallback to base payload if RPT fields cause error
+    try:
+        full_payload = _apply_login_rpt(dict(base_payload))
+        r = requests.patch(url, headers=headers, json=full_payload)
+        r.raise_for_status()
+        return True
+    except Exception as rpt_err:
+        print(f"[LOGIN] RPT update failed, trying without RPT fields: {rpt_err}")
+        try:
+            r = requests.patch(url, headers=headers, json=base_payload)
+            r.raise_for_status()
+            return True
+        except Exception as base_err:
+            print(f"[LOGIN] Base update also failed: {base_err}")
+            raise base_err
 
 
 # ================== ATTENDANCE ROUTES ==================
@@ -2780,14 +2795,19 @@ def login():
         # ======================================================
         if hashed_input == stored_hash:
 
-            # Reset attempts
+            # Reset attempts - use ISO format for Dataverse DateTime fields
+            now_iso = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
             payload = {
-                "crc6f_last_login": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "crc6f_last_login": now_iso,
                 "crc6f_loginattempts": "0",
                 "crc6f_user_status": "Active"
             }
 
-            _update_login_record(record_id, payload, headers, token)
+            try:
+                _update_login_record(record_id, payload, headers, token)
+            except Exception as update_err:
+                # Log but don't fail login if update fails
+                print(f"[LOGIN] Failed to update login record: {update_err}")
 
             # -------------------------
             # ACCESS LOGIC RESTORED
@@ -2873,7 +2893,10 @@ def login():
                 except Exception as e:
                     print("Admin email failed:", e)
 
-        _update_login_record(record_id, update_payload, headers, token)
+        try:
+            _update_login_record(record_id, update_payload, headers, token)
+        except Exception as update_err:
+            print(f"[LOGIN] Failed to update login attempts: {update_err}")
 
         if attempts >= 3:
             return jsonify({
@@ -3162,10 +3185,13 @@ def reset_attempts():
 
     record_id = record.get("crc6f_hr_login_detailsid")
 
-    _update_login_record(record_id, {
-        "crc6f_attempts": 0,
-        "crc6f_locked": False
-    }, headers, token)
+    try:
+        _update_login_record(record_id, {
+            "crc6f_loginattempts": "0",
+            "crc6f_user_status": "Active"
+        }, headers, token)
+    except Exception as e:
+        print(f"[LOGIN] Reset attempts update failed: {e}")
 
     return jsonify({"status": "success", "message": "Attempts reset"})
 

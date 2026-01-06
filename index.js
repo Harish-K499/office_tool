@@ -1,7 +1,13 @@
 import { getSidebarHTML, getHeaderHTML } from './components/layout.js';
 import { router } from './router.js';
-import { loadTimerState, updateTimerButton, handleTimerClick } from './features/timer.js';
-import { initAttendanceSocket, registerForAttendanceUpdates } from './features/attendanceSocket.js';
+// V2: Backend-authoritative attendance - stateless frontend
+import { initializeAttendance, updateTimerDisplay, handleTimerClick } from './features/attendanceRenderer.js';
+import { initializeAttendanceSocket, registerForAttendanceEvents } from './features/attendanceSocketV2.js';
+// Legacy aliases for backward compatibility
+const loadTimerState = initializeAttendance;
+const updateTimerButton = updateTimerDisplay;
+const initAttendanceSocket = initializeAttendanceSocket;
+const registerForAttendanceUpdates = registerForAttendanceEvents;
 import { closeModal } from './components/modal.js';
 import { showAddEmployeeModal, handleAddEmployee, renderEmployeesPage, showBulkUploadModal, showBulkDeleteModal, handleBulkUpload, showEditEmployeeModal, handleUpdateEmployee, handleDeleteEmployee, handleBulkDeleteConfirm, handleRestoreConfirm } from './pages/employees.js';
 import { handleAddIntern } from './pages/interns.js';
