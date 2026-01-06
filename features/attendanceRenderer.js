@@ -8,7 +8,7 @@ import { API_BASE_URL } from '../config.js';
 const BASE_URL = (API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
 
 // ================== CONFIGURATION ==================
-const STATUS_REFRESH_INTERVAL_MS = 30000; // Refresh status every 30 seconds (more frequent)
+const STATUS_REFRESH_INTERVAL_MS = 5000;  // Refresh status every 5 seconds during active session
 const DISPLAY_UPDATE_INTERVAL_MS = 1000;  // Update display every 1 second (visual only)
 
 // Module state (NOT persisted, reset on page load)
@@ -47,6 +47,11 @@ export async function fetchAttendanceStatus(employeeId) {
         
         const data = await response.json();
         console.log('[ATTENDANCE-RENDERER] Status response:', data);
+        console.log('[ATTENDANCE-RENDERER] Timing data:', {
+            total_seconds_today: data.timing?.total_seconds_today,
+            elapsed_seconds: data.timing?.elapsed_seconds,
+            is_active: data.is_active_session
+        });
         
         if (data.success) {
             lastStatusResponse = {
@@ -197,9 +202,12 @@ function calculateCurrentElapsed() {
         };
     }
     
-    // Active session - backend already calculated total seconds
-    // NO LOCAL CALCULATION - backend is source of truth
-    const totalSeconds = timing?.total_seconds_today || 0;
+    // Active session - backend calculated total seconds at fetch time
+    // Add small visual interpolation (max 5 seconds to prevent drift)
+    const baseSeconds = timing?.total_seconds_today || 0;
+    const msSinceFetch = Date.now() - fetchedAt;
+    const secondsSinceFetch = Math.min(Math.floor(msSinceFetch / 1000), 5); // Cap at 5 seconds
+    const totalSeconds = baseSeconds + secondsSinceFetch;
     
     return {
         totalSeconds: Math.max(0, totalSeconds),
