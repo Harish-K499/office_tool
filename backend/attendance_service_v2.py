@@ -261,9 +261,16 @@ def checkin_v2():
         
         # SERVER TIME IS TRUTH
         now_utc = get_server_now_utc()
-        today_date = now_utc.strftime("%Y-%m-%d")
         checkin_time = now_utc.strftime("%H:%M:%S")
         checkin_ts = int(now_utc.timestamp())
+        
+        # Use client's timezone to determine "today" (handles midnight correctly)
+        try:
+            client_tz = ZoneInfo(tz_name)
+            client_now = now_utc.astimezone(client_tz)
+            today_date = client_now.strftime("%Y-%m-%d")
+        except Exception:
+            today_date = now_utc.strftime("%Y-%m-%d")
         
         # Check for existing attendance record today
         existing_att = fetch_attendance_record(employee_id, today_date)
@@ -393,9 +400,16 @@ def checkout_v2():
         
         # SERVER TIME IS TRUTH
         now_utc = get_server_now_utc()
-        today_date = now_utc.strftime("%Y-%m-%d")
         checkout_time = now_utc.strftime("%H:%M:%S")
         checkout_ts = int(now_utc.timestamp())
+        
+        # Use client's timezone to determine "today" (handles midnight correctly)
+        try:
+            client_tz = ZoneInfo(tz_name)
+            client_now = now_utc.astimezone(client_tz)
+            today_date = client_now.strftime("%Y-%m-%d")
+        except Exception:
+            today_date = now_utc.strftime("%Y-%m-%d")
         
         # Get login activity to find active session
         existing_la = fetch_login_activity(employee_id, today_date)
