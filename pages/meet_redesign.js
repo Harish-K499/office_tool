@@ -587,10 +587,24 @@ export const renderMeetPage = async () => {
                     body: JSON.stringify(payload)
                 });
 
-                const data = await resp.json();
-                
+                let data = null;
+                try {
+                    data = await resp.json();
+                } catch (e) {
+                    let text = '';
+                    try { text = await resp.text(); } catch { }
+                    const snippet = String(text || '').slice(0, 180);
+                    throw new Error(`Meet API returned non-JSON (HTTP ${resp.status}). ${snippet}`);
+                }
+
                 if (!resp.ok || !data.success) {
-                    throw new Error(data.error || 'Failed to create meeting');
+                    // If backend tells us to authorize Google OAuth, open it.
+                    const authUrl = data && data.authorize_url ? String(data.authorize_url) : '';
+                    if (authUrl) {
+                        showToast('Google authorization required. Opening authorization page...', 'warning');
+                        try { window.open(authUrl, '_blank', 'noopener,noreferrer'); } catch { }
+                    }
+                    throw new Error((data && data.error) ? data.error : 'Failed to create meeting');
                 }
 
                 currentMeetInfo = data;

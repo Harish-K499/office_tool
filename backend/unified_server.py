@@ -12425,9 +12425,30 @@ def start_google_meet():
 
         return jsonify(response_payload), 200
     except Exception as e:
-        print(f"[ERROR] Failed to create Google Meet: {e}")
+        # Return a useful JSON error to the frontend (avoid HTML 500 pages)
+        err_type = type(e).__name__
+        err_msg = str(e) if e is not None else 'Unknown error'
+        print(f"[ERROR] Failed to create Google Meet ({err_type}): {err_msg}")
         traceback.print_exc()
-        return jsonify({"success": False, "error": "Failed to create Google Meet"}), 500
+
+        # Common case: OAuth not completed / token missing
+        if 'Google OAuth credentials not found' in err_msg:
+            try:
+                base = request.host_url.rstrip('/')
+            except Exception:
+                base = ''
+            return jsonify({
+                "success": False,
+                "error": err_msg,
+                "error_type": err_type,
+                "authorize_url": f"{base}/google/authorize" if base else "/google/authorize",
+            }), 401
+
+        return jsonify({
+            "success": False,
+            "error": err_msg or "Failed to create Google Meet",
+            "error_type": err_type,
+        }), 500
 
 # -----------------------------------------
 # [TIME] Comp Off Module API
