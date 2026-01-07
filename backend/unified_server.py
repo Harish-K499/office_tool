@@ -453,6 +453,10 @@ def sanitize_profile_picture(photo_str):
 EMPLOYEE_ENTITY_ENV = os.getenv("EMPLOYEE_ENTITY")
 EMPLOYEE_ENTITY = EMPLOYEE_ENTITY_ENV or "crc6f_table12s"
 
+# Cache for full employee list endpoint (/api/employees/all)
+EMPLOYEE_CACHE_TTL = int(os.getenv("EMPLOYEE_CACHE_TTL", "300"))
+_employee_cache = {"data": None, "timestamp": 0.0}
+
 # Field mappings for different employee tables
 FIELD_MAPS = {
     "crc6f_employees": {  # VTAB Employees
@@ -491,6 +495,9 @@ FIELD_MAPS = {
         "profile_picture": "crc6f_profilepicture"
     }
 }
+
+# ================== HOLIDAY CONFIGURATION ==================
+HOLIDAY_ENTITY = os.getenv("HOLIDAY_ENTITY", "crc6f_hr_holidayses")
 
 # ================== INTERN MANAGEMENT CONFIGURATION ==================
 INTERN_ENTITY = "crc6f_hr_interndetailses"
