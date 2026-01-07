@@ -499,6 +499,15 @@ FIELD_MAPS = {
 # ================== HOLIDAY CONFIGURATION ==================
 HOLIDAY_ENTITY = os.getenv("HOLIDAY_ENTITY", "crc6f_hr_holidayses")
 
+# ================== CLIENTS CONFIGURATION ==================
+CLIENTS_ENTITY = os.getenv("CLIENTS_ENTITY", "crc6f_hr_clientses")
+CLIENTS_ENTITY_CANDIDATES = [
+    "crc6f_hr_clientses",
+    "crc6f_hr_clients",
+    "crc6f_clients"
+]
+CLIENTS_ENTITY_RESOLVED = None
+
 # ================== INTERN MANAGEMENT CONFIGURATION ==================
 INTERN_ENTITY = "crc6f_hr_interndetailses"
 # RPT mirror map for intern details
