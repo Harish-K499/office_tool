@@ -288,7 +288,7 @@ const buildLoginAccountNameIndex = (accounts = [], employees = []) => {
 const resolveEmployeeName = (employeeId) => {
     const key = String(employeeId || '').trim().toUpperCase();
     if (!key) return '';
-    return loginAccountNameIndex[key] || key;
+    return loginAccountNameIndex[key] || '';
 };
 
 const buildPresenceBadge = (item) => {
