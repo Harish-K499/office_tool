@@ -508,6 +508,23 @@ CLIENTS_ENTITY_CANDIDATES = [
 ]
 CLIENTS_ENTITY_RESOLVED = None
 
+# RPT mirror map for clients
+CLIENTS_RPT_MAP = {
+    "createdon": "crc6f_RPT_createdon",
+    "modifiedon": "crc6f_RPT_modifiedon",
+    "statecode": "crc6f_RPT_statecode",
+    "statuscode": "crc6f_RPT_statuscode",
+}
+
+def _apply_clients_rpt(payload: dict) -> dict:
+    """Apply clients RPT mirroring to payload."""
+    if not isinstance(payload, dict):
+        return {}
+    for base_key, rpt_key in CLIENTS_RPT_MAP.items():
+        if base_key in payload and payload[base_key] not in (None, "", []):
+            payload[rpt_key] = payload[base_key]
+    return payload
+
 # ================== LEAVE BALANCE CONFIGURATION ==================
 LEAVE_BALANCE_ENTITY = os.getenv("LEAVE_BALANCE_ENTITY", "crc6f_hr_leavemangements")
 LEAVE_BALANCE_ENTITY_CANDIDATES = [
