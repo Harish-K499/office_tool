@@ -47,13 +47,13 @@ def save_google_token(token_json, user="default"):
         db.commit()
         
         # Print token for manual env var setup (for platforms with ephemeral storage)
-        print("\n" + "="*70)
-        print("[GOOGLE TOKEN] Token saved successfully!")
-        print("[GOOGLE TOKEN] To persist across server restarts on Render/Heroku,")
-        print("[GOOGLE TOKEN] set the GOOGLE_TOKEN_JSON environment variable to:")
-        print("="*70)
-        print(token_json)
-        print("="*70 + "\n")
+        print("\n" + "="*70, flush=True)
+        print("[GOOGLE TOKEN] Token saved successfully!", flush=True)
+        print("[GOOGLE TOKEN] To persist across server restarts on Render/Heroku,", flush=True)
+        print("[GOOGLE TOKEN] set the GOOGLE_TOKEN_JSON environment variable to:", flush=True)
+        print("="*70, flush=True)
+        print(token_json, flush=True)
+        print("="*70 + "\n", flush=True)
         
     finally:
         db.close()
@@ -71,17 +71,17 @@ def load_google_token(user="default"):
         try:
             # Validate it's valid JSON
             json.loads(env_token)
-            print("[GOOGLE TOKEN] Loaded from GOOGLE_TOKEN_JSON environment variable")
+            print("[GOOGLE TOKEN] Loaded from GOOGLE_TOKEN_JSON environment variable", flush=True)
             return env_token
         except json.JSONDecodeError:
-            print("[GOOGLE TOKEN] GOOGLE_TOKEN_JSON env var contains invalid JSON, falling back to database")
+            print("[GOOGLE TOKEN] GOOGLE_TOKEN_JSON env var contains invalid JSON, falling back to database", flush=True)
     
     # Fall back to database
     db = SessionLocal()
     try:
         token = db.query(GoogleToken).filter(GoogleToken.user == user).first()
         if token:
-            print("[GOOGLE TOKEN] Loaded from database")
+            print("[GOOGLE TOKEN] Loaded from database", flush=True)
             return token.token_json
         return None
     finally:
