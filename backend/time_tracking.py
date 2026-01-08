@@ -587,6 +587,49 @@ def create_task_log():
                 logs.append(rec_local)
                 print(f"[TIME_TRACKER] Inserted new local log: {employee_id} {task_id} {seg_work_date} -> {seg_seconds}s")
             _write_logs(logs)
+            # Also save to timesheet logs for My Timesheet page
+            try:
+                logs = _read_logs()
+                
+                # Check if entry already exists for this employee/task/date
+                existing_idx = None
+                for i, r in enumerate(logs):
+                    if (
+                        r.get("employee_id") == employee_id
+                        and (r.get("task_guid") or r.get("task_id")) == (task_guid or task_id)
+                        and r.get("work_date") == seg_work_date
+                    ):
+                        existing_idx = i
+                        break
+                
+                log_entry = {
+                    "id": f"LOG-{int(datetime.now().timestamp()*1000)}",
+                    "employee_id": employee_id,
+                    "project_id": project_id,
+                    "task_guid": task_guid or None,
+                    "task_id": task_id or None,
+                    "task_name": b.get("task_name"),
+                    "seconds": seg_seconds,
+                    "work_date": seg_work_date,
+                    "description": b.get("description") or "",
+                    "dv_id": dv_id,
+                    "created_at": _now_iso(),
+                }
+                
+                if existing_idx is not None:
+                    # Update existing entry - add to existing seconds
+                    prev = logs[existing_idx]
+                    log_entry["seconds"] = int(prev.get("seconds", 0)) + seg_seconds
+                    logs[existing_idx] = log_entry
+                    print(f"[TIME_TRACKER] Updated existing timesheet log: {employee_id} {task_id} {seg_work_date} -> {log_entry['seconds']}s")
+                else:
+                    logs.append(log_entry)
+                    print(f"[TIME_TRACKER] Added new timesheet log: {employee_id} {task_id} {seg_work_date} -> {seg_seconds}s")
+                
+                _write_logs(logs)
+            except Exception as e:
+                print(f"[TIME_TRACKER] Warning: Failed to save to timesheet logs: {e}")
+            
             return rec_local
 
         recs = []
@@ -614,35 +657,8 @@ def list_logs():
     if not employee_id:
         return jsonify({"success": False, "error": "employee_id required"}), 400
     
-    # Use local storage for now since Dataverse doesn't have work_date field
+    # Try fetching from Dataverse first
     try:
-        logs = _read_logs()
-        print(f"[TIME_TRACKER] Read {len(logs)} logs from local storage")
-        out = []
-        for r in logs:
-            # Support "ALL" to fetch all employees' logs (for team timesheet)
-            if employee_id != "ALL" and r.get("employee_id") != employee_id:
-                continue
-            if start_date and r.get("work_date", "") < start_date:
-                continue
-            if end_date and r.get("work_date", "") > end_date:
-                continue
-            out.append(r)
-        
-        if employee_id == "ALL":
-            print(f"[TIME_TRACKER] Filtered to {len(out)} logs for ALL employees")
-        else:
-            print(f"[TIME_TRACKER] Filtered to {len(out)} logs for employee {employee_id}")
-        
-        return jsonify({"success": True, "logs": out, "source": "local"}), 200
-    except Exception as e:
-        print(f"[TIME_TRACKER] Error reading logs: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
-    
-    # Original Dataverse code (commented out for now)
-    """
-    try:
-        # Try fetching from Dataverse first
         token = get_access_token()
         headers = {
             "Authorization": f"Bearer {token}",
@@ -651,12 +667,27 @@ def list_logs():
         }
         
         # Build OData filter
-        filter_parts = [f"crc6f_employeeid eq '{employee_id}'"]
-        # Note: Date filtering would require proper date fields in Dataverse
-        # For now, we'll fetch all for the employee and filter in Python
+        if employee_id.upper() == "ALL":
+            # For team timesheet, fetch all employees within date range
+            filter_parts = []
+            if start_date:
+                filter_parts.append(f"crc6f_workdate ge {start_date}")
+            if end_date:
+                filter_parts.append(f"crc6f_workdate le {end_date}")
+        else:
+            # For individual timesheet
+            safe_emp = employee_id.replace("'", "''")
+            filter_parts = [f"crc6f_employeeid eq '{safe_emp}'"]
+            if start_date:
+                filter_parts.append(f"crc6f_workdate ge {start_date}")
+            if end_date:
+                filter_parts.append(f"crc6f_workdate le {end_date}")
         
-        filter_query = " and ".join(filter_parts)
-        url = f"{RESOURCE}{DV_API}/crc6f_hr_timesheetlogs?$filter={filter_query}"
+        filter_query = " and ".join(filter_parts) if filter_parts else ""
+        url = f"{RESOURCE}{DV_API}/crc6f_hr_timesheetlogs"
+        if filter_query:
+            url += f"?$filter={filter_query}"
+        url += "&$top=5000&$orderby=crc6f_workdate desc"
         
         resp = requests.get(url, headers=headers, timeout=30)
         
@@ -667,27 +698,34 @@ def list_logs():
             # Transform Dataverse records to frontend format
             out = []
             for r in records:
+                # Skip if work_date is in the future
+                work_date = r.get("crc6f_workdate", "")
+                if work_date:
+                    try:
+                        # Parse date and check if it's not in the future
+                        work_dt = datetime.strptime(work_date[:10], '%Y-%m-%d').date()
+                        today = datetime.now().date()
+                        if work_dt > today:
+                            continue
+                    except:
+                        pass
+                
                 log_entry = {
                     "id": r.get("crc6f_hr_timesheetlogid"),
                     "employee_id": r.get("crc6f_employeeid"),
                     "project_id": r.get("crc6f_projectid"),
+                    "task_guid": r.get("crc6f_taskguid"),
                     "task_id": r.get("crc6f_taskid"),
-                    "task_name": r.get("crc6f_workdescription", "").split(" - ")[0] if r.get("crc6f_workdescription") else "",
+                    "task_name": r.get("crc6f_taskname") or r.get("crc6f_workdescription", "").split(" - ")[0] if r.get("crc6f_workdescription") else "",
                     "seconds": int(float(r.get("crc6f_hoursworked", 0)) * 3600),  # Convert hours back to seconds
-                    "work_date": "",  # Extract from created date if no specific field
+                    "work_date": work_date[:10] if work_date else "",  # Ensure YYYY-MM-DD format
                     "description": r.get("crc6f_workdescription", ""),
                     "approval_status": r.get("crc6f_approvalstatus", "Pending"),
                     "created_at": r.get("createdon", ""),
+                    "manual": False,  # Default to false, can be enhanced later
                 }
                 
-                # Extract work_date from createdon if available
-                if r.get("createdon"):
-                    try:
-                        log_entry["work_date"] = r.get("createdon")[:10]  # YYYY-MM-DD
-                    except:
-                        pass
-                
-                # Apply date filters
+                # Apply additional date filtering in case Dataverse filtering didn't work
                 if start_date and log_entry.get("work_date", "") < start_date:
                     continue
                 if end_date and log_entry.get("work_date", "") > end_date:
@@ -695,26 +733,38 @@ def list_logs():
                     
                 out.append(log_entry)
             
+            print(f"[TIME_TRACKER] Successfully fetched {len(out)} logs from Dataverse")
             return jsonify({"success": True, "logs": out, "source": "dataverse"}), 200
         else:
-            # Fallback to local JSON if Dataverse fails
+            print(f"[TIME_TRACKER] Dataverse returned {resp.status_code}: {resp.text}")
             raise Exception(f"Dataverse returned {resp.status_code}")
             
     except Exception as e:
-        # Fallback to local JSON storage
-        print(f"Dataverse fetch failed, using local: {e}")
-        logs = _read_logs()
-        out = []
-        for r in logs:
-            if r.get("employee_id") != employee_id:
-                continue
-            if start_date and r.get("work_date", "") < start_date:
-                continue
-            if end_date and r.get("work_date", "") > end_date:
-                continue
-            out.append(r)
-        return jsonify({"success": True, "logs": out, "source": "local"}), 200
-    """
+        # Fallback to local JSON storage only if Dataverse fails
+        print(f"[TIME_TRACKER] Dataverse fetch failed, using local fallback: {e}")
+        try:
+            logs = _read_logs()
+            print(f"[TIME_TRACKER] Read {len(logs)} logs from local storage")
+            out = []
+            for r in logs:
+                # Support "ALL" to fetch all employees' logs (for team timesheet)
+                if employee_id != "ALL" and r.get("employee_id") != employee_id:
+                    continue
+                if start_date and r.get("work_date", "") < start_date:
+                    continue
+                if end_date and r.get("work_date", "") > end_date:
+                    continue
+                out.append(r)
+            
+            if employee_id == "ALL":
+                print(f"[TIME_TRACKER] Filtered to {len(out)} logs for ALL employees")
+            else:
+                print(f"[TIME_TRACKER] Filtered to {len(out)} logs for employee {employee_id}")
+            
+            return jsonify({"success": True, "logs": out, "source": "local"}), 200
+        except Exception as e2:
+            print(f"[TIME_TRACKER] Error reading logs: {e2}")
+            return jsonify({"success": False, "error": str(e2)}), 500
 
 
 @bp_time.route("/time-tracker/logs", methods=["DELETE"])
