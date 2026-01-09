@@ -521,11 +521,6 @@ def create_task_log():
                 # Dataverse work date field (Date Only)
                 "crc6f_workdate": seg_work_date if seg_work_date else None
             }
-            for base_key, rpt_key in TIMESHEET_RPT_MAP.items():
-                if base_key in payload and payload[base_key] is not None:
-                    payload[rpt_key] = payload[base_key]
-                elif base_key in b and b.get(base_key) is not None:
-                    payload[rpt_key] = b.get(base_key)
             # Remove None values
             payload = {k: v for k, v in payload.items() if v is not None}
 
