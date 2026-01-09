@@ -518,6 +518,54 @@ export const renderMyTasksPage = async () => {
         return false;
     };
 
+    const startTaskTimer = async (task) => {
+        try {
+            const res = await fetch(`${API}/time-entries/start`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    task_guid: task.guid,
+                    user_id: empId
+                })
+            });
+            const result = await res.json().catch(() => ({ success: false }));
+            if (result.success) {
+                console.log('[MY_TASKS] Task timer started on backend:', result);
+                return true;
+            } else {
+                console.error('[MY_TASKS] Failed to start task timer:', result.error);
+                return false;
+            }
+        } catch (err) {
+            console.error('[MY_TASKS] Error starting task timer:', err);
+            return false;
+        }
+    };
+
+    const stopTaskTimer = async (task) => {
+        try {
+            const res = await fetch(`${API}/time-entries/stop`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    task_guid: task.guid,
+                    user_id: empId
+                })
+            });
+            const result = await res.json().catch(() => ({ success: false }));
+            if (result.success) {
+                console.log('[MY_TASKS] Task timer stopped on backend:', result);
+                return true;
+            } else {
+                console.error('[MY_TASKS] Failed to stop task timer:', result.error);
+                return false;
+            }
+        } catch (err) {
+            console.error('[MY_TASKS] Error stopping task timer:', err);
+            return false;
+        }
+    };
+
     const updateTaskStatus = async (task, newStatus) => {
         try {
             const target = String(newStatus || '').trim();
@@ -566,6 +614,7 @@ export const renderMyTasksPage = async () => {
             const totalAccumulated = (cur.accumulated || 0) + elapsed;
             setActive({ ...cur, accumulated: totalAccumulated, paused: true, started_at: null });
             setPersistedSecs(t.guid, totalAccumulated);
+            await stopTaskTimer(t);
             await postTimesheetLog({ seconds: totalAccumulated, task: t, started_at: cur.started_at, ended_at: Date.now() });
             render();
             return;
@@ -577,6 +626,7 @@ export const renderMyTasksPage = async () => {
             const totalAccumulated = (cur.accumulated || 0) + elapsed;
             // Persist for the old task
             setPersistedSecs(cur.task_guid, totalAccumulated);
+            await stopTaskTimer({ guid: cur.task_guid });
             await postTimesheetLog({
                 seconds: totalAccumulated,
                 task: { guid: cur.task_guid, task_id: cur.task_id, task_name: cur.task_name, project_id: cur.project_id },
@@ -590,11 +640,13 @@ export const renderMyTasksPage = async () => {
         if (cur && cur.task_guid === t.guid && cur.paused) {
             // Resume from paused state
             setActive({ ...cur, started_at: Date.now(), paused: false });
+            await startTaskTimer(t);
         } else {
             // Start fresh
             // Seed with persisted seconds for today so it continues from stored value
             const persisted = getPersistedSecs(t.guid);
             setActive({ task_guid: t.guid, task_id: t.task_id, task_name: t.task_name, project_id: t.project_id, started_at: Date.now(), accumulated: persisted, paused: false });
+            await startTaskTimer(t);
         }
         await updateTaskStatus(t, 'In Progress');
         render();
@@ -610,6 +662,9 @@ export const renderMyTasksPage = async () => {
             totalSeconds += Math.floor((Date.now() - Number(cur.started_at)) / 1000);
         }
         totalSeconds = Math.max(1, totalSeconds);
+
+        // Stop the timer on backend
+        await stopTaskTimer(t);
 
         // persist and upsert
         setPersistedSecs(t.guid, totalSeconds);
