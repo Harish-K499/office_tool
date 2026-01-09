@@ -508,7 +508,7 @@ export const renderMyTasksPage = async () => {
             console.log('[MY_TASKS] Response status:', res.status);
             const result = await res.json().catch(() => ({ success: false }));
             console.log('[MY_TASKS] Response data:', result);
-            if (res.ok && result.success) {
+            if (res.ok) {
                 try { sessionStorage.setItem('tt_last_log', JSON.stringify(body)); } catch { }
                 if (window.location.hash === '#/time-my-timesheet') { try { await renderMyTimesheetPage(); } catch { } }
                 return true;
