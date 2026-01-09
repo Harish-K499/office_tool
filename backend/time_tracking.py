@@ -533,9 +533,14 @@ def create_task_log():
             }
 
             url = f"{RESOURCE}{DV_API}/crc6f_hr_timesheetlogs"
+            print(f"[TIME_TRACKER] Posting to Dataverse: {url}")
+            print(f"[TIME_TRACKER] Payload: {payload}")
             resp = requests.post(url, headers=headers, json=payload, timeout=30)
+            print(f"[TIME_TRACKER] Dataverse response status: {resp.status_code}")
             if resp.status_code not in (200, 201, 204):
                 print(f"[TIME_TRACKER] Dataverse error ({resp.status_code}): {resp.text}")
+            else:
+                print(f"[TIME_TRACKER] Dataverse save successful")
 
             logs = _read_logs()
             dv_id = None
