@@ -243,13 +243,6 @@ const renderAttendanceTrackerPage = async (mode) => {
         const month = date.getMonth();
         const firstDayIndex = new Date(year, month, 1).getDay(); // Sunday = 0
 
-        // Debug: Log the structure of attendance data
-        console.log('📊 My Attendance Data Structure:');
-        console.log('  User ID:', state.user.id);
-        console.log('  Month/Year:', month + 1, year);
-        console.log('  Attendance keys:', Object.keys(myAttendance));
-        console.log('  Sample attendance record:', Object.values(myAttendance)[0]);
-
         const calendarCells = [];
 
         for (let i = 0; i < firstDayIndex; i++) {
@@ -258,16 +251,14 @@ const renderAttendanceTrackerPage = async (mode) => {
 
         for (let i = 1; i <= daysInMonth; i++) {
             const dayData = myAttendance[i];
-            console.log(`Day ${i}: dayData =`, dayData, 'Type:', typeof dayData);
             const isSelected = i === state.selectedAttendanceDay;
             const isHoliday = isHolidayDate(year, month, i);
             const statusHTML = getStatusCellHTML(dayData, isHoliday);
-            console.log(`Day ${i}: statusHTML =`, statusHTML);
 
             calendarCells.push(`
                 <div class="calendar-day ${isSelected ? 'selected' : ''}" data-day="${i}">
                     <div class="day-header">${i}</div>
-                    <div class="day-content">${statusHTML ? statusHTML.replace('status-cell', '') : '&nbsp;'}</div>
+                    <div class="day-content">${statusHTML || '&nbsp;'}</div>
                 </div>
             `);
         }
@@ -330,53 +321,25 @@ const renderAttendanceTrackerPage = async (mode) => {
             // Calculate end of week (Saturday)
             const endOfWeek = new Date(startOfWeek);
             endOfWeek.setDate(startOfWeek.getDate() + 6);
-            
-            console.log('🗓️ Week filter debug:');
-            console.log('  Reference date:', referenceDate.toDateString());
-            console.log('  Displayed month/year:', month + 1, year);
-            console.log('  Start of week:', startOfWeek.toDateString());
-            console.log('  End of week:', endOfWeek.toDateString());
 
             const allAttendanceData = Object.values(myAttendance)
                 .filter(d => d && (d.checkIn && d.checkOut || d.leaveType));
             
-            console.log('  All attendance entries:', allAttendanceData.map(d => ({
-                day: d.day,
-                checkIn: d.checkIn,
-                checkOut: d.checkOut,
-                date: new Date(year, month, d.day).toDateString(),
-                hasData: !!(d.checkIn && d.checkOut)
-            })));
-            
             // Also show all days with attendance in the month
             const allDaysWithAttendance = Object.values(myAttendance).filter(d => d && d.day);
-            console.log('  All days with any attendance:', allDaysWithAttendance.map(d => ({
-                day: d.day,
-                status: d.status,
-                hasCheckIn: !!d.checkIn,
-                hasCheckOut: !!d.checkOut,
-                hasLeave: !!d.leaveType
-            })));
 
             filteredAttendanceData = allAttendanceData.filter(d => {
                     // Create date for the attendance day using the DISPLAYED year/month
                     const dayDate = new Date(year, month, d.day);
                     const inRange = dayDate >= startOfWeek && dayDate <= endOfWeek;
-                    console.log(`    Day ${d.day} (${dayDate.toDateString()}) in range:`, inRange);
                     return inRange;
                 })
                 .sort((a, b) => (b.day || 0) - (a.day || 0));
-                
-            console.log('  Filtered result count:', filteredAttendanceData.length);
         } else if (currentFilter === 'month') {
             // Get all attendance data for the DISPLAYED month
             filteredAttendanceData = Object.values(myAttendance)
                 .filter(d => d && (d.checkIn && d.checkOut || d.leaveType))
                 .sort((a, b) => (b.day || 0) - (a.day || 0));
-            
-            console.log('📅 Month filter debug:');
-            console.log('  Displayed month/year:', month + 1, year);
-            console.log('  Filtered result count:', filteredAttendanceData.length);
         }
 
         // Generate table rows for filtered week/month data
@@ -953,12 +916,6 @@ export const renderMyAttendancePage = async () => {
     const date = state.currentAttendanceDate;
     const year = date.getFullYear();
     const month = date.getMonth() + 1; // JavaScript months are 0-indexed
-    
-    console.log('🗓️ renderMyAttendancePage called with:');
-    console.log('  Date:', date.toDateString());
-    console.log('  Year:', year);
-    console.log('  Month (JS):', date.getMonth());
-    console.log('  Month (1-based):', month);
 
     // Lightweight skeleton while holidays and monthly attendance are loading
     try {
@@ -989,9 +946,7 @@ export const renderMyAttendancePage = async () => {
         console.log(`📅 Loaded ${currentMonthHolidays.length} holidays for ${year}-${month}`);
 
         const uid = String(state.user.id || '').toUpperCase();
-        console.log('🔍 Fetching attendance for:', uid, 'Year:', year, 'Month:', month);
         const records = await fetchMonthlyAttendance(uid, year, month);
-        console.log('📊 Received records:', records.length, records);
         
         const attendanceMap = {};
         records.forEach(rec => {
@@ -1013,7 +968,6 @@ export const renderMyAttendancePage = async () => {
         });
         attendanceMap.employeeName = state.user?.name || state.user?.full_name || state.user?.id || '';
         state.attendanceData[state.user.id] = attendanceMap;
-        console.log('💾 Stored attendance data:', attendanceMap);
     } catch (err) {
         console.error('Failed to fetch attendance:', err);
     }
@@ -1209,9 +1163,6 @@ async function handleSubmitAttendance() {
 }
 
 export const handleAttendanceNav = async (direction) => {
-    console.log('🔄 handleAttendanceNav called with direction:', direction);
-    console.log('  Current date before change:', state.currentAttendanceDate.toDateString());
-    
     // Normalize to avoid DST/overflow issues, then move exactly one month.
     const nextDate = new Date(state.currentAttendanceDate);
     nextDate.setDate(1);
@@ -1221,8 +1172,6 @@ export const handleAttendanceNav = async (direction) => {
         nextDate.setMonth(nextDate.getMonth() - 1);
     }
     state.currentAttendanceDate = nextDate;
-    
-    console.log('  New date after change:', state.currentAttendanceDate.toDateString());
 
     // Clear the attendance data cache to force fresh fetch
     if (state.cache && state.cache.attendance) {
@@ -1231,16 +1180,13 @@ export const handleAttendanceNav = async (direction) => {
         const month = state.currentAttendanceDate.getMonth() + 1;
         const cacheKey = `${uid}|${year}|${month}`;
         delete state.cache.attendance[cacheKey];
-        console.log('🗑️ Cleared cache for key:', cacheKey);
     }
 
     // Re-render the active attendance view with fresh data for the new month.
     const isTeamView = window.location.hash.includes('attendance-team');
     if (isTeamView) {
-        console.log('📊 Rendering team attendance for new month');
         await renderTeamAttendancePage();
     } else {
-        console.log('📊 Rendering my attendance for new month');
         await renderMyAttendancePage();
     }
 };
