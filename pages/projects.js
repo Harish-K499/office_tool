@@ -547,10 +547,7 @@ const renderList = () => {
         </div>
         <div class="projects-toolbar-actions">
           <button id="proj-add" class="btn btn-light" style="background: white; color: var(--primary-color); font-weight: 600; border-radius: 8px;">ADD NEW</button>
-          <button id="proj-filter" class="btn btn-secondary" title="Filter"><i class="fa-solid fa-filter"></i></button>
           <button id="proj-bulk-upload" class="btn btn-secondary" title="Bulk upload CSV"><i class="fa-solid fa-upload"></i></button>
-          <button id="proj-bulk-delete" class="btn btn-secondary" title="Bulk delete by Project ID"><i class="fa-solid fa-trash"></i></button>
-          <button id="proj-more" class="btn btn-secondary" title="More"><i class="fa-solid fa-ellipsis-vertical"></i></button>
         </div>
       </div>
         <div class="projects-view-wrapper">
@@ -684,10 +681,6 @@ const renderList = () => {
   if (bulkUploadBtn) {
     bulkUploadBtn.addEventListener("click", () => showProjectBulkUploadModal());
   }
-  const bulkDeleteBtn = document.getElementById("proj-bulk-delete");
-  if (bulkDeleteBtn) {
-    bulkDeleteBtn.addEventListener("click", () => showProjectBulkDeleteModal());
-  }
 
   document.querySelectorAll(".proj-edit").forEach((btn) => {
     if (!canManage) {
@@ -708,6 +701,9 @@ const renderList = () => {
     }
     btn.addEventListener("click", async () => {
       const recId = btn.getAttribute("data-id");
+      console.log("Delete button clicked, recordId:", recId);
+      console.log("Button element:", btn);
+      console.log("Project data for this record:", projectsCache.find(p => p._recordId === recId));
       await handleDeleteProject(recId);
     });
   });
@@ -717,6 +713,8 @@ const renderList = () => {
   document.querySelectorAll(".actions-cell").forEach((cell) => {
     cell.style.display = canManage ? "" : "none";
   });
+
+
   // Make project rows clickable
   document.querySelectorAll(".project-link").forEach((td) => {
     td.addEventListener("click", (e) => {
@@ -1019,7 +1017,7 @@ async function handleSaveProject(p) {
 
   if (!p || !p._recordId) {
     // create
-    const res = await fetch(API_BASE, {
+    const res = await fetch(PROJECTS_API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -1028,7 +1026,7 @@ async function handleSaveProject(p) {
     if (!res.ok) return alert(out.error || "Failed to create");
   } else {
     // update
-    const res = await fetch(`${API_BASE}/${encodeURIComponent(p._recordId)}`, {
+    const res = await fetch(`${PROJECTS_API}/${encodeURIComponent(p._recordId)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -1043,14 +1041,34 @@ async function handleSaveProject(p) {
 
 async function handleDeleteProject(recordId) {
   if (!confirm("Delete this project?")) return;
-  const res = await fetch(`${API_BASE}/${encodeURIComponent(recordId)}`, {
-    method: "DELETE",
-  });
-  const out = await res.json();
-  if (!res.ok) return alert(out.error || "Failed to delete");
-  await fetchProjects();
-  renderList();
+  
+  console.log("Deleting project with recordId:", recordId);
+  console.log("Delete URL:", `${PROJECTS_API}/${encodeURIComponent(recordId)}`);
+  
+  try {
+    const res = await fetch(`${PROJECTS_API}/${encodeURIComponent(recordId)}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+    });
+    
+    console.log("Delete response status:", res.status);
+    const out = await res.json();
+    console.log("Delete response:", out);
+    
+    if (!res.ok) {
+      console.error("Delete failed:", out);
+      return alert(out.error || "Failed to delete");
+    }
+    
+    alert("Project deleted successfully!");
+    await fetchProjects();
+    renderList();
+  } catch (error) {
+    console.error("Delete error:", error);
+    alert("Delete failed: " + error.message);
+  }
 }
+
 
 // ---------- Details Page (Tabs) ----------
 
