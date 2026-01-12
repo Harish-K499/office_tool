@@ -318,7 +318,18 @@ const renderAttendanceTrackerPage = async (mode) => {
                 day: d.day,
                 checkIn: d.checkIn,
                 checkOut: d.checkOut,
-                date: new Date(year, month, d.day).toDateString()
+                date: new Date(year, month, d.day).toDateString(),
+                hasData: !!(d.checkIn && d.checkOut)
+            })));
+            
+            // Also show all days with attendance in the month
+            const allDaysWithAttendance = Object.values(myAttendance).filter(d => d && d.day);
+            console.log('  All days in January with any attendance:', allDaysWithAttendance.map(d => ({
+                day: d.day,
+                status: d.status,
+                hasCheckIn: !!d.checkIn,
+                hasCheckOut: !!d.checkOut,
+                hasLeave: !!d.leaveType
             })));
 
             filteredAttendanceData = allAttendanceData.filter(d => {
