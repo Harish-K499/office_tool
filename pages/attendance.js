@@ -243,6 +243,13 @@ const renderAttendanceTrackerPage = async (mode) => {
         const month = date.getMonth();
         const firstDayIndex = new Date(year, month, 1).getDay(); // Sunday = 0
 
+        // Debug: Check what data we have
+        console.log('🗓️ Calendar rendering debug:');
+        console.log('  User ID:', state.user.id);
+        console.log('  Has attendance data:', !!state.attendanceData[state.user.id]);
+        console.log('  Attendance data keys:', Object.keys(myAttendance));
+        console.log('  Month/Year rendering:', month + 1, year);
+
         const calendarCells = [];
 
         for (let i = 0; i < firstDayIndex; i++) {
@@ -948,6 +955,13 @@ export const renderMyAttendancePage = async () => {
         const uid = String(state.user.id || '').toUpperCase();
         const records = await fetchMonthlyAttendance(uid, year, month);
         
+        // Debug: Log the raw API response
+        console.log('🔍 Raw API response for attendance:');
+        console.log('  User:', uid);
+        console.log('  Year/Month:', year, month);
+        console.log('  Records:', records);
+        console.log('  First record structure:', records[0]);
+        
         const attendanceMap = {};
         records.forEach(rec => {
             if (rec.day) {
@@ -968,6 +982,12 @@ export const renderMyAttendancePage = async () => {
         });
         attendanceMap.employeeName = state.user?.name || state.user?.full_name || state.user?.id || '';
         state.attendanceData[state.user.id] = attendanceMap;
+        
+        // Debug: Log the final attendance data structure
+        console.log('📊 Attendance data stored:');
+        console.log('  Records received:', records.length);
+        console.log('  Mapped days:', Object.keys(attendanceMap).filter(k => k !== 'employeeName'));
+        console.log('  Sample mapped data:', Object.entries(attendanceMap).slice(0, 3));
     } catch (err) {
         console.error('Failed to fetch attendance:', err);
     }
