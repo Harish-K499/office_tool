@@ -1477,11 +1477,13 @@ export const renderLoginPage = () => {
       passwordInput.getAttribute("type") === "password" ? "text" : "password";
     passwordInput.setAttribute("type", type);
     if (type === "text") {
-      eyeIcon.classList.add("hidden");
-      eyeOffIcon.classList.remove("hidden");
-    } else {
+      // When password is visible, show eye icon (not eye-off)
       eyeIcon.classList.remove("hidden");
       eyeOffIcon.classList.add("hidden");
+    } else {
+      // When password is hidden, show eye-off icon (with slash)
+      eyeIcon.classList.add("hidden");
+      eyeOffIcon.classList.remove("hidden");
     }
   });
 
