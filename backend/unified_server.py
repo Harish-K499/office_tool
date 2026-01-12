@@ -39,7 +39,7 @@ except Exception:
     ZoneInfo = None
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=["http://localhost:3000", "http://localhost:5000", "https://officetool-zeta.vercel.app", "https://vtab-office-tool.onrender.com"])
 
 FIELD_MAPS = {}
 
@@ -159,18 +159,6 @@ def admin_query():
             
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
-allowed_origins = os.getenv("CORS_ORIGINS", "")
-origins = [o.strip() for o in allowed_origins.split(",") if o.strip()]
-# Sensible defaults for prod if env is missing
-default_origins = [
-    "https://officetool-zeta.vercel.app",
-    "https://vtab-office-tool.onrender.com",
-]
-if origins:
-    CORS(app, origins=origins)
-else:
-    CORS(app, origins=default_origins)
 
 # Frontend base used to build reset links
 FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "https://officetool-zeta.vercel.app").rstrip("/")
