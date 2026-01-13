@@ -905,7 +905,7 @@ export function showProjectModal(p) {
 
     clientSelect.innerHTML = `<option value="">Loading...</option>`;
 
-    const res = await fetch("http://localhost:5000/api/clients/names");
+    const res = await fetch(`${API_ROOT}/api/clients/names`);
     const data = await res.json();
 
     if (!res.ok || !data.clients) {
@@ -942,7 +942,7 @@ export function showProjectModal(p) {
 
     mgrSelect.innerHTML = `<option value="">Loading...</option>`;
 
-    const res = await fetch("http://localhost:5000/api/managers/all");
+    const res = await fetch(`${API_ROOT}/api/managers/all`);
     const data = await res.json();
 
     if (!res.ok || !data.managers) {
@@ -1405,7 +1405,7 @@ const renderProjectDetails = (id, tab) => {
             const mgrSelect = document.getElementById("pd-manager");
             mgrSelect.innerHTML = `<option value="">Loading...</option>`;
 
-            const res = await fetch("http://localhost:5000/api/managers/all");
+            const res = await fetch(`${API_ROOT}/api/managers/all`);
             const data = await res.json();
 
             if (!res.ok || !data.managers) {
@@ -1433,7 +1433,7 @@ const renderProjectDetails = (id, tab) => {
             const clientSelect = document.getElementById("pd-client");
             clientSelect.innerHTML = `<option value="">Loading...</option>`;
 
-            const res = await fetch("http://localhost:5000/api/clients/names");
+            const res = await fetch(`${API_ROOT}/api/clients/names`);
             const data = await res.json();
 
             if (!res.ok || !data.clients) {
@@ -1647,7 +1647,7 @@ const labelFor = (t) => {
 };
 async function fetchClientsList() {
   try {
-    const res = await fetch("http://localhost:5000/api/clients/names");
+    const res = await fetch(`${API_ROOT}/api/clients/names`);
 
     const data = await res.json();
 
@@ -2025,7 +2025,7 @@ function showEditContributorModal(projectId, recordId, contributor) {
   // ✅ Populate Employee Dropdown
   async function populateEmployeeDropdown() {
     try {
-      const res = await fetch("http://localhost:5000/api/employees/all");
+      const res = await fetch(`${API_ROOT}/api/employees/all`);
       const data = await res.json();
 
       const empSelect = document.getElementById("ct-empname-edit");
@@ -2112,7 +2112,7 @@ function showEditContributorModal(projectId, recordId, contributor) {
 
     try {
       const res = await fetch(
-        `http://localhost:5000/api/contributors/${encodeURIComponent(
+        `${API_ROOT}/api/contributors/${encodeURIComponent(
           recordId
         )}`,
         {
@@ -2190,7 +2190,7 @@ function showContributorModal(projectId, contributor = null) {
   // ✅ Populate Employee Dropdown from Backend (/api/employees/all)
   async function populateEmployeeDropdown() {
     try {
-      const res = await fetch("http://localhost:5000/api/employees/all");
+      const res = await fetch(`${API_ROOT}/api/employees/all`);
       const data = await res.json();
 
       const empSelect = document.getElementById("ct-empname");
@@ -2294,7 +2294,7 @@ function showContributorModal(projectId, contributor = null) {
 
       try {
         const res = await fetch(
-          `http://localhost:5000/api/projects/${projectId}/contributors`,
+          `${API_ROOT}/api/projects/${projectId}/contributors`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -2372,8 +2372,7 @@ async function saveContributorToBackend(projectId, payload, inline = false) {
 }
 
 async function deleteContributorFromBackend(recordId) {
-  const BACKEND_URL = "http://localhost:5000";
-  const url = `${BACKEND_URL}/api/contributors/${encodeURIComponent(recordId)}`;
+  const url = `${API_ROOT}/api/contributors/${encodeURIComponent(recordId)}`;
   console.log("🗑 Sending DELETE request to:", url);
 
   const res = await fetch(url, { method: "DELETE" });
@@ -2622,10 +2621,10 @@ function showBoardModal(projectId, board = null) {
       let url, method;
 
       if (isEdit) {
-        url = `http://localhost:5000/api/boards/${board.guid}`;
+        url = `${API_ROOT}/api/boards/${board.guid}`;
         method = "PATCH";
       } else {
-        url = `http://localhost:5000/api/projects/${projectId}/boards`;
+        url = `${API_ROOT}/api/projects/${projectId}/boards`;
         method = "POST";
       }
 
@@ -3062,7 +3061,7 @@ async function moveTask(projectId, taskId, newCol) {
   try {
     const payload = { task_status: newCol };
 
-    const res = await fetch(`http://localhost:5000/api/tasks/${taskId}`, {
+    const res = await fetch(`${API_ROOT}/api/tasks/${taskId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -3319,7 +3318,7 @@ function renderTaskFormPage(projectId, boardName, defaultStatus = "New") {
     };
 
     const res = await fetch(
-      `http://localhost:5000/api/projects/${projectId}/tasks`,
+      `${API_ROOT}/api/projects/${projectId}/tasks`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -3345,7 +3344,7 @@ function renderTaskFormPage(projectId, boardName, defaultStatus = "New") {
 // ==========================
 async function deleteTask(taskId, projectId) {
   if (!confirm("🗑️ Delete this task?")) return;
-  const res = await fetch(`http://localhost:5000/api/tasks/${taskId}`, {
+  const res = await fetch(`${API_ROOT}/api/tasks/${taskId}`, {
     method: "DELETE",
   });
   const data = await res.json();
@@ -3453,7 +3452,7 @@ async function openTaskDetailsPage(projectId, taskId) {
   async function loadAssignedToMultiSelect() {
     try {
       const res = await fetch(
-        `http://localhost:5000/api/projects/${projectId}/contributors`
+        `${API_ROOT}/api/projects/${projectId}/contributors`
       );
       const data = await res.json();
 

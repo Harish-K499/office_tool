@@ -449,13 +449,39 @@ export const renderMyTasksPage = async () => {
         try {
             const key = 'tt_manual_tasks_v1';
             const local = JSON.parse(localStorage.getItem(key) || '[]');
-            const mine = (local || []).filter(t => String(t.assigned_to || '').toUpperCase() === String(empId || '').toUpperCase());
+            const empKey = String(empId || '').toUpperCase();
+            const normalizeStatus = (v) => {
+                const s = String(v || '').trim();
+                if (!s) return '';
+                const low = s.toLowerCase();
+                if (low === 'canceled' || low === 'cancelled') return 'Cancelled';
+                if (low === 'inactive') return 'Inactive';
+                if (low === 'deleted') return 'Deleted';
+                return s;
+            };
+
+            // Clean up stale manual tasks (so deleted project/task doesn't keep showing in My Tasks)
+            // - If assigned to this employee and project is missing from projects cache -> remove
+            // - If assigned to this employee and status is Deleted -> remove
+            let cleaned = Array.isArray(local) ? [...local] : [];
+            cleaned = cleaned.filter(t => {
+                const assigned = String(t?.assigned_to || '').toUpperCase();
+                if (assigned !== empKey) return true; // keep other users' manual tasks
+                const st = normalizeStatus(t?.task_status);
+                if (st.toLowerCase() === 'deleted') return false;
+                const pid = String(t?.project_id || '').trim();
+                if (pid && projectsIdx && !projectsIdx[pid]) return false;
+                return true;
+            });
+            try { localStorage.setItem(key, JSON.stringify(cleaned)); } catch { }
+
+            const mine = (cleaned || []).filter(t => String(t.assigned_to || '').toUpperCase() === empKey);
             const normalized = mine.map(t => ({
                 guid: t.guid || t.task_guid || t.id || `man-${t.task_id || Date.now()}`,
                 task_id: t.task_id || '',
                 task_name: t.task_name || 'Manual Task',
                 project_id: t.project_id || '',
-                task_status: t.task_status || 'New',
+                task_status: normalizeStatus(t.task_status || 'New') || 'New',
                 task_priority: t.task_priority || 'Normal',
                 due_date: t.due_date || ''
             }));
