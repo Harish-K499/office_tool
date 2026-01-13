@@ -27,13 +27,9 @@ import { updateNotificationBadge, handleNotificationBellClick, startNotification
 import { connectSocket } from './src/socket.js';
 import { initAiAssistant } from './components/AiAssistant.js';
 import { deriveRoleInfo } from './utils/accessHelpers.js';
+import { API_BASE_URL as CONFIG_API_BASE_URL } from './config.js';
 
-const API_BASE_URL =
-  (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE_URL)
-    ? import.meta.env.VITE_API_BASE_URL
-    : 'http://localhost:5000';
-
-const normalizeApiBase = () => String(API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
+const normalizeApiBase = () => String(CONFIG_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
 
 const THEME_STORAGE_KEY = 'theme';
 const THEME_OVERRIDE_KEY = 'theme_override';
