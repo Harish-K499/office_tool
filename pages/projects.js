@@ -2745,15 +2745,17 @@ const crmTab = async (project) => {
   const listsHtml = grouped
     .map((col) => {
       const bg = getDefaultColor(col.name);
+      const itemsHtml = col.items.length
+        ? col.items.map((t, idx) => taskCardHtml(t, idx)).join("")
+        : `<div class="placeholder-text">No tasks</div>`;
+
       return `
       <div class="kan-list" data-col="${col.name}" style="background:${bg}; border-color:${bg};">
         <div class="kan-head">
           <strong>${col.name}</strong>
           <span class="badge">${col.items.length}</span>
         </div>
-        ${col.items
-          .map((t, idx) => taskCardHtml(t, idx))
-          .join("") || `<div class="placeholder-text">No tasks</div>`}
+        ${itemsHtml}
       </div>
     `;
     })
