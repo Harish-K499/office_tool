@@ -7,6 +7,7 @@ import {
   fetchLeaveBalance,
   fetchTeamLeavesBatch,
 } from "../features/leaveApi.js";
+import { API_BASE_URL } from "../config.js";
 import {
   fetchLeaveQuota,
   validateLeaveBalance,
@@ -416,15 +417,11 @@ export const renderLeaveTrackerPage = async (
         for (const tm of teammates) {
           try {
             const response = await fetch(
-              `http://localhost:5000/api/leave-balance/all/${encodeURIComponent(
+              `${API_BASE_URL}/api/leave-balance/all/${encodeURIComponent(
                 tm.employee_id
               )}`,
               {
-                cache: "no-cache",
-                headers: {
-                  "Cache-Control": "no-cache",
-                  Pragma: "no-cache",
-                },
+                cache: "no-store",
               }
             );
 
@@ -654,15 +651,11 @@ export const renderLeaveTrackerPage = async (
 
       // Fetch all leave balances
       const response = await fetch(
-        `http://localhost:5000/api/leave-balance/all/${encodeURIComponent(
+        `${API_BASE_URL}/api/leave-balance/all/${encodeURIComponent(
           empId
         )}`,
         {
-          cache: "no-cache",
-          headers: {
-            "Cache-Control": "no-cache",
-            Pragma: "no-cache",
-          },
+          cache: "no-store",
         }
       );
 
@@ -994,15 +987,11 @@ export const showApplyLeaveModal = () => {
 
           // Fetch all leave balances from backend
           const response = await fetch(
-            `http://localhost:5000/api/leave-balance/all/${encodeURIComponent(
+            `${API_BASE_URL}/api/leave-balance/all/${encodeURIComponent(
               empId
             )}`,
             {
-              cache: "no-cache",
-              headers: {
-                "Cache-Control": "no-cache",
-                Pragma: "no-cache",
-              },
+              cache: "no-store",
             }
           );
 

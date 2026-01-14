@@ -17,10 +17,7 @@ export async function fetchEmployeeLeaves(employeeId) {
     }
 
     const res = await timedFetch(`${BASE_URL}/api/leaves/${key}`, {
-      headers: {
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache'
-      }
+      cache: 'no-store'
     }, 'fetchEmployeeLeaves');
     if (!res.ok) {
       console.error(`❌ HTTP Error: ${res.status} ${res.statusText}`);
@@ -110,11 +107,7 @@ export async function fetchAllLeaveBalances(employeeId) {
   try {
     console.log(`🔄 Fetching all leave balances for employee: ${employeeId}`);
     const res = await fetch(`${BASE_URL}/api/leave-balance/all/${encodeURIComponent(employeeId)}`, {
-      cache: 'no-cache',
-      headers: {
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache'
-      }
+      cache: 'no-store'
     });
     
     if (!res.ok) {
@@ -140,16 +133,12 @@ export async function fetchPendingLeaves() {
   try {
     console.log('🔄 Fetching pending leave requests...');
     const res = await fetch(`${BASE_URL}/api/leaves/pending`, {
-      cache: 'no-cache',
-      headers: {
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache'
-      }
+      cache: 'no-store'
     });
     
     if (!res.ok) {
       console.error(`❌ HTTP Error: ${res.status} ${res.statusText}`);
-      throw new Error(`Failed to fetch pending leaves: ${res.status}`);
+      throw new Error(`Failed to fetch pending leaves: ${res.status} ${res.statusText}`);
     }
     
     const data = await res.json();

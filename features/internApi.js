@@ -37,9 +37,11 @@ export async function createIntern(payload) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.success) {
-    throw new Error(data.error || 'Failed to create intern');
+    const msg = data.error || `Failed to create intern: ${res.status}`;
+    const details = data.details ? ` | ${data.details}` : '';
+    throw new Error(`${msg}${details}`);
   }
   return data.intern;
 }
@@ -53,9 +55,11 @@ export async function updateIntern(internId, payload) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.success) {
-    throw new Error(data.error || 'Failed to update intern');
+    const msg = data.error || `Failed to update intern: ${res.status}`;
+    const details = data.details ? ` | ${data.details}` : '';
+    throw new Error(`${msg}${details}`);
   }
   return data.intern;
 }
