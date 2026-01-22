@@ -2713,6 +2713,10 @@ const crmTab = async (project) => {
   const storageKey = `crm_cols_${project.id}`;
   let cols = JSON.parse(localStorage.getItem(storageKey) || "[]");
   
+  // Get column colors from localStorage
+  const colorsKey = `crm_cols_colors_${project.id}`;
+  let colColors = JSON.parse(localStorage.getItem(colorsKey) || "{}");
+  
   // If no custom columns exist, use defaults
   if (cols.length === 0) {
     cols = [...DEFAULT_COLS];
@@ -2726,6 +2730,7 @@ const crmTab = async (project) => {
   }
   const grouped = cols.map((col) => ({
     name: col,
+    color: colColors[col] || getDefaultColor(col),
     items: tasks.filter(
       (t) =>
         (t.task_status || "").toLowerCase() === col.toLowerCase() &&
@@ -2740,16 +2745,21 @@ const crmTab = async (project) => {
 
   const listsHtml = grouped
     .map((col) => {
-      const bg = getDefaultColor(col.name);
+      const bg = col.color;
       const itemsHtml = col.items.length
         ? col.items.map((t, idx) => taskCardHtml(t, idx)).join("")
         : `<div class="placeholder-text">No tasks</div>`;
 
       return `
-      <div class="kan-list" data-col="${col.name}" style="background:${bg}; border-color:${bg};">
-        <div class="kan-head">
+      <div class="kan-list" data-col="${col.name}" style="background:${bg}; border-color:${bg}; position:relative;">
+        <div class="kan-head" style="display:flex; justify-content:space-between; align-items:center;">
           <strong>${col.name}</strong>
-          <span class="badge">${col.items.length}</span>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span class="badge">${col.items.length}</span>
+            <button class="delete-col-btn" onclick="deleteColumn('${project.id}', '${col.name}')" style="background:none; border:none; color:#dc2626; cursor:pointer; padding:2px; font-size:14px;" title="Delete column">
+              <i class="fa-solid fa-trash"></i>
+            </button>
+          </div>
         </div>
         ${itemsHtml}
       </div>
@@ -2785,6 +2795,13 @@ const crmTab = async (project) => {
       .add-column-btn:hover span {
         color: #475569 !important;
       }
+      .delete-col-btn:hover {
+        background: rgba(220, 38, 38, 0.1) !important;
+        border-radius: 4px;
+      }
+      .kan-head {
+        padding-right: 8px;
+      }
     </style>
   `;
 };
@@ -2800,6 +2817,14 @@ function showAddColumnModal(projectId, boardParam) {
         <input type="text" id="col-name" placeholder="Enter column name (e.g., 'In Review')" style="padding:10px; border-radius:10px; border:1px solid var(--border-color);" maxlength="50" />
         <small style="color:#64748b;">Choose a name for your new status column</small>
       </div>
+      <div style="display:flex; flex-direction:column; gap:6px;">
+        <label for="col-color" style="font-weight:600;">Background Color</label>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <input type="color" id="col-color" value="#e5e7eb" style="width:60px; height:40px; border-radius:8px; border:1px solid var(--border-color); cursor:pointer;" />
+          <input type="text" id="col-color-text" value="#e5e7eb" placeholder="#e5e7eb" style="flex:1; padding:10px; border-radius:10px; border:1px solid var(--border-color);" />
+        </div>
+        <small style="color:#64748b;">Choose a background color for this column</small>
+      </div>
     </div>
   `;
   
@@ -2809,6 +2834,20 @@ function showAddColumnModal(projectId, boardParam) {
   if (form) {
     form.addEventListener("submit", handleAddColumn);
   }
+  
+  // Sync color inputs
+  const colorPicker = document.getElementById("col-color");
+  const colorText = document.getElementById("col-color-text");
+  
+  colorPicker.addEventListener("input", (e) => {
+    colorText.value = e.target.value;
+  });
+  
+  colorText.addEventListener("input", (e) => {
+    if (/^#[0-9A-F]{6}$/i.test(e.target.value)) {
+      colorPicker.value = e.target.value;
+    }
+  });
   
   // Focus on the input field
   setTimeout(() => {
@@ -2823,6 +2862,7 @@ function showAddColumnModal(projectId, boardParam) {
 async function handleAddColumn(e) {
   e.preventDefault();
   const columnName = document.getElementById("col-name").value.trim();
+  const columnColor = document.getElementById("col-color").value;
   
   if (!columnName) {
     alert("Please enter a column name");
@@ -2853,6 +2893,12 @@ async function handleAddColumn(e) {
   existingCols.push(columnName);
   localStorage.setItem(storageKey, JSON.stringify(existingCols));
   
+  // Store column color
+  const colorsKey = `crm_cols_colors_${projectId}`;
+  let colColors = JSON.parse(localStorage.getItem(colorsKey) || "{}");
+  colColors[columnName] = columnColor;
+  localStorage.setItem(colorsKey, JSON.stringify(colColors));
+  
   // Update global columns
   if (typeof window !== "undefined") {
     window.GLOBAL_CRM_COLS = existingCols;
@@ -2877,6 +2923,62 @@ async function handleAddColumn(e) {
 // Make showAddColumnModal globally accessible
 if (typeof window !== "undefined") {
   window.showAddColumnModal = showAddColumnModal;
+}
+
+// ==========================
+// Delete Column Function
+// ==========================
+function deleteColumn(projectId, columnName) {
+  if (!confirm(`Are you sure you want to delete the column "${columnName}"? Any tasks in this column will remain but won't be visible until moved to another column.`)) {
+    return;
+  }
+  
+  // Get existing columns
+  const storageKey = `crm_cols_${projectId}`;
+  let existingCols = JSON.parse(localStorage.getItem(storageKey) || "[]");
+  
+  // If this is a default column, we need to save the custom columns separately
+  if (DEFAULT_COLS.includes(columnName)) {
+    // Save current state as custom columns if not already done
+    if (existingCols.length === DEFAULT_COLS.length && 
+        existingCols.every(col => DEFAULT_COLS.includes(col))) {
+      // First time deleting a default column, save all as custom
+      localStorage.setItem(storageKey, JSON.stringify(existingCols));
+    }
+  }
+  
+  // Remove the column
+  existingCols = existingCols.filter(col => col !== columnName);
+  localStorage.setItem(storageKey, JSON.stringify(existingCols));
+  
+  // Remove column color
+  const colorsKey = `crm_cols_colors_${projectId}`;
+  let colColors = JSON.parse(localStorage.getItem(colorsKey) || "{}");
+  delete colColors[columnName];
+  localStorage.setItem(colorsKey, JSON.stringify(colColors));
+  
+  // Update global columns
+  if (typeof window !== "undefined") {
+    window.GLOBAL_CRM_COLS = existingCols;
+  }
+  
+  // Refresh the CRM tab
+  const project = { id: projectId };
+  crmTab(project).then(html => {
+    const crmContainer = document.getElementById("crm-container");
+    if (crmContainer) {
+      crmContainer.innerHTML = html;
+      enableDragDrop(projectId);
+      
+      // Reattach event handlers
+      attachCRMEventHandlers(projectId);
+    }
+  });
+}
+
+// Make deleteColumn globally accessible
+if (typeof window !== "undefined") {
+  window.deleteColumn = deleteColumn;
 }
 
 function attachCRMEventHandlers(projectId) {
