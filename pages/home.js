@@ -206,19 +206,40 @@ const minutesBetween = (checkIn, checkOut) => {
     return (h2 * 60 + m2) - (h1 * 60 + m1);
 };
 
+const getWeekStart = (date = new Date()) => {
+    const d = new Date(date);
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust for Sunday
+    return new Date(d.setDate(diff));
+};
+
+const getWeekEnd = (date = new Date()) => {
+    const weekStart = getWeekStart(date);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+    return weekEnd;
+};
+
 const buildWorkProgressSeries = (records = [], referenceDate = new Date()) => {
+    const weekStart = getWeekStart(referenceDate);
     const days = [];
-    for (let i = 6; i >= 0; i -= 1) {
-        const day = new Date(referenceDate);
-        day.setDate(referenceDate.getDate() - i);
+    
+    // Get current week (Monday to Sunday)
+    for (let i = 0; i <= 6; i++) {
+        const day = new Date(weekStart);
+        day.setDate(weekStart.getDate() + i);
         days.push(day);
     }
+    
     return days.map(day => {
         const match = records.find(rec => Number(rec.day) === day.getDate());
         const minutes = match ? Math.max(0, minutesBetween(match.checkIn, match.checkOut)) : 0;
+        const isToday = day.toDateString() === referenceDate.toDateString();
         return {
             label: day.toLocaleDateString(undefined, { weekday: 'short' }),
-            value: Number((minutes / 60).toFixed(1))
+            value: Number((minutes / 60).toFixed(1)),
+            isToday: isToday,
+            date: day.getDate()
         };
     });
 };
@@ -233,7 +254,7 @@ const buildDonutChart = (summary) => {
 
 const buildLineChart = (points = []) => {
     if (!points.length || points.every(pt => !pt.value)) {
-        return '<p class="placeholder-text">No work logs for the past week.</p>';
+        return '<p class="placeholder-text">No work logs for the current week.</p>';
     }
     const maxValue = Math.max(...points.map(pt => pt.value), 1);
     const svgPoints = points.map((pt, idx) => {
@@ -241,11 +262,28 @@ const buildLineChart = (points = []) => {
         const y = 100 - ((pt.value / maxValue) * 100);
         return `${x},${y}`;
     }).join(' ');
-    const labels = points.map(pt => `<div class="chart-label"><span>${pt.label}</span><strong>${pt.value}h</strong></div>`).join('');
+    const labels = points.map(pt => {
+        const isToday = pt.isToday || false;
+        const todayClass = isToday ? ' today' : '';
+        const todayLabel = isToday ? ' (Today)' : '';
+        return `<div class="chart-label${todayClass}"><span>${pt.label}${todayLabel}</span><strong>${pt.value}h</strong></div>`;
+    }).join('');
+    
+    // Add dots for each point, highlight today
+    const dots = points.map((pt, idx) => {
+        const x = points.length === 1 ? 0 : (idx / (points.length - 1)) * 100;
+        const y = 100 - ((pt.value / maxValue) * 100);
+        const isToday = pt.isToday || false;
+        const dotClass = isToday ? 'dot-today' : 'dot';
+        const dotColor = isToday ? 'var(--primary-color)' : '#ffffff';
+        return `<circle cx="${x}" cy="${y}" r="3" fill="${dotColor}" stroke="var(--primary-color)" stroke-width="2" class="${dotClass}"/>`;
+    }).join('');
+    
     return `
         <div class="line-chart">
             <svg viewBox="0 0 100 100" preserveAspectRatio="none">
                 <polyline points="${svgPoints}" fill="none" stroke="var(--primary-color)" stroke-width="2" stroke-linecap="round" />
+                ${dots}
             </svg>
             <div class="chart-labels">${labels}</div>
         </div>
@@ -545,7 +583,12 @@ const buildDashboardLayout = (data) => {
                 <section class="card chart-card">
                     <header class="card-heading">
                         <p class="eyebrow">Attendance</p>
-                        <h3>Overview</h3>
+                        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                            <h3>Overview</h3>
+                            <button id="refresh-attendance-btn" class="btn btn-sm btn-outline" style="padding: 0.25rem 0.75rem; font-size: 0.875rem;">
+                                <i class="fa-solid fa-refresh"></i> Refresh
+                            </button>
+                        </div>
                     </header>
                     <div class="chart-row">
                         ${buildDonutChart(data.attendanceSummary)}
@@ -560,7 +603,10 @@ const buildDashboardLayout = (data) => {
                 <section class="card card-grid-span-2 chart-card">
                     <header class="card-heading">
                         <p class="eyebrow">Productivity</p>
-                        <h3>Work Progress</h3>
+                        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                            <h3>Work Progress</h3>
+                            <span style="font-size: 0.875rem; color: var(--text-secondary);">${weekRange}</span>
+                        </div>
                     </header>
                     ${workProgressMarkup}
                 </section>
@@ -769,6 +815,9 @@ const loadDashboardData = async () => {
     const today = new Date();
     const currentYear = today.getFullYear();
     const currentMonth = today.getMonth() + 1;
+    const weekStart = getWeekStart(today);
+    const weekEnd = getWeekEnd(today);
+    const weekRange = `${weekStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
 
     // Fetch employees (paged) and also full directory (cached) to improve DOJ coverage
     const employeesResponse = await cachedFetch('employees_list', async () => {
@@ -821,12 +870,12 @@ const loadDashboardData = async () => {
         resolvedEmployeeId
             ? cachedFetch(`attendance_${resolvedEmployeeId}_${currentYear}_${currentMonth}`, async () => {
                 try {
-                    return await fetchMonthlyAttendance(resolvedEmployeeId, currentYear, currentMonth);
+                    return await fetchMonthlyAttendance(resolvedEmployeeId, currentYear, currentMonth, true); // Force refresh for current month
                 } catch (err) {
                     console.warn('⚠️ Failed to fetch attendance:', err);
                     return [];
                 }
-            }, TTL.MEDIUM)
+            }, TTL.SHORT) // Use shorter cache for current month (30 seconds)
             : Promise.resolve([]),
         isAdminUser()
             ? cachedFetch('pending_leaves', async () => {
@@ -990,6 +1039,44 @@ const scheduleNotificationRefresh = () => {
     }, 600);
 };
 
+const setupRefreshButton = () => {
+    const refreshBtn = document.getElementById('refresh-attendance-btn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', async () => {
+            refreshBtn.disabled = true;
+            refreshBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Refreshing...';
+            
+            // Clear attendance cache
+            const user = state.user || {};
+            const employeeId = String(user.id || user.employee_id || '').trim();
+            const resolvedEmployeeId = normalizeEmployeeId(employeeId);
+            const today = new Date();
+            const currentYear = today.getFullYear();
+            const currentMonth = today.getMonth() + 1;
+            
+            if (resolvedEmployeeId) {
+                clearCacheByPrefix(`attendance_${resolvedEmployeeId}_${currentYear}_${currentMonth}`);
+            }
+            
+            // Reload dashboard data
+            await loadDashboardData();
+            await renderHomePage();
+            
+            refreshBtn.disabled = false;
+            refreshBtn.innerHTML = '<i class="fa-solid fa-refresh"></i> Refresh';
+        });
+    }
+};
+
+const setupAutoRefresh = () => {
+    // Auto-refresh every 5 minutes
+    setInterval(async () => {
+        console.log('🔄 Auto-refreshing dashboard...');
+        await loadDashboardData();
+        await renderHomePage();
+    }, 5 * 60 * 1000);
+};
+
 export const renderHomePage = async () => {
     const appContent = document.getElementById('app-content');
     if (!appContent) return;
@@ -1003,6 +1090,8 @@ export const renderHomePage = async () => {
         hydrateUserScoreboard(cachedPage.data || {});
         hydrateAnnouncementsCard();
         scheduleNotificationRefresh();
+        setupRefreshButton();
+        setupAutoRefresh();
         // Refresh data in background (stale-while-revalidate pattern)
         loadDashboardData().then(data => {
             const freshHtml = getPageContentHTML('', buildDashboardLayout(data));
@@ -1010,6 +1099,8 @@ export const renderHomePage = async () => {
             // Re-apply hydration with fresh data
             hydrateUserScoreboard(data);
             hydrateAnnouncementsCard();
+            setupRefreshButton();
+            setupAutoRefresh();
         }).catch(() => {});
         return;
     }
@@ -1107,6 +1198,8 @@ export const renderHomePage = async () => {
         hydrateUserScoreboard(dashboardData);
         hydrateAnnouncementsCard();
         scheduleNotificationRefresh();
+        setupRefreshButton();
+        setupAutoRefresh();
     } catch (error) {
         console.error('❌ Failed to render dashboard:', error);
         appContent.innerHTML = getPageContentHTML('Dashboard', `

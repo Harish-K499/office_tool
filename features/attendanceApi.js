@@ -48,11 +48,15 @@ export async function checkOut(employeeId, location = null) {
   return data; // { checkout_time, duration, total_hours }
 }
 
-export async function fetchMonthlyAttendance(employeeId, year, month) {
+export async function fetchMonthlyAttendance(employeeId, year, month, forceRefresh = false) {
   const key = `${String(employeeId || '').toUpperCase()}|${year}|${month}`;
   const now = Date.now();
   const cached = state?.cache?.attendance?.[key];
-  if (cached && now - cached.fetchedAt < CACHE_TTL_MS) {
+  
+  // Use shorter cache time for current month if forceRefresh is true
+  const cacheTime = forceRefresh ? 30 * 1000 : CACHE_TTL_MS; // 30 seconds vs 2 minutes
+  
+  if (!forceRefresh && cached && now - cached.fetchedAt < cacheTime) {
     return cached.data;
   }
 
