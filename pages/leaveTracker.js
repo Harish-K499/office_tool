@@ -832,6 +832,7 @@ export const renderLeaveTrackerPage = async (
 // Cancel leave function
 window.cancelLeave = async (leaveId, leaveType, startDate) => {
   console.log(`Attempting to cancel leave: ${leaveId}`);
+  console.log(`Leave Type: ${leaveType}, Start Date: ${startDate}`);
   
   // Show confirmation modal
   const confirmBody = `
@@ -878,14 +879,17 @@ window.cancelLeave = async (leaveId, leaveType, startDate) => {
         const loadingToast = showLeaveApplicationToast('Cancelling leave request...', 'info');
         
         // Call cancel leave API
-        const response = await fetch(`${API_BASE_URL}/cancel_leave/${leaveId}`, {
-          method: 'POST',
+        console.log(`Making API call to: ${API_BASE_URL}/api/leaves/cancel/${leaveId}`);
+        const response = await fetch(`${API_BASE_URL}/api/leaves/cancel/${leaveId}`, {
+          method: 'PATCH',
           headers: {
             'Content-Type': 'application/json'
           }
         });
         
+        console.log(`API Response status: ${response.status}`);
         const data = await response.json();
+        console.log('API Response data:', data);
         
         if (data.success) {
           // Show success message
