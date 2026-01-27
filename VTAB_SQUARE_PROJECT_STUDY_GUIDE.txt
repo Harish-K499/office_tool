@@ -1,0 +1,514 @@
+VTAB SQUARE (Office Tool) — Complete Project Study Guide (Architecture + Interview Prep)
+Generated: 2026-01-14
+
+================================================================================
+0) What this project is (one-paragraph pitch)
+================================================================================
+VTAB SQUARE is an internal enterprise “Office/HR Operations” web application. It provides employee directory + onboarding, attendance (check-in/out) with location, leave tracking, comp-off, assets, project/task boards, time tracking/timesheets, a WhatsApp-style chat module, Google Meet scheduling/notifications, and a global AI assistant. The frontend is a Vite-based SPA built mostly with vanilla TypeScript/JavaScript (DOM-driven UI), while the backend is a Flask API that integrates with Microsoft Dataverse (Dynamics 365) via OData and Azure AD (MSAL) client-credential tokens. A Node/Socket.IO server provides real-time events for chat/meet/attendance.
+
+================================================================================
+1) Repository map (what lives where)
+================================================================================
+Root folder: office_tool/
+
+Frontend (Vite SPA)
+- index.html
+- index.tsx (main entry; renders sidebar/header; binds events; starts router)
+- router.ts (hash-based routing)
+- state.ts (global in-memory state for UI)
+- components/
+  - layout.js (sidebar + header templates)
+  - modal.js (modal rendering)
+  - toast.js
+  - AiAssistant.js (floating AI panel)
+- pages/ (feature pages that render into #app-content)
+  - attendance.js, employees.js, leaveTracker.js, chats.js, projects.js, meet_working.js, etc.
+- features/ (API wrappers + client-side business logic)
+  - attendanceApi.js (legacy attendance API)
+  - attendanceApiV2.js (backend-authoritative attendance API)
+  - timer.js (legacy/optimistic attendance timer UI)
+  - attendanceRenderer.js (V2 stateless timer display)
+  - attendanceSocketV2.js (V2 stateless socket client)
+  - chatapi.js (chat REST wrapper)
+  - timedFetch.js, cache.js, etc.
+- config.js (API base URL resolution)
+- vite.config.ts (multi-page build: main + login)
+
+Backend (Flask)
+- backend/unified_server.py (primary Flask server; huge file; registers multiple blueprints)
+- backend/attendance_service_v2.py (Backend-authoritative attendance service)
+- backend/attendance_scheduler.py (APScheduler jobs: auto-close + absent marking)
+- backend/chats.py (Flask blueprint /chat for chat + chatbot automation endpoints)
+- backend/dataverse_helper.py (MSAL token + CRUD helpers)
+- backend/time_tracking.py + backend/timesheet_routes.py (time tracker / timesheet logging)
+- backend/ai_gemini.py, backend/ai_dataverse_service.py, backend/ai_automation.py (AI assistant)
+
+Realtime (Node + Socket.IO)
+- socket-server/single_server.js (unified socket server: meet + chat + attendance events)
+- socket-server/attendance_events.js (stateless broadcast-only module for v2 attendance)
+- socket-server/attendance_module.js (legacy stateful timer sync)
+- socket-server/chat_module.js (chat socket behaviours: presence + typing + delivery/read status)
+- socket-server/meet_module.js (meet call ring/accept/decline updates)
+- socket-server/socketManager.js (browser-side socket wrapper used by chat UI)
+
+Deployment hints
+- netlify.toml (frontend SPA build + redirects)
+- index.html sets window.API_BASE_URL = https://vtab-office-tool.onrender.com
+- socket defaults to https://office-tool-socket.onrender.com
+
+================================================================================
+2) Tech stack (what + why)
+================================================================================
+Frontend
+- Vite + ES Modules
+  - Why: simple dev server + fast builds + straightforward static deployment.
+- Vanilla JS/TS (DOM rendering, not React runtime)
+  - Why: avoids framework overhead, simple deployment, direct control of UI/HTML.
+  - Note: tsconfig has jsx: react-jsx, but the app is effectively “vanilla TS with template strings”.
+- Hash Router (#/path)
+  - Why: works on static hosting without server-side route rewrites (still configured via Netlify redirect).
+- CSS: large custom CSS (index.css + theme.css + modern-ui.css)
+  - Why: full control over UI without adding Tailwind/Bootstrap dependencies.
+
+Backend
+- Flask (Python)
+  - Why: quick API development + easy integration with external APIs (Dataverse, Google).
+- Microsoft Dataverse (Dynamics 365) as the database
+  - Why: enterprise data platform, permissions/auditing, integrates with Microsoft ecosystem.
+- MSAL client-credentials (Azure AD)
+  - Why: server-to-server auth for Dataverse OData.
+- Requests library for OData calls
+  - Why: direct control over Dataverse queries and payloads.
+
+Realtime
+- Node + Socket.IO
+  - Why: real-time delivery for chat and meet ringing, multi-device attendance sync.
+  - Design evolution: v2 attendance made sockets “event-only” (no timer state ownership).
+
+================================================================================
+3) High-level architecture (system design view)
+================================================================================
+This is a 3-service architecture:
+
+1) Frontend (static)
+   - Runs in browser, served as static assets.
+   - Talks to Flask API (Render) via fetch.
+   - Talks to Socket server (Render) via Socket.IO.
+
+2) Backend API (Flask)
+   - Exposes REST endpoints for HR features.
+   - Performs business logic.
+   - Reads/writes Dataverse via OData.
+   - Triggers socket broadcasts via HTTP POST to the socket server (/emit).
+
+3) Socket server (Node)
+   - Receives socket connections from clients.
+   - Broadcasts chat/meet/attendance events to rooms.
+   - Provides HTTP bridge (/emit) for the Flask backend to push events.
+
+Data flow (generic)
+User action
+  -> Frontend page handler / feature module
+  -> fetch() to Flask endpoint
+  -> Flask does business logic + Dataverse OData calls
+  -> Flask returns JSON
+  -> Frontend updates state + re-renders
+  -> (optional) Flask triggers socket event for other clients
+
+================================================================================
+4) Frontend architecture (how the SPA works)
+================================================================================
+4.1 Entry point
+- index.html provides the layout container:
+  - #sidebar, #header, #app-content, #modal-container
+- index.tsx:
+  - Renders sidebar + header using components/layout.js
+  - Initializes theme
+  - Initializes AI assistant (components/AiAssistant.js)
+  - Initializes realtime call client (meet ringing overlay) using src/socket.js
+  - Hooks global click handlers (delegation pattern)
+  - Starts the router (router.ts) on load + hashchange
+  - Starts attendance timer logic via features/timer.js (legacy) by calling loadTimerState()
+
+4.2 Routing
+- router.ts maps hash paths to page render functions:
+  - '/': home
+  - '/employees', '/attendance-my', '/attendance-team', '/chat', '/meet', etc.
+- Hash routing is chosen because it works on static hosting without server config.
+
+4.3 State management
+- state.ts exports a single global `state` object.
+- Pages read/modify state and then re-render HTML into #app-content.
+- This is not Redux/MobX; it’s a shared in-memory object.
+- Some features also persist state in localStorage (notably legacy timer and task timers).
+
+4.4 UI rendering style
+- Most pages return large HTML template strings.
+- Interactions are handled via event delegation in index.tsx and page modules.
+- Pros (interview):
+  - Minimal dependencies, quick prototyping.
+  - Easy to deploy.
+- Cons:
+  - Large files, harder to enforce component boundaries.
+  - Potential XSS risk if user-generated content is injected without sanitization.
+
+4.5 Configuration resolution
+- config.js resolves API base URL with fallbacks:
+  1) Vite env VITE_API_BASE_URL
+  2) window.API_BASE_URL (runtime injection; index.html sets it)
+  3) hardcoded hosted fallback (Render)
+  4) localhost
+
+================================================================================
+5) Backend architecture (Flask)
+================================================================================
+5.1 Main entry: backend/unified_server.py
+- Single large Flask app (“unified server”) that includes many routes and registers blueprints.
+- Registers these blueprints:
+  - project_contributors, project_boards, project_tasks, project_column
+  - time_tracking blueprint (bp_time, url_prefix="/api")
+  - chat blueprint (chat_bp, url_prefix="/chat")
+  - attendance v2 blueprint (attendance_v2_bp, url_prefix="/api/v2/attendance")
+
+5.2 Why a single “unified_server.py”?
+- Likely evolved organically: fastest way to ship features.
+- Centralized configuration (Dataverse token, JWT secret, Google OAuth) in one place.
+- Tradeoff: file is very large (harder to maintain, test, and review).
+
+5.3 Dataverse integration and auth
+- backend/dataverse_helper.py uses MSAL ConfidentialClientApplication.
+- It acquires an access token for Dataverse using client_id/client_secret.
+- Then uses OData endpoints:
+  RESOURCE/api/data/v9.2/<entity_set>
+
+Important environment variables:
+- TENANT_ID, CLIENT_ID, CLIENT_SECRET
+- RESOURCE (Dataverse org URL)
+- JWT_SECRET (+ optional JWT_ALGORITHM)
+
+5.4 Google Meet integration
+- OAuth endpoints:
+  - GET /google/authorize
+  - GET /google/oauth2callback
+- Meet creation:
+  - POST /api/meet/start
+- Tokens stored under backend/storage (google_tokens) via helper.
+- Backend also notifies socket server so employees receive “call:ring” events.
+
+================================================================================
+6) Attendance system (MOST IMPORTANT interview topic)
+================================================================================
+There are TWO attendance implementations:
+
+A) Legacy attendance (v1) — optimistic + local timer
+- Frontend uses:
+  - features/timer.js (optimistic UI start/stop)
+  - features/attendanceApi.js calls:
+    - POST /api/checkin
+    - POST /api/checkout
+    - GET /api/attendance/<emp>/<year>/<month>
+- Backend in unified_server.py implements /api/checkin, /api/checkout, /api/status/<id>
+- Socket legacy module exists: socket-server/attendance_module.js
+- Why it existed:
+  - It makes timer feel instant (optimistic UI).
+  - localStorage preserves timer across refresh.
+- Main problems:
+  - Drift and inconsistency across devices
+  - Browser throttling affects setInterval
+  - localStorage is per-device
+
+B) Backend-authoritative attendance (v2) — “server is source of truth”
+- Backend:
+  - backend/attendance_service_v2.py (Blueprint /api/v2/attendance)
+  - Stores timing in Dataverse login activity table crc6f_hr_loginactivitytbs
+  - Key concept: server_now_utc is truth.
+- Frontend:
+  - features/attendanceRenderer.js
+    - Calls /api/v2/attendance/status/<id>
+    - Displays timer based on backend fields
+    - Uses setInterval ONLY for display interpolation, not business truth
+  - features/attendanceSocketV2.js
+    - listens for attendance:changed events
+    - always refetches /status
+- Socket server:
+  - socket-server/attendance_events.js (stateless broadcaster)
+
+6.1 V2 core formula
+Elapsed display is derived from backend state:
+- elapsed = total_seconds_today + (server_now_utc - checkin_utc)
+
+6.2 Why V2 is better (the “why” you must explain in interviews)
+- Multi-device consistency: any device can show accurate time after refresh.
+- No drift on tab sleep/throttle.
+- Backend can run midnight jobs to auto-close sessions.
+- Auditability: backend logs timestamps and totals.
+
+6.3 Scheduler jobs
+- backend/attendance_scheduler.py
+  - auto_close_active_sessions (23:59 UTC): closes sessions not checked out
+  - mark_absent_employees (00:10 UTC): creates “Absent” records for employees with no attendance
+- Why: ensures compliance and closes open sessions reliably.
+
+6.4 Migration reality in this repo
+- index.tsx currently imports features/timer.js (legacy).
+- V2 modules exist and are referenced in docs (ATTENDANCE_SYSTEM_REDESIGN.md) and some modules.
+- Interview angle: talk about incremental migration, backward compatibility (attendanceSocketV2 handles legacy events too).
+
+================================================================================
+7) Chat system (WhatsApp-style)
+================================================================================
+Key files:
+- Frontend UI: pages/chats.js
+- REST wrapper: features/chatapi.js
+- Backend blueprint: backend/chats.py (mounted at /chat)
+- Realtime: socket-server/chat_module.js + socket-server/socketManager.js
+
+Core ideas:
+- Dataverse stores:
+  - Conversations: crc6f_hr_chat_conversations
+  - Members: crc6f_hr_conversation_memberses
+  - Messages: crc6f_hr_messageses
+  - Attachments via annotations
+- Socket events:
+  - new_message
+  - conversation_created
+  - group_members_added / removed
+  - message_edited / deleted
+  - presence events
+  - typing / stop_typing
+
+Why both REST + sockets?
+- REST is the source for persistence (fetch conversations/messages, upload files).
+- Socket is for real-time UI updates (push new message / typing / presence without polling).
+
+================================================================================
+8) Meet system (Google Meet + notifications)
+================================================================================
+- Backend creates Google Calendar events with conferenceData to get Meet link.
+- Participants can be resolved:
+  - directly via employee_emails
+  - via employee_ids -> email lookups (Dataverse)
+  - via project_id -> contributor lookup -> emails
+- Backend notifies socket server (/emit) so employees receive incoming call overlay.
+- Frontend overlay logic is in index.tsx setupRealtimeCallClient() and meet page.
+
+Interview angle: explain how OAuth tokens are stored and refreshed and why /google/authorize is required before /api/meet/start.
+
+================================================================================
+9) Time tracking / timesheets
+================================================================================
+There are two patterns:
+1) Dataverse-based timesheet logs via timesheet_routes.py
+   - /api/time-tracker/task-log: upsert by employee+task+date
+   - /api/time-tracker/logs: query within date range
+2) File-based JSON persistence in backend/time_tracking.py (_data/time_entries.json etc.)
+   - Used to persist between restarts in environments without DB for intermediate state.
+
+Frontend task timer logic also uses localStorage keys like:
+- tt_active_<EMPID>
+- tt_accum_<EMPID>_<TASKGUID>_<DATE>
+
+Interview angle: discuss tradeoffs of localStorage vs server persistence, and how upserts in Dataverse avoid duplicates.
+
+================================================================================
+10) AI Assistant (Gemini + automation)
+================================================================================
+Frontend
+- components/AiAssistant.js
+  - Floating button + panel
+  - POST /api/ai/query with:
+    - question
+    - currentUser
+    - history
+    - automationState
+
+Backend
+- /api/ai/query in unified_server.py
+  - Uses:
+    - ai_dataverse_service.build_ai_context() to fetch summaries
+    - ai_gemini.ask_gemini() to generate answers
+    - ai_automation.py to run multi-step flows (create/edit employees etc.)
+
+Why this design?
+- Keeps the LLM prompt grounded with real data context.
+- Supports multi-step workflows (automationState) without forcing users to fill forms.
+- Still risky: ensure access control (admin/L3 vs employee) and avoid leaking sensitive data.
+
+================================================================================
+11) Authentication & security model
+================================================================================
+There are multiple auth “layers” in this project:
+
+A) Dataverse access (server-to-server)
+- MSAL confidential client gets bearer token for OData.
+- This is NOT user login; it’s service authentication.
+
+B) App login (user login)
+- unified_server.py provides /api/login.
+- JWT_SECRET is required (server uses jwt.encode/decode).
+- Frontend appears to store token in state.user.token and sends Authorization: Bearer for some APIs (chatapi.js does this).
+
+C) Admin authorization
+- There is an admin_required decorator in unified_server.py.
+- It attempts to validate a Bearer token and checks designation for admin/manager.
+- Interview note: ensure token verification logic is correct and consistent across endpoints.
+
+Security topics to be ready to discuss:
+- CORS currently allows '*'
+- Avoid exposing secrets in frontend bundle (vite.config.ts defines process.env.GEMINI_API_KEY; that is dangerous if used client-side)
+- Prevent XSS in chat rendering
+- Rate limiting for /api/ai/query, /api/login
+- Using HTTPS + secure storage for refresh tokens
+
+================================================================================
+12) Deployment / environments (what to say)
+================================================================================
+Frontend
+- Vite build; netlify.toml publishes dist and redirects all routes to index.html.
+- index.html injects window.API_BASE_URL = https://vtab-office-tool.onrender.com
+
+Backend
+- Hosted on Render (based on the URLs used)
+- Needs env vars:
+  - TENANT_ID, CLIENT_ID, CLIENT_SECRET, RESOURCE
+  - JWT_SECRET
+  - GOOGLE_CLIENT_ID/SECRET/REDIRECT_URI (or Googlemeet token.json)
+  - GEMINI_API_KEY
+  - SOCKET_SERVER_URL
+
+Socket server
+- Hosted on Render as https://office-tool-socket.onrender.com
+- Provides /emit HTTP bridge
+
+================================================================================
+13) “Why did they do it this way?” (design decisions to explain)
+================================================================================
+- Why Hash Router:
+  - Works on static hosting; no backend route handling needed.
+
+- Why Dataverse:
+  - Enterprise data store with audit + integration into Microsoft ecosystem.
+
+- Why MSAL client credentials:
+  - Backend service authenticates to Dataverse; no end-user AAD login implemented here.
+
+- Why Socket server separate from Flask:
+  - Python sockets in Flask are more complex; Node+Socket.IO is a standard approach.
+  - Allows a single realtime layer for chat + meet + attendance.
+
+- Why attendance V2:
+  - Eliminates drift and inconsistent timers.
+  - Enables scheduled jobs and audit-ready timing.
+
+- Why giant unified_server.py (historical):
+  - Faster to iterate, but creates maintainability debt.
+
+================================================================================
+14) Interview questions (project-specific) + strong answer outlines
+================================================================================
+14.1 Architecture / System design
+Q: Walk me through the architecture of this app.
+A:
+- Frontend Vite SPA -> Flask API -> Dataverse.
+- Node Socket server for realtime.
+- Explain data flow and why each layer exists.
+
+Q: Why did you move attendance to “backend-authoritative”?
+A:
+- Local timers drift, multi-device inconsistency, tab throttling.
+- Backend has true timestamps + can reconcile from DB.
+- Sockets become “invalidate cache” events only.
+
+Q: How would you scale this?
+A:
+- Split unified_server into blueprints/modules, add caching, rate limiting.
+- Socket scaling with sticky sessions + Redis adapter.
+- Replace in-memory/file stores with Redis/DB.
+
+14.2 Dataverse / OData
+Q: How do you query and update Dataverse?
+A:
+- OData v9.2 endpoints with bearer token.
+- Use $filter/$select/$top; patch by entity_set(<GUID>).
+- Mention escaping quotes and timeouts.
+
+Q: What are the risks with Dataverse?
+A:
+- Latency + throttling, OData query length limits.
+- Schema/field name differences across environments.
+- Need to handle pagination and retries.
+
+14.3 Realtime
+Q: Why do you need both sockets and polling in attendance?
+A:
+- Sockets provide instant updates; polling ensures correctness if socket drops.
+- V2: socket only tells you “something changed”; you fetch /status for truth.
+
+Q: How do you isolate rooms?
+A:
+- Room naming: attendance:<EMPID>, conversation_id rooms for chat.
+
+14.4 Security
+Q: How do you prevent regular employees from accessing admin data?
+A:
+- Role info from designation; enforce server-side checks.
+- Never trust client-side role flags.
+
+Q: What’s wrong with putting GEMINI_API_KEY in the frontend bundle?
+A:
+- It leaks secret to users; should be server-only.
+
+14.5 Debugging
+Q: A user says timer resets after refresh. Where do you look?
+A:
+- If using v1: localStorage key timerState_<EMPID>, serverOffset, /api/status.
+- If using v2: /api/v2/attendance/status correctness, timezone date boundary.
+
+Q: Chat messages not updating in real-time.
+A:
+- Verify socket connection URL, chat_register, join_room, /emit bridge.
+
+================================================================================
+15) Common “tell me about a challenge” stories from this repo
+================================================================================
+- Attendance drift / multi-device mismatch -> redesigned to backend authoritative.
+- Dataverse field mismatches -> introduced mapping + fallbacks.
+- Large page JS files -> event delegation to reduce listener explosion.
+
+================================================================================
+16) Known hotspots / tech debt (be honest in interviews)
+================================================================================
+- unified_server.py is extremely large (hard to test/maintain).
+- Dual attendance implementations (v1 + v2) increase complexity.
+- Some state is in localStorage (timer/task timers) and some in Dataverse.
+- CORS is permissive.
+
+================================================================================
+17) If you get 1 day to improve it (good interview answer)
+================================================================================
+- Extract each domain into its own Flask blueprint/module (attendance, leave, employees, meet, ai).
+- Standardize auth middleware (JWT verification + role checks).
+- Remove any client-side secret exposure.
+- Adopt V2 attendance fully and remove legacy timer logic.
+- Add automated tests for critical endpoints: login, attendance status, chat send.
+
+================================================================================
+18) Quick “how to run” (local)
+================================================================================
+Frontend
+- npm install
+- npm run dev  (Vite server on :3000)
+
+Backend
+- cd backend
+- pip install -r requirements.txt
+- python unified_server.py  (commonly runs on :5000)
+
+Socket server
+- cd socket-server
+- npm install
+- npm run start (PORT default 4001 in single_server.js)
+
+================================================================================
+END
+================================================================================

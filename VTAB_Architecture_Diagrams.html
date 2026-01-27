@@ -1,0 +1,502 @@
+
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>VTAB Office Tool - Architecture Diagrams</title>
+        
+    <style>
+        @page {
+            margin: 2cm;
+            size: A4;
+            @bottom-center {
+                content: counter(page);
+                font-size: 10pt;
+            }
+        }
+        
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 11pt;
+            line-height: 1.6;
+            color: #2c3e50;
+            margin: 0;
+            padding: 0;
+        }
+        
+        .cover-page {
+            text-align: center;
+            padding: 100px 0;
+        }
+        
+        .cover-page h1 {
+            font-size: 48pt;
+            color: #3498db;
+            margin-bottom: 20px;
+        }
+        
+        .cover-page .subtitle {
+            font-size: 18pt;
+            color: #7f8c8d;
+            margin-bottom: 50px;
+        }
+        
+        .cover-page .date {
+            font-size: 14pt;
+            color: #95a5a6;
+        }
+        
+        h1 {
+            font-size: 28pt;
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+            page-break-before: always;
+            margin-top: 50px;
+        }
+        
+        h2 {
+            font-size: 22pt;
+            color: #34495e;
+            border-bottom: 2px solid #ecf0f1;
+            padding-bottom: 8px;
+            margin-top: 40px;
+        }
+        
+        h3 {
+            font-size: 18pt;
+            color: #2980b9;
+            margin-top: 30px;
+        }
+        
+        h4 {
+            font-size: 14pt;
+            color: #27ae60;
+            margin-top: 25px;
+        }
+        
+        p {
+            margin: 10px 0;
+            text-align: justify;
+        }
+        
+        code {
+            background-color: #f8f9fa;
+            padding: 3px 6px;
+            border-radius: 4px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 10pt;
+            color: #e74c3c;
+        }
+        
+        pre {
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 10pt;
+            line-height: 1.4;
+            margin: 20px 0;
+        }
+        
+        pre code {
+            background: none;
+            padding: 0;
+            color: inherit;
+        }
+        
+        blockquote {
+            border-left: 4px solid #3498db;
+            margin: 20px 0;
+            padding: 10px 20px;
+            background-color: #f8f9fa;
+            color: #7f8c8d;
+            font-style: italic;
+        }
+        
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 20px 0;
+            font-size: 10pt;
+        }
+        
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        
+        th {
+            background-color: #3498db;
+            color: white;
+            font-weight: bold;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+        
+        ul, ol {
+            margin: 10px 0;
+            padding-left: 30px;
+        }
+        
+        li {
+            margin: 8px 0;
+        }
+        
+        .ascii-art {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 8pt;
+            line-height: 1.1;
+            white-space: pre;
+            overflow-x: auto;
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid #dee2e6;
+            margin: 20px 0;
+        }
+        
+        .highlight {
+            background-color: #fff3cd;
+            padding: 15px;
+            border-left: 4px solid #ffc107;
+            margin: 20px 0;
+        }
+        
+        .info-box {
+            background-color: #d1ecf1;
+            border: 1px solid #bee5eb;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        
+        .page-break {
+            page-break-before: always;
+        }
+        
+        .no-break {
+            page-break-inside: avoid;
+        }
+    </style>
+    
+    </head>
+    <body>
+        <div class="cover-page">
+            <h1>VTAB Office Tool - Architecture Diagrams</h1>
+            <div class="subtitle">Complete Technical Documentation</div>
+            <div class="date">Generated on January 20, 2026</div>
+        </div>
+        <div class="content">
+            <h1>VTAB Office Tool - Visual Architecture Diagrams</h1>
+<h2>1. Overall System Architecture</h2>
+<div class="codehilite"><pre><span></span><code><span class="w">                    </span>┌─────────────────────────────────────────────────────┐
+<span class="w">                    </span>│<span class="w">                    </span><span class="nv">CLOUD</span><span class="w"> </span><span class="nv">INFRA</span><span class="w">                     </span>│
+<span class="w">                    </span>│<span class="w">                                                     </span>│
+<span class="w">    </span>┌───────────────┼─────────────────────┬─────────────────────────────┼───────────────┐
+<span class="w">    </span>│<span class="w">               </span>│<span class="w">                     </span>│<span class="w">                             </span>│<span class="w">               </span>│
+<span class="w">    </span>▼<span class="w">               </span>▼<span class="w">                     </span>▼<span class="w">                             </span>▼<span class="w">               </span>▼
+┌─────────┐<span class="w">   </span>┌─────────────┐<span class="w">   </span>┌─────────────────┐<span class="w">   </span>┌─────────────┐<span class="w">   </span>┌─────────────┐
+│<span class="w"> </span><span class="nv">Netlify</span><span class="w"> </span>│<span class="w">   </span>│<span class="w">   </span><span class="nv">Render</span><span class="w">    </span>│<span class="w">   </span>│<span class="w">     </span><span class="nv">Render</span><span class="w">      </span>│<span class="w">   </span>│<span class="w"> </span><span class="nv">Microsoft</span><span class="w">   </span>│<span class="w">   </span>│<span class="w">   </span><span class="nv">Google</span><span class="w">    </span>│
+│<span class="w"> </span><span class="ss">(</span><span class="nv">Front</span><span class="o">-</span><span class="w"> </span>│<span class="w">   </span>│<span class="w">  </span><span class="ss">(</span><span class="nv">Backend</span><span class="ss">)</span><span class="w">  </span>│<span class="w">   </span>│<span class="w"> </span><span class="ss">(</span><span class="nv">Socket</span><span class="w"> </span><span class="nv">Server</span><span class="ss">)</span><span class="w"> </span>│<span class="w">   </span>│<span class="w"> </span><span class="nv">Dataverse</span><span class="w">   </span>│<span class="w">   </span>│<span class="w">    </span><span class="nv">APIs</span><span class="w">     </span>│
+│<span class="w">  </span><span class="k">end</span><span class="ss">)</span><span class="w">   </span>│<span class="w">   </span>│<span class="w">             </span>│<span class="w">   </span>│<span class="w">                 </span>│<span class="w">   </span>│<span class="w">             </span>│<span class="w">   </span>│<span class="w">             </span>│
+│<span class="w">         </span>│<span class="w">   </span>│<span class="w">             </span>│<span class="w">   </span>│<span class="w">                 </span>│<span class="w">   </span>│<span class="w">             </span>│<span class="w">   </span>│<span class="w">             </span>│
+│<span class="w"> </span>•<span class="w"> </span><span class="nv">SPA</span><span class="w">   </span>│<span class="w">   </span>│<span class="w"> </span>•<span class="w"> </span><span class="nv">Flask</span><span class="w"> </span><span class="nv">API</span><span class="w"> </span>│<span class="w">   </span>│<span class="w"> </span>•<span class="w"> </span><span class="nv">Node</span>.<span class="nv">js</span><span class="w">       </span>│<span class="w">   </span>│<span class="w"> </span>•<span class="w"> </span><span class="nv">Employee</span><span class="w">  </span>│<span class="w">   </span>│<span class="w"> </span>•<span class="w"> </span><span class="nv">Meet</span><span class="w">      </span>│
+│<span class="w"> </span>•<span class="w"> </span><span class="nv">Vite</span><span class="w">  </span>│<span class="w">   </span>│<span class="w"> </span>•<span class="w"> </span><span class="nv">JWT</span><span class="w"> </span><span class="nv">Auth</span><span class="w">  </span>│<span class="w">   </span>│<span class="w"> </span>•<span class="w"> </span><span class="nv">Socket</span>.<span class="nv">IO</span><span class="w">     </span>│<span class="w">   </span>│<span class="w">   </span><span class="nv">Data</span><span class="w">      </span>│<span class="w">   </span>│<span class="w"> </span>•<span class="w"> </span><span class="nv">Gemini</span><span class="w"> </span><span class="nv">AI</span><span class="w"> </span>│
+│<span class="w"> </span>•<span class="w"> </span><span class="nv">TS</span><span class="o">/</span><span class="nv">JS</span><span class="w"> </span>│<span class="w">   </span>│<span class="w"> </span>•<span class="w"> </span><span class="nv">MSAL</span><span class="w"> </span><span class="nv">O365</span><span class="w"> </span>│<span class="w">   </span>│<span class="w"> </span>•<span class="w"> </span><span class="nv">Real</span><span class="o">-</span><span class="nv">time</span><span class="w">     </span>│<span class="w">   </span>│<span class="w"> </span>•<span class="w"> </span><span class="nv">Attendance</span>│<span class="w">   </span>│<span class="w"> </span>•<span class="w"> </span><span class="nv">Gmail</span><span class="w">     </span>│
+└────┬────┘<span class="w">   </span>└──────┬──────┘<span class="w">   </span>└────────┬────────┘<span class="w">   </span>└──────┬──────┘<span class="w">   </span>└──────┬──────┘
+<span class="w">     </span>│<span class="w">                 </span>│<span class="w">                    </span>│<span class="w">                    </span>│<span class="w">                 </span>│
+<span class="w">     </span>│<span class="w">                 </span>│<span class="w">                    </span>│<span class="w">                    </span>│<span class="w">                 </span>│
+<span class="w">     </span>└─────────────────┼────────────────────┼────────────────────┼─────────────────┘
+<span class="w">                       </span>│<span class="w">                    </span>│<span class="w">                    </span>│
+<span class="w">                       </span>▼<span class="w">                    </span>▼<span class="w">                    </span>▼
+<span class="w">                </span>┌─────────────────────────────────────────────────────┐
+<span class="w">                </span>│<span class="w">                 </span><span class="nv">USER</span><span class="w"> </span><span class="nv">DEVICES</span><span class="w">                       </span>│
+<span class="w">                </span>│<span class="w">                                                     </span>│
+<span class="w">                </span>│<span class="w">  </span>┌─────────┐<span class="w">    </span>┌─────────┐<span class="w">    </span>┌─────────┐<span class="w">        </span>│
+<span class="w">                </span>│<span class="w">  </span>│<span class="w"> </span><span class="nv">Laptop</span><span class="w">  </span>│<span class="w">    </span>│<span class="w">  </span><span class="nv">Mobile</span><span class="w"> </span>│<span class="w">    </span>│<span class="w">  </span><span class="nv">Tablet</span><span class="w"> </span>│<span class="w">        </span>│
+<span class="w">                </span>│<span class="w">  </span>│<span class="w"> </span><span class="nv">Browser</span><span class="w"> </span>│<span class="w">    </span>│<span class="w"> </span><span class="nv">Browser</span><span class="w"> </span>│<span class="w">    </span>│<span class="w"> </span><span class="nv">Browser</span><span class="w"> </span>│<span class="w">        </span>│
+<span class="w">                </span>│<span class="w">  </span>└─────────┘<span class="w">    </span>└─────────┘<span class="w">    </span>└─────────┘<span class="w">        </span>│
+<span class="w">                </span>└─────────────────────────────────────────────────────┘
+</code></pre></div>
+
+<h2>2. Authentication Flow Diagram</h2>
+<div class="codehilite"><pre><span></span><code>┌──────────┐<span class="w">       </span><span class="mi">1</span>.<span class="w"> </span><span class="nv">Login</span><span class="w"> </span><span class="nv">Request</span><span class="w">       </span>┌─────────────┐
+│<span class="w">  </span><span class="nv">User</span><span class="w">    </span>│─────────────────────────────►│<span class="w">   </span><span class="nv">Frontend</span><span class="w">  </span>│
+│<span class="w"> </span><span class="nv">Browser</span><span class="w">  </span>│<span class="w">                              </span>│<span class="w">             </span>│
+└──────────┘<span class="w">                              </span>└──────┬──────┘
+<span class="w">                                                </span>│
+<span class="w">                                                </span>▼
+<span class="w">                                        </span><span class="mi">2</span>.<span class="w"> </span><span class="nv">POST</span><span class="w"> </span><span class="o">/</span><span class="nv">api</span><span class="o">/</span><span class="nv">login</span>
+<span class="w">                                                </span>│
+<span class="w">                                                </span>▼
+┌───────────────────────────────────────────────────────────────┐
+│<span class="w">                        </span><span class="nv">Backend</span><span class="w"> </span><span class="ss">(</span><span class="nv">Flask</span><span class="ss">)</span><span class="w">                        </span>│
+│<span class="w">                                                               </span>│
+│<span class="w">  </span>┌─────────────┐<span class="w">    </span><span class="mi">3</span>.<span class="w"> </span><span class="nv">Verify</span><span class="w">    </span>┌─────────────────┐<span class="w">         </span>│
+│<span class="w">  </span>│<span class="w">   </span><span class="nv">JWT</span><span class="w">       </span>│◄───────────────►│<span class="w">   </span><span class="nv">Dataverse</span><span class="w">     </span>│<span class="w">         </span>│
+│<span class="w">  </span>│<span class="w"> </span><span class="nv">Middleware</span><span class="w">  </span>│<span class="w">                 </span>│<span class="w">   </span><span class="ss">(</span><span class="nv">OData</span><span class="ss">)</span><span class="w">       </span>│<span class="w">         </span>│
+│<span class="w">  </span>└──────┬──────┘<span class="w">                 </span>└────────┬────────┘<span class="w">         </span>│
+│<span class="w">         </span>│<span class="w">                                   </span>│<span class="w">                 </span>│
+│<span class="w">         </span>│<span class="w"> </span><span class="mi">4</span>.<span class="w"> </span><span class="nv">Valid</span><span class="w"> </span><span class="nv">Credentials</span><span class="w">               </span>│<span class="w">                 </span>│
+│<span class="w">         </span>▼<span class="w">                                   </span>▼<span class="w">                 </span>│
+│<span class="w">  </span>┌─────────────┐<span class="w">    </span><span class="mi">5</span>.<span class="w"> </span><span class="nv">Create</span><span class="w">     </span>┌─────────────────┐<span class="w">         </span>│
+│<span class="w">  </span>│<span class="w">    </span><span class="nv">JWT</span><span class="w">      </span>│─────────────────►│<span class="w">   </span><span class="nv">JWT</span><span class="w"> </span><span class="nv">Token</span><span class="w">     </span>│<span class="w">         </span>│
+│<span class="w">  </span>│<span class="w">   </span><span class="nv">Token</span><span class="w">     </span>│<span class="w">                 </span>│<span class="w">                 </span>│<span class="w">         </span>│
+│<span class="w">  </span>└──────┬──────┘<span class="w">                 </span>└────────┬────────┘<span class="w">         </span>│
+│<span class="w">         </span>│<span class="w">                                   </span>│<span class="w">                 </span>│
+└─────────┼───────────────────────────────────┼─────────────────┘
+<span class="w">          </span>│<span class="w"> </span><span class="mi">6</span>.<span class="w"> </span><span class="k">Return</span><span class="w"> </span><span class="nv">JWT</span><span class="w">                       </span>│
+<span class="w">          </span>▼<span class="w">                                   </span>▼
+┌───────────────────────────────────────────────────────────────┐
+│<span class="w">                      </span><span class="nv">Frontend</span><span class="w"> </span><span class="nv">Browser</span><span class="w">                        </span>│
+│<span class="w">                                                               </span>│
+│<span class="w">  </span>┌─────────────┐<span class="w">    </span><span class="mi">7</span>.<span class="w"> </span><span class="nv">Store</span><span class="w">     </span>┌─────────────────┐<span class="w">         </span>│
+│<span class="w">  </span>│<span class="w">   </span><span class="nv">Local</span><span class="w">     </span>│◄───────────────►│<span class="w">   </span><span class="nv">JWT</span><span class="w"> </span><span class="nv">Token</span><span class="w">     </span>│<span class="w">         </span>│
+│<span class="w">  </span>│<span class="w">  </span><span class="nv">Storage</span><span class="w">    </span>│<span class="w">                 </span>│<span class="w">   </span><span class="ss">(</span><span class="nv">state</span>.<span class="nv">js</span><span class="ss">)</span><span class="w">    </span>│<span class="w">         </span>│
+│<span class="w">  </span>└──────┬──────┘<span class="w">                 </span>└────────┬────────┘<span class="w">         </span>│
+│<span class="w">         </span>│<span class="w">                                   </span>│<span class="w">                 </span>│
+│<span class="w">         </span>│<span class="w"> </span><span class="mi">8</span>.<span class="w"> </span><span class="k">Include</span><span class="w"> </span><span class="nv">in</span><span class="w"> </span><span class="nv">all</span><span class="w"> </span><span class="nv">requests</span><span class="w">         </span>│<span class="w">                 </span>│
+│<span class="w">         </span>▼<span class="w">                                   </span>▼<span class="w">                 </span>│
+│<span class="w">  </span>┌─────────────┐<span class="w">    </span><span class="mi">9</span>.<span class="w"> </span><span class="nv">API</span><span class="w"> </span><span class="nv">Call</span><span class="w">   </span>┌─────────────────┐<span class="w">         </span>│
+│<span class="w">  </span>│<span class="nv">Authorization</span>:│────────────────►│<span class="w">   </span><span class="nv">Backend</span><span class="w"> </span><span class="nv">API</span><span class="w">   </span>│<span class="w">         </span>│
+│<span class="w">  </span>│<span class="nv">Bearer</span><span class="w"> </span><span class="o">&lt;</span><span class="nv">JWT</span><span class="o">&gt;</span><span class="w">  </span>│<span class="w">                 </span>│<span class="w">                 </span>│<span class="w">         </span>│
+│<span class="w">  </span>└─────────────┘<span class="w">                 </span>└─────────────────┘<span class="w">         </span>│
+└───────────────────────────────────────────────────────────────┘
+</code></pre></div>
+
+<h2>3. Real-time Communication Flow</h2>
+<div class="codehilite"><pre><span></span><code>┌──────────┐                           ┌──────────┐
+│ User A   │                           │ User B   │
+│ Browser  │                           │ Browser  │
+└─────┬────┘                           └─────┬────┘
+      │                                       │
+      │ 1. Socket.IO Connection                │
+      ├──────────────────────────────────────►│
+      │                                       │
+      │ 2. Join Room (&#39;chat_123&#39;)              │
+      ├──────────────────────────────────────►│
+      │                                       │
+      │ 3. Send Message                       │
+      ├───────────────────────┐               │
+      │                       │               │
+      ▼                       ▼               ▼
+┌───────────────────────────────────────────────────────┐
+│              Socket Server (Node.js)                   │
+│                                                       │
+│  ┌─────────────┐    4. Save     ┌─────────────┐      │
+│  │   Socket    │──────────────►│   Backend   │      │
+│  │   Server    │                │   (Flask)   │      │
+│  └──────┬──────┘                └──────┬──────┘      │
+│         │ 5. Store Message              │            │
+│         │                               │            │
+│         ▼                               ▼            │
+│  ┌─────────────┐    6. Broadcast  ┌─────────────┐   │
+│  │   Socket    │◄───────────────│   Backend   │   │
+│  │   Server    │                │  Response   │   │
+│  └──────┬──────┘                └─────────────┘   │
+│         │ 7. Emit to Room                             │
+└─────────┼─────────────────────────────────────────────┘
+          │
+          │ 8. Broadcast Event
+          ├──────────────────────────────────────►┐
+          │                                      │
+          ▼                                      ▼
+┌───────────────────────────────────────────────────────┐
+│                    All Clients                        │
+│                                                       │
+│  ┌─────────────┐    9. Update   ┌─────────────┐      │
+│  │   User A    │◄───────────────│   User B    │      │
+│  │   Chat UI   │                │   Chat UI   │      │
+│  └─────────────┘                └─────────────┘      │
+└───────────────────────────────────────────────────────┘
+</code></pre></div>
+
+<h2>4. Data Flow Architecture</h2>
+<div class="codehilite"><pre><span></span><code>┌─────────────────────────────────────────────────────────────────┐
+│                        LAYERED ARCHITECTURE                     │
+├─────────────────────────────────────────────────────────────────┤
+│                         PRESENTATION LAYER                      │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
+│  │   Web UI     │  │  Mobile UI   │  │  Desktop UI  │           │
+│  │ (React/Vite) │  │   (Browser)  │  │ (Electron)   │           │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘           │
+└─────────┼──────────────────┼──────────────────┼─────────────────┘
+          │                  │                  │
+          ▼                  ▼                  ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      API GATEWAY LAYER                          │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
+│  │   Auth       │  │   Rate       │  │   Request    │           │
+│  │  Middleware  │  │  Limiting    │  │ Validation   │           │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘           │
+└─────────┼──────────────────┼──────────────────┼─────────────────┘
+          │                  │                  │
+          ▼                  ▼                  ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      BUSINESS LOGIC LAYER                      │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
+│  │   Employee   │  │  Attendance  │  │    Leave     │           │
+│  │   Service    │  │   Service    │  │   Service    │           │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘           │
+└─────────┼──────────────────┼──────────────────┼─────────────────┘
+          │                  │                  │
+          ▼                  ▼                  ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     DATA ACCESS LAYER                          │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
+│  │   OData      │  │    MSAL      │  │   Cache      │           │
+│  │   Client     │  │   Auth       │  │   Layer      │           │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘           │
+└─────────┼──────────────────┼──────────────────┼─────────────────┘
+          │                  │                  │
+          ▼                  ▼                  ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      PERSISTENCE LAYER                         │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
+│  │  Dataverse   │  │   File       │  │   External   │           │
+│  │ (Primary DB) │  │  Storage     │  │   APIs       │           │
+│  └──────────────┘  └──────────────┘  └──────────────┘           │
+└─────────────────────────────────────────────────────────────────┘
+</code></pre></div>
+
+<h2>5. Microservices Future State</h2>
+<div class="codehilite"><pre><span></span><code>┌─────────────────────────────────────────────────────────────────┐
+│                     API GATEWAY (Kong)                         │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
+│  │   Auth       │  │   Router     │  │   Load       │           │
+│  │  Service     │  │  Service     │  │  Balancer    │           │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘           │
+└─────────┼──────────────────┼──────────────────┼─────────────────┘
+          │                  │                  │
+          ▼                  ▼                  ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    MICROSERVICES LAYER                         │
+│                                                                 │
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌───────────┐ │
+│  │   Auth      │ │  Employee   │ │ Attendance  │ │   Chat    │ │
+│  │  Service    │ │  Service    │ │  Service    │ │ Service   │ │
+│  │ (Node.js)   │ │ (Python)    │ │ (Python)    │ │ (Node.js) │ │
+│  └──────┬──────┘ └──────┬──────┘ └──────┬──────┘ └─────┬─────┘ │
+│         │               │               │               │     │
+└─────────┼───────────────┼───────────────┼───────────────┼─────┘
+          │               │               │               │
+          ▼               ▼               ▼               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    EVENT BUS (RabbitMQ)                         │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
+│  │   Message    │  │   Queue      │  │   Exchange   │           │
+│  │   Broker     │  │  Manager     │  │   Router     │           │
+│  └──────────────┘  └──────────────┘  └──────────────┘           │
+└─────────────────────────────────────────────────────────────────┘
+          │               │               │
+          ▼               ▼               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      DATA LAYER                                 │
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌───────────┐ │
+│  │   Postgres  │ │    Redis    │ │  Dataverse  │ │  MongoDB  │ │
+│  │ (Relational)│ │  (Cache)    │ │ (Master)    │ │ (Logs)    │ │
+│  └─────────────┘ └─────────────┘ └─────────────┘ └───────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+</code></pre></div>
+
+<h2>6. Security Architecture</h2>
+<div class="codehilite"><pre><span></span><code>┌─────────────────────────────────────────────────────────────────┐
+│                    SECURITY LAYERS                              │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────┐       │
+│  │                 NETWORK SECURITY                    │       │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐ │       │
+│  │  │    WAF      │  │    DDoS     │  │   SSL/TLS   │ │       │
+│  │  │  Protection │  │ Protection  │  │ Encryption  │ │       │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘ │       │
+│  └─────────────────────────────────────────────────────┘       │
+│                                │                                │
+│  ┌─────────────────────────────────────────────────────┐       │
+│  │              APPLICATION SECURITY                   │       │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐ │       │
+│  │  │     JWT     │  │   OAuth 2   │  │    RBAC     │ │       │
+│  │  │   Tokens    │  │   (MSAL)    │  │  (Roles)    │ │       │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘ │       │
+│  └─────────────────────────────────────────────────────┘       │
+│                                │                                │
+│  ┌─────────────────────────────────────────────────────┐       │
+│  │                 DATA SECURITY                        │       │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐ │       │
+│  │  │ Encryption  │  │   Hashing   │  │   Auditing  │ │       │
+│  │  │ at Rest     │  │ Passwords   │  │   Logs      │ │       │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘ │       │
+│  └─────────────────────────────────────────────────────┘       │
+└─────────────────────────────────────────────────────────────────┘
+</code></pre></div>
+
+<h2>7. Deployment Architecture</h2>
+<div class="codehilite"><pre><span></span><code>┌─────────────────────────────────────────────────────────────────┐
+│                    PRODUCTION ENVIRONMENT                       │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────┐       │
+│  │                    CDN (CloudFlare)                 │       │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐ │       │
+│  │  │   Static    │  │   Assets    │  │    Cache    │ │       │
+│  │  │   Files     │  │  (JS/CSS)   │  │   Layer     │ │       │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘ │       │
+│  └─────────────────────────────────────────────────────┘       │
+│                                │                                │
+│  ┌─────────────────────────────────────────────────────┐       │
+│  │                  LOAD BALANCER                       │       │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐ │       │
+│  │  │   Health    │  │   SSL       │  │   Routing   │ │       │
+│  │  │   Checks    │  │ Termination │  │   Rules     │ │       │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘ │       │
+│  └─────────────────────────────────────────────────────┘       │
+│                                │                                │
+│  ┌─────────────────────────────────────────────────────┐       │
+│  │              APPLICATION SERVERS                     │       │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐ │       │
+│  │  │   Frontend  │  │   Backend   │  │   Socket    │ │       │
+│  │  │ (Netlify)   │  │  (Render)   │  │  (Render)   │ │       │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘ │       │
+│  └─────────────────────────────────────────────────────┘       │
+│                                │                                │
+│  ┌─────────────────────────────────────────────────────┐       │
+│  │                 DATABASE LAYER                       │       │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐ │       │
+│  │  │  Dataverse  │  │   Redis     │  │   Backup    │ │       │
+│  │  │ (Primary)   │  │  (Cache)    │  │   Storage   │ │       │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘ │       │
+│  └─────────────────────────────────────────────────────┘       │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────┐       │
+│  │                MONITORING &amp; LOGS                     │       │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐ │       │
+│  │  │   Metrics   │  │   Logging   │  │   Alerts    │ │       │
+│  │  │ (Prometheus)│  │ (ELK Stack) │  │ (PagerDuty) │ │       │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘ │       │
+│  └─────────────────────────────────────────────────────┘       │
+└─────────────────────────────────────────────────────────────────┘
+</code></pre></div>
+
+<hr />
+<h2>Key Points to Remember:</h2>
+<ol>
+<li><strong>Three-Tier Architecture</strong>: Presentation → Application → Data</li>
+<li><strong>Microservices Ready</strong>: Current monolith can be split easily</li>
+<li><strong>Event-Driven</strong>: Socket.IO enables real-time features</li>
+<li><strong>Secure by Design</strong>: Multiple security layers</li>
+<li><strong>Cloud-Native</strong>: Fully managed services</li>
+<li><strong>Scalable</strong>: Horizontal scaling possible</li>
+<li><strong>Maintainable</strong>: Clear separation of concerns</li>
+</ol>
+        </div>
+    </body>
+    </html>
+    

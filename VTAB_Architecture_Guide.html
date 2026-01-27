@@ -1,0 +1,877 @@
+
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>VTAB Office Tool - Architecture Guide</title>
+        
+    <style>
+        @page {
+            margin: 2cm;
+            size: A4;
+            @bottom-center {
+                content: counter(page);
+                font-size: 10pt;
+            }
+        }
+        
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 11pt;
+            line-height: 1.6;
+            color: #2c3e50;
+            margin: 0;
+            padding: 0;
+        }
+        
+        .cover-page {
+            text-align: center;
+            padding: 100px 0;
+        }
+        
+        .cover-page h1 {
+            font-size: 48pt;
+            color: #3498db;
+            margin-bottom: 20px;
+        }
+        
+        .cover-page .subtitle {
+            font-size: 18pt;
+            color: #7f8c8d;
+            margin-bottom: 50px;
+        }
+        
+        .cover-page .date {
+            font-size: 14pt;
+            color: #95a5a6;
+        }
+        
+        h1 {
+            font-size: 28pt;
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+            page-break-before: always;
+            margin-top: 50px;
+        }
+        
+        h2 {
+            font-size: 22pt;
+            color: #34495e;
+            border-bottom: 2px solid #ecf0f1;
+            padding-bottom: 8px;
+            margin-top: 40px;
+        }
+        
+        h3 {
+            font-size: 18pt;
+            color: #2980b9;
+            margin-top: 30px;
+        }
+        
+        h4 {
+            font-size: 14pt;
+            color: #27ae60;
+            margin-top: 25px;
+        }
+        
+        p {
+            margin: 10px 0;
+            text-align: justify;
+        }
+        
+        code {
+            background-color: #f8f9fa;
+            padding: 3px 6px;
+            border-radius: 4px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 10pt;
+            color: #e74c3c;
+        }
+        
+        pre {
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 10pt;
+            line-height: 1.4;
+            margin: 20px 0;
+        }
+        
+        pre code {
+            background: none;
+            padding: 0;
+            color: inherit;
+        }
+        
+        blockquote {
+            border-left: 4px solid #3498db;
+            margin: 20px 0;
+            padding: 10px 20px;
+            background-color: #f8f9fa;
+            color: #7f8c8d;
+            font-style: italic;
+        }
+        
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 20px 0;
+            font-size: 10pt;
+        }
+        
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        
+        th {
+            background-color: #3498db;
+            color: white;
+            font-weight: bold;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+        
+        ul, ol {
+            margin: 10px 0;
+            padding-left: 30px;
+        }
+        
+        li {
+            margin: 8px 0;
+        }
+        
+        .ascii-art {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 8pt;
+            line-height: 1.1;
+            white-space: pre;
+            overflow-x: auto;
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid #dee2e6;
+            margin: 20px 0;
+        }
+        
+        .highlight {
+            background-color: #fff3cd;
+            padding: 15px;
+            border-left: 4px solid #ffc107;
+            margin: 20px 0;
+        }
+        
+        .info-box {
+            background-color: #d1ecf1;
+            border: 1px solid #bee5eb;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        
+        .page-break {
+            page-break-before: always;
+        }
+        
+        .no-break {
+            page-break-inside: avoid;
+        }
+    </style>
+    
+    </head>
+    <body>
+        <div class="cover-page">
+            <h1>VTAB Office Tool - Architecture Guide</h1>
+            <div class="subtitle">Complete Technical Documentation</div>
+            <div class="date">Generated on January 20, 2026</div>
+        </div>
+        <div class="content">
+            <h1>VTAB Office Tool - Complete Project Architecture &amp; Interview Guide</h1>
+<h2>🎯 Project Overview (Simple Terms)</h2>
+<p>The VTAB Office Tool is a <strong>comprehensive employee management system</strong> that helps companies track:
+- <strong>Employee attendance</strong> (check-in/check-out with real-time timers)
+- <strong>Leave management</strong> (apply for leaves, track balance, approvals)
+- <strong>Employee profiles</strong> (personal info, documents, access levels)
+- <strong>Real-time chat</strong> between employees
+- <strong>Video meetings</strong> with Google Meet integration
+- <strong>AI-powered assistant</strong> for help with tasks</p>
+<p>Think of it as a <strong>digital HR office</strong> that runs in your web browser, connecting to Microsoft's cloud database (Dataverse) for secure data storage.</p>
+<hr />
+<h2>🏗️ Technical Architecture</h2>
+<h3>High-Level Architecture Diagram</h3>
+<div class="codehilite"><pre><span></span><code>┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Frontend      │    │   Backend API   │    │   Database      │
+│   (Browser)     │◄──►│   (Flask/Python)│◄──►│  (Dataverse)    │
+│                 │    │                 │    │  (Microsoft)    │
+│ • React/Vite    │    │ • REST APIs     │    │                 │
+│ • TypeScript    │    │ • JWT Auth      │    │ • Employee Data │
+│ • Socket.IO     │    │ • MSAL OAuth    │    │ • Attendance    │
+│                 │    │                 │    │ • Leave Records │
+└─────────┬─────────┘    └─────────┬─────────┘    └─────────────────┘
+          │                        │                        
+          │                        │                        
+          ▼                        ▼                        
+┌─────────────────┐    ┌─────────────────┐                    
+│   Socket Server │    │   External APIs │                    
+│   (Node.js)     │    │                 │                    
+│                 │    │ • Google Meet   │                    
+│ • Real-time Chat│    │ • Email Service │                    
+│ • Call Ringing  │    │ • AI (Gemini)   │                    
+│ • Attendance    │    │                 │                    
+└─────────────────┘    └─────────────────┘                    
+</code></pre></div>
+
+<hr />
+<h2>🔐 Authentication &amp; Security</h2>
+<h3>1. <strong>Two-Layer Authentication</strong></h3>
+<h4>a) <strong>Server-to-Server (MSAL OAuth)</strong></h4>
+<div class="codehilite"><pre><span></span><code><span class="c1"># Backend authenticates with Microsoft Dataverse</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">msal</span>
+<span class="n">app</span> <span class="o">=</span> <span class="n">msal</span><span class="o">.</span><span class="n">ConfidentialClientApplication</span><span class="p">(</span>
+    <span class="n">client_id</span><span class="o">=</span><span class="n">CLIENT_ID</span><span class="p">,</span>
+    <span class="n">client_credential</span><span class="o">=</span><span class="n">CLIENT_SECRET</span><span class="p">,</span>
+    <span class="n">authority</span><span class="o">=</span><span class="n">AUTHORITY</span>
+<span class="p">)</span>
+<span class="n">token</span> <span class="o">=</span> <span class="n">app</span><span class="o">.</span><span class="n">acquire_token_for_client</span><span class="p">(</span><span class="n">scopes</span><span class="o">=</span><span class="n">SCOPE</span><span class="p">)</span>
+</code></pre></div>
+
+<ul>
+<li><strong>Purpose</strong>: Secure connection between backend and Microsoft database</li>
+<li><strong>Method</strong>: OAuth 2.0 Client Credentials Flow</li>
+<li><strong>Library</strong>: MSAL (Microsoft Authentication Library)</li>
+</ul>
+<h4>b) <strong>User Authentication (JWT)</strong></h4>
+<div class="codehilite"><pre><span></span><code><span class="c1"># When user logs in, backend issues JWT</span>
+<span class="n">payload</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;username&quot;</span><span class="p">:</span> <span class="n">username</span><span class="p">,</span>
+    <span class="s2">&quot;role&quot;</span><span class="p">:</span> <span class="n">access_level</span><span class="p">,</span>
+    <span class="s2">&quot;exp&quot;</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">(</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">)</span> <span class="o">+</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">minutes</span><span class="o">=</span><span class="mi">30</span><span class="p">)</span>
+<span class="p">}</span>
+<span class="n">token</span> <span class="o">=</span> <span class="n">jwt</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="n">JWT_SECRET</span><span class="p">,</span> <span class="n">algorithm</span><span class="o">=</span><span class="n">JWT_ALGORITHM</span><span class="p">)</span>
+</code></pre></div>
+
+<ul>
+<li><strong>Purpose</strong>: Identify and authorize users</li>
+<li><strong>Method</strong>: JWT (JSON Web Tokens)</li>
+<li><strong>Validity</strong>: 30 minutes</li>
+<li><strong>Algorithm</strong>: HS512 (configurable)</li>
+</ul>
+<h3>2. <strong>Authentication Flow</strong></h3>
+<div class="codehilite"><pre><span></span><code><span class="mf">1.</span><span class="w"> </span><span class="n">User</span><span class="w"> </span><span class="n">enters</span><span class="w"> </span><span class="n">credentials</span><span class="w"> </span><span class="err">→</span><span class="w"> </span><span class="nb">POS</span><span class="n">T</span><span class="w"> </span><span class="o">/</span><span class="n">api</span><span class="o">/</span><span class="nb">log</span><span class="n">in</span>
+<span class="mf">2.</span><span class="w"> </span><span class="n">Backend</span><span class="w"> </span><span class="n">verifies</span><span class="w"> </span><span class="n">against</span><span class="w"> </span><span class="kd">Data</span><span class="n">verse</span>
+<span class="mf">3.</span><span class="w"> </span><span class="kr">If</span><span class="w"> </span><span class="nb">val</span><span class="n">id</span><span class="w"> </span><span class="err">→</span><span class="w"> </span><span class="n">Creates</span><span class="w"> </span><span class="n">JWT</span><span class="w"> </span><span class="kr">to</span><span class="n">ken</span>
+<span class="mf">4.</span><span class="w"> </span><span class="kr">To</span><span class="n">ken</span><span class="w"> </span><span class="kr">return</span><span class="n">ed</span><span class="w"> </span><span class="kr">to</span><span class="w"> </span><span class="n">frontend</span>
+<span class="mf">5.</span><span class="w"> </span><span class="n">Frontend</span><span class="w"> </span><span class="n">stores</span><span class="w"> </span><span class="kr">to</span><span class="n">ken</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="n">state</span>
+<span class="mf">6.</span><span class="w"> </span><span class="n">All</span><span class="w"> </span><span class="n">subsequent</span><span class="w"> </span><span class="n">API</span><span class="w"> </span><span class="n">calls</span><span class="w"> </span><span class="n">include</span><span class="p">:</span><span class="w"> </span><span class="n">Authorization</span><span class="p">:</span><span class="w"> </span><span class="n">Bearer</span><span class="w"> </span><span class="o">&lt;</span><span class="kr">to</span><span class="n">ken</span><span class="o">&gt;</span>
+<span class="mf">7.</span><span class="w"> </span><span class="n">Backend</span><span class="w"> </span><span class="n">verifies</span><span class="w"> </span><span class="n">JWT</span><span class="w"> </span><span class="n">before</span><span class="w"> </span><span class="n">processing</span><span class="w"> </span><span class="n">requests</span>
+</code></pre></div>
+
+<hr />
+<h2>🌐 API Architecture (RESTful Design)</h2>
+<h3>Core API Endpoints</h3>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Endpoints</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Authentication</strong></td>
+<td><code>POST /api/login</code></td>
+<td>User login</td>
+</tr>
+<tr>
+<td><strong>Employees</strong></td>
+<td><code>GET/POST/PUT/DELETE /api/employees</code></td>
+<td>CRUD operations</td>
+</tr>
+<tr>
+<td><strong>Attendance</strong></td>
+<td><code>POST /api/checkin</code>, <code>POST /api/checkout</code></td>
+<td>Time tracking</td>
+</tr>
+<tr>
+<td><strong>Leave</strong></td>
+<td><code>GET/POST /api/leave</code></td>
+<td>Leave management</td>
+</tr>
+<tr>
+<td><strong>Chat</strong></td>
+<td><code>/chat/*</code> (Flask Blueprint)</td>
+<td>Messaging</td>
+</tr>
+<tr>
+<td><strong>Login Accounts</strong></td>
+<td><code>/api/login-accounts</code></td>
+<td>User account management</td>
+</tr>
+</tbody>
+</table>
+<h3>API Request/Response Pattern</h3>
+<div class="codehilite"><pre><span></span><code><span class="c1">// Frontend makes API call</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">response</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">fetch</span><span class="p">(</span><span class="s1">&#39;https://api.example.com/api/employees&#39;</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">method</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;GET&#39;</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">headers</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="s1">&#39;Authorization&#39;</span><span class="o">:</span><span class="w"> </span><span class="sb">`Bearer </span><span class="si">${</span><span class="nx">jwtToken</span><span class="si">}</span><span class="sb">`</span><span class="p">,</span>
+<span class="w">        </span><span class="s1">&#39;Content-Type&#39;</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;application/json&#39;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">});</span>
+
+<span class="c1">// Backend processes request</span>
+<span class="err">@</span><span class="nx">app</span><span class="p">.</span><span class="nx">route</span><span class="p">(</span><span class="s2">&quot;/api/employees&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">methods</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;GET&quot;</span><span class="p">])</span>
+<span class="err">@</span><span class="nx">jwt_required</span><span class="w">  </span><span class="err">#</span><span class="w"> </span><span class="nx">Custom</span><span class="w"> </span><span class="nx">decorator</span><span class="w"> </span><span class="nx">to</span><span class="w"> </span><span class="nx">verify</span><span class="w"> </span><span class="nx">JWT</span>
+<span class="nx">def</span><span class="w"> </span><span class="nx">get_employees</span><span class="p">()</span><span class="o">:</span>
+<span class="w">    </span><span class="err">#</span><span class="w"> </span><span class="nx">Business</span><span class="w"> </span><span class="nx">logic</span><span class="w"> </span><span class="nx">here</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">jsonify</span><span class="p">({</span><span class="s2">&quot;success&quot;</span><span class="o">:</span><span class="w"> </span><span class="nx">True</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;data&quot;</span><span class="o">:</span><span class="w"> </span><span class="nx">employees</span><span class="p">})</span>
+</code></pre></div>
+
+<hr />
+<h2>⚡ Real-Time Features (Socket.IO)</h2>
+<h3>Why Socket.IO?</h3>
+<ul>
+<li><strong>Instant Updates</strong>: Chat messages appear immediately</li>
+<li><strong>Live Attendance</strong>: Timer syncs across multiple devices</li>
+<li><strong>Call Notifications</strong>: Incoming call alerts</li>
+<li><strong>Typing Indicators</strong>: See when someone is typing</li>
+</ul>
+<h3>Socket Architecture</h3>
+<div class="codehilite"><pre><span></span><code>Frontend (Socket.IO Client)          Socket Server (Node.js)          Other Clients
+        │                                   │                              │
+connect() ───────────────────────────►│                              │
+        │                           │                              │
+join_room(&#39;chat_123&#39;) ──────────────►│                              │
+        │                           │                              │
+send_message() ─────────────────────►│ ───────────────────────────►│
+        │                           │ Broadcast to room            │
+        │◄───────────────────────────│                              │
+new_message event                    │                              │
+</code></pre></div>
+
+<h3>Key Socket Events</h3>
+<table>
+<thead>
+<tr>
+<th>Event</th>
+<th>Purpose</th>
+<th>Emitted By</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>chat_register</code></td>
+<td>Register user for chat</td>
+<td>Frontend</td>
+</tr>
+<tr>
+<td><code>join_room</code></td>
+<td>Join conversation</td>
+<td>Frontend</td>
+</tr>
+<tr>
+<td><code>new_message</code></td>
+<td>New chat message</td>
+<td>Socket Server</td>
+</tr>
+<tr>
+<td><code>attendance:changed</code></td>
+<td>Attendance update</td>
+<td>Backend → Socket</td>
+</tr>
+<tr>
+<td><code>call:ring</code></td>
+<td>Incoming call notification</td>
+<td>Backend → Socket</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>🗄️ Database Integration (Microsoft Dataverse)</h2>
+<h3>What is Dataverse?</h3>
+<ul>
+<li>Microsoft's cloud data platform</li>
+<li>Part of Dynamics 365 / Power Platform</li>
+<li>Enterprise-grade security and compliance</li>
+<li>OData v4.0 API for data access</li>
+</ul>
+<h3>Data Model (Key Entities)</h3>
+<div class="codehilite"><pre><span></span><code><span class="c1">// Employee Record</span>
+<span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;crc6f_employeeid&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;EMP001&quot;</span><span class="p">,</span><span class="w">           </span><span class="c1">// Primary Key</span>
+<span class="w">    </span><span class="s2">&quot;crc6f_name&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;John Doe&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;crc6f_email&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;john@company.com&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;crc6f_designation&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Software Engineer&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;crc6f_department&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;IT&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;crc6f_active&quot;</span><span class="o">:</span><span class="w"> </span><span class="kc">true</span>
+<span class="p">}</span>
+
+<span class="c1">// Attendance Record</span>
+<span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;crc6f_employeeid&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;EMP001&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;crc6f_checkin&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;2024-01-20T09:00:00Z&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;crc6f_checkout&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;2024-01-20T18:00:00Z&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;crc6f_date&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;2024-01-20&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;crc6f_status&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Present&quot;</span>
+<span class="p">}</span>
+
+<span class="c1">// Login Details</span>
+<span class="p">{</span>
+<span class="w">    </span><span class="s2">&quot;crc6f_username&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;john@company.com&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;crc6f_password&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;hashed_password&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;crc6f_accesslevel&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;L2&quot;</span><span class="p">,</span><span class="w">              </span><span class="c1">// L1/L2/L3 hierarchy</span>
+<span class="w">    </span><span class="s2">&quot;crc6f_user_status&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Active&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="s2">&quot;crc6f_loginattempts&quot;</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;0&quot;</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<h3>OData Operations</h3>
+<div class="codehilite"><pre><span></span><code><span class="c1"># Read data</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_employees</span><span class="p">():</span>
+    <span class="n">token</span> <span class="o">=</span> <span class="n">get_access_token</span><span class="p">()</span>  <span class="c1"># MSAL token</span>
+    <span class="n">url</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">BASE_URL</span><span class="si">}</span><span class="s2">/crc6f_table12s&quot;</span>
+    <span class="n">headers</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;Authorization&quot;</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;Bearer </span><span class="si">{</span><span class="n">token</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">}</span>
+    <span class="n">response</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="n">headers</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">response</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+
+<span class="c1"># Create data</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">create_employee</span><span class="p">(</span><span class="n">data</span><span class="p">):</span>
+    <span class="n">url</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">BASE_URL</span><span class="si">}</span><span class="s2">/crc6f_table12s&quot;</span>
+    <span class="n">response</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="n">headers</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">data</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">response</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+
+<span class="c1"># Update data</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">update_employee</span><span class="p">(</span><span class="n">employee_id</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+    <span class="n">url</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">BASE_URL</span><span class="si">}</span><span class="s2">/crc6f_table12s(</span><span class="si">{</span><span class="n">employee_id</span><span class="si">}</span><span class="s2">)&quot;</span>
+    <span class="n">response</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">patch</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="n">headers</span><span class="p">,</span> <span class="n">json</span><span class="o">=</span><span class="n">data</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">response</span><span class="o">.</span><span class="n">status_code</span> <span class="o">==</span> <span class="mi">204</span>
+</code></pre></div>
+
+<hr />
+<h2>🎨 Frontend Architecture</h2>
+<h3>Technology Stack</h3>
+<ul>
+<li><strong>Vite</strong>: Modern build tool for fast development</li>
+<li><strong>TypeScript</strong>: Type-safe JavaScript</li>
+<li><strong>Vanilla JavaScript</strong>: Minimal framework, direct DOM manipulation</li>
+<li><strong>Socket.IO Client</strong>: Real-time communication</li>
+<li><strong>CSS Modules</strong>: Scoped styling</li>
+</ul>
+<h3>Component Structure</h3>
+<div class="codehilite"><pre><span></span><code>src/
+├── index.tsx           # Main application entry
+├── router.ts           # SPA routing logic
+├── socket.js           # Socket.IO connection manager
+├── contexts/           # React-like context providers
+│   └── CallProvider.jsx
+├── components/         # Reusable UI components
+│   ├── AiAssistant.js
+│   ├── AttendanceTimer.js
+│   └── ChatWidget.js
+├── features/           # Feature-specific modules
+│   ├── attendance.js
+│   ├── chatapi.js
+│   └── timer.js
+└── pages/              # Page-specific logic
+    ├── employees.js
+    ├── attendance.js
+    └── chats.js
+</code></pre></div>
+
+<h3>State Management</h3>
+<div class="codehilite"><pre><span></span><code><span class="c1">// Simple state object (no Redux)</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">state</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">user</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">token</span><span class="o">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">role</span><span class="o">:</span><span class="w"> </span><span class="kc">null</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="nx">employees</span><span class="o">:</span><span class="w"> </span><span class="p">[],</span>
+<span class="w">    </span><span class="nx">attendance</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">isCheckedIn</span><span class="o">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">checkinTime</span><span class="o">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">timer</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;00:00:00&#39;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">};</span>
+
+<span class="c1">// State updates trigger UI re-renders</span>
+<span class="kd">function</span><span class="w"> </span><span class="nx">updateState</span><span class="p">(</span><span class="nx">path</span><span class="p">,</span><span class="w"> </span><span class="nx">value</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">set</span><span class="p">(</span><span class="nx">state</span><span class="p">,</span><span class="w"> </span><span class="nx">path</span><span class="p">,</span><span class="w"> </span><span class="nx">value</span><span class="p">);</span>
+<span class="w">    </span><span class="nx">render</span><span class="p">();</span><span class="w"> </span><span class="c1">// Re-render affected components</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<hr />
+<h2>🔌 Third-Party Integrations</h2>
+<h3>1. <strong>Google Meet Integration</strong></h3>
+<div class="codehilite"><pre><span></span><code><span class="c1"># OAuth flow for Google Meet</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">google_auth_oauthlib.flow</span><span class="w"> </span><span class="kn">import</span> <span class="n">Flow</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">googleapiv2.discovery</span><span class="w"> </span><span class="kn">import</span> <span class="n">build</span>
+
+<span class="c1"># Create meeting</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">create_meeting</span><span class="p">():</span>
+    <span class="n">creds</span> <span class="o">=</span> <span class="n">get_google_credentials</span><span class="p">()</span>
+    <span class="n">service</span> <span class="o">=</span> <span class="n">build</span><span class="p">(</span><span class="s1">&#39;meet&#39;</span><span class="p">,</span> <span class="s1">&#39;v2&#39;</span><span class="p">,</span> <span class="n">credentials</span><span class="o">=</span><span class="n">creds</span><span class="p">)</span>
+    <span class="n">conference</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">conferences</span><span class="p">()</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">body</span><span class="o">=</span><span class="p">{</span>
+        <span class="s1">&#39;conferenceSolution&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;solutionType&#39;</span><span class="p">:</span> <span class="s1">&#39;hangoutsMeet&#39;</span><span class="p">}</span>
+    <span class="p">})</span><span class="o">.</span><span class="n">execute</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">conference</span>
+</code></pre></div>
+
+<h3>2. <strong>Email Service (Flask-Mail)</strong></h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">flask_mail</span><span class="w"> </span><span class="kn">import</span> <span class="n">Mail</span><span class="p">,</span> <span class="n">Message</span>
+
+<span class="n">mail</span> <span class="o">=</span> <span class="n">Mail</span><span class="p">(</span><span class="n">app</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">send_email</span><span class="p">(</span><span class="n">to</span><span class="p">,</span> <span class="n">subject</span><span class="p">,</span> <span class="n">body</span><span class="p">):</span>
+    <span class="n">msg</span> <span class="o">=</span> <span class="n">Message</span><span class="p">(</span>
+        <span class="n">subject</span><span class="p">,</span>
+        <span class="n">sender</span><span class="o">=</span><span class="s1">&#39;hr@company.com&#39;</span><span class="p">,</span>
+        <span class="n">recipients</span><span class="o">=</span><span class="p">[</span><span class="n">to</span><span class="p">],</span>
+        <span class="n">body</span><span class="o">=</span><span class="n">body</span>
+    <span class="p">)</span>
+    <span class="n">mail</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+</code></pre></div>
+
+<h3>3. <strong>AI Assistant (Google Gemini)</strong></h3>
+<div class="codehilite"><pre><span></span><code><span class="kn">import</span><span class="w"> </span><span class="nn">google.generativeai</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">genai</span>
+
+<span class="n">genai</span><span class="o">.</span><span class="n">configure</span><span class="p">(</span><span class="n">api_key</span><span class="o">=</span><span class="n">GEMINI_API_KEY</span><span class="p">)</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">genai</span><span class="o">.</span><span class="n">GenerativeModel</span><span class="p">(</span><span class="s1">&#39;gemini-pro&#39;</span><span class="p">)</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">ai_query</span><span class="p">(</span><span class="n">prompt</span><span class="p">):</span>
+    <span class="n">response</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">generate_content</span><span class="p">(</span><span class="n">prompt</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">response</span><span class="o">.</span><span class="n">text</span>
+</code></pre></div>
+
+<hr />
+<h2>📊 Data Flow Examples</h2>
+<h3>1. Employee Check-in Flow</h3>
+<div class="codehilite"><pre><span></span><code><span class="mf">1.</span><span class="w"> </span><span class="n">User</span><span class="w"> </span><span class="n">clicks</span><span class="w"> </span><span class="s">&quot;Check In&quot;</span>
+<span class="w">   </span><span class="err">↓</span>
+<span class="mf">2.</span><span class="w"> </span><span class="n">Frontend</span><span class="p">:</span><span class="w"> </span><span class="n">fetch</span><span class="p">(</span><span class="err">&#39;</span><span class="o">/</span><span class="n">api</span><span class="o">/</span><span class="n">checkin</span><span class="err">&#39;</span><span class="p">,</span><span class="w"> </span><span class="err">{</span><span class="n">method</span><span class="p">:</span><span class="w"> </span><span class="err">&#39;</span><span class="nb">POS</span><span class="n">T</span><span class="err">&#39;}</span><span class="p">)</span>
+<span class="w">   </span><span class="err">↓</span>
+<span class="mf">3.</span><span class="w"> </span><span class="n">Backend</span><span class="p">:</span><span class="w"> </span><span class="kr">Verify</span><span class="w"> </span><span class="n">JWT</span><span class="w"> </span><span class="err">→</span><span class="w"> </span><span class="n">Create</span><span class="w"> </span><span class="n">attendance</span><span class="w"> </span><span class="n">record</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="kd">Data</span><span class="n">verse</span>
+<span class="w">   </span><span class="err">↓</span>
+<span class="mf">4.</span><span class="w"> </span><span class="n">Backend</span><span class="p">:</span><span class="w"> </span><span class="nb">POS</span><span class="n">T</span><span class="w"> </span><span class="kr">to</span><span class="w"> </span><span class="n">socket</span><span class="w"> </span><span class="n">server</span><span class="w"> </span><span class="o">/</span><span class="n">emit</span><span class="w"> </span><span class="n">with</span><span class="w"> </span><span class="n">attendance</span><span class="w"> </span><span class="kd">data</span>
+<span class="w">   </span><span class="err">↓</span>
+<span class="mf">5.</span><span class="w"> </span><span class="n">Socket</span><span class="w"> </span><span class="n">Server</span><span class="p">:</span><span class="w"> </span><span class="n">Broadcast</span><span class="w"> </span><span class="err">&#39;</span><span class="n">attendance</span><span class="p">:</span><span class="n">changed</span><span class="err">&#39;</span><span class="w"> </span><span class="kr">to</span><span class="w"> </span><span class="n">user</span><span class="err">&#39;</span><span class="n">s</span><span class="w"> </span><span class="n">rooms</span>
+<span class="w">   </span><span class="err">↓</span>
+<span class="mf">6.</span><span class="w"> </span><span class="n">All</span><span class="w"> </span><span class="n">user</span><span class="w"> </span><span class="n">devices</span><span class="p">:</span><span class="w"> </span><span class="n">Update</span><span class="w"> </span><span class="n">timer</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="n">real</span><span class="o">-</span><span class="n">time</span>
+</code></pre></div>
+
+<h3>2. Chat Message Flow</h3>
+<div class="codehilite"><pre><span></span><code><span class="mf">1.</span><span class="w"> </span><span class="n">User</span><span class="w"> </span><span class="n">types</span><span class="w"> </span><span class="n">message</span><span class="w"> </span><span class="err">&amp;</span><span class="w"> </span><span class="n">hits</span><span class="w"> </span><span class="n">send</span>
+<span class="w">   </span><span class="err">↓</span>
+<span class="mf">2.</span><span class="w"> </span><span class="n">Frontend</span><span class="p">:</span><span class="w"> </span><span class="n">socket</span><span class="mf">.</span><span class="n">emit</span><span class="p">(</span><span class="err">&#39;</span><span class="n">send_message</span><span class="err">&#39;</span><span class="p">,</span><span class="w"> </span><span class="err">{</span><span class="mf">...</span><span class="err">}</span><span class="p">)</span>
+<span class="w">   </span><span class="err">↓</span>
+<span class="mf">3.</span><span class="w"> </span><span class="n">Socket</span><span class="w"> </span><span class="n">Server</span><span class="p">:</span><span class="w"> </span><span class="kr">Save</span><span class="w"> </span><span class="n">via</span><span class="w"> </span><span class="n">HTTP</span><span class="w"> </span><span class="kr">to</span><span class="w"> </span><span class="n">backend</span><span class="w"> </span><span class="o">/</span><span class="n">chat</span><span class="o">/</span><span class="n">send</span>
+<span class="w">   </span><span class="err">↓</span>
+<span class="mf">4.</span><span class="w"> </span><span class="n">Backend</span><span class="p">:</span><span class="w"> </span><span class="n">Store</span><span class="w"> </span><span class="n">in</span><span class="w"> </span><span class="kd">Data</span><span class="n">verse</span><span class="w"> </span><span class="err">→</span><span class="w"> </span><span class="kr">Return</span><span class="w"> </span><span class="n">success</span>
+<span class="w">   </span><span class="err">↓</span>
+<span class="mf">5.</span><span class="w"> </span><span class="n">Socket</span><span class="w"> </span><span class="n">Server</span><span class="p">:</span><span class="w"> </span><span class="n">Broadcast</span><span class="w"> </span><span class="err">&#39;</span><span class="kr">new</span><span class="n">_message</span><span class="err">&#39;</span><span class="w"> </span><span class="kr">to</span><span class="w"> </span><span class="n">room</span>
+<span class="w">   </span><span class="err">↓</span>
+<span class="mf">6.</span><span class="w"> </span><span class="n">All</span><span class="w"> </span><span class="n">participants</span><span class="p">:</span><span class="w"> </span><span class="n">Receive</span><span class="w"> </span><span class="ow">and</span><span class="w"> </span><span class="n">display</span><span class="w"> </span><span class="n">message</span><span class="w"> </span><span class="n">instantly</span>
+</code></pre></div>
+
+<hr />
+<h2>🚀 Deployment Architecture</h2>
+<h3>Production Setup</h3>
+<div class="codehilite"><pre><span></span><code><span class="err">┌─────────────────┐</span>
+<span class="err">│</span><span class="w">   </span><span class="n">Netlify</span><span class="w">       </span><span class="err">│</span><span class="w">  </span><span class="err">←</span><span class="w"> </span><span class="n">Frontend</span><span class="w"> </span><span class="n">Hosting</span>
+<span class="err">│</span><span class="w">   </span><span class="p">(</span><span class="n">Static</span><span class="w"> </span><span class="n">SPA</span><span class="p">)</span><span class="w">  </span><span class="err">│</span><span class="w">  </span><span class="err">•</span><span class="w"> </span><span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">vtab</span><span class="o">-</span><span class="n">office</span><span class="o">.</span><span class="n">netlify</span><span class="o">.</span><span class="n">app</span>
+<span class="err">└─────────┬─────────┘</span>
+<span class="w">          </span><span class="err">│</span>
+<span class="w">          </span><span class="err">▼</span>
+<span class="err">┌─────────────────┐</span>
+<span class="err">│</span><span class="w">   </span><span class="n">Render</span><span class="w">        </span><span class="err">│</span><span class="w">  </span><span class="err">←</span><span class="w"> </span><span class="n">Backend</span><span class="w"> </span><span class="n">API</span>
+<span class="err">│</span><span class="w">   </span><span class="p">(</span><span class="n">Flask</span><span class="p">)</span><span class="w">       </span><span class="err">│</span><span class="w">  </span><span class="err">•</span><span class="w"> </span><span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">vtab</span><span class="o">-</span><span class="n">office</span><span class="o">-</span><span class="k">tool</span><span class="o">.</span><span class="n">onrender</span><span class="o">.</span><span class="n">com</span>
+<span class="err">└─────────┬─────────┘</span>
+<span class="w">          </span><span class="err">│</span>
+<span class="w">          </span><span class="err">▼</span>
+<span class="err">┌─────────────────┐</span>
+<span class="err">│</span><span class="w">   </span><span class="n">Render</span><span class="w">        </span><span class="err">│</span><span class="w">  </span><span class="err">←</span><span class="w"> </span><span class="n">Socket</span><span class="w"> </span><span class="n">Server</span>
+<span class="err">│</span><span class="w">   </span><span class="p">(</span><span class="n">Node</span><span class="o">.</span><span class="n">js</span><span class="p">)</span><span class="w">     </span><span class="err">│</span><span class="w">  </span><span class="err">•</span><span class="w"> </span><span class="n">https</span><span class="p">:</span><span class="o">//</span><span class="n">office</span><span class="o">-</span><span class="k">tool</span><span class="o">-</span><span class="n">socket</span><span class="o">.</span><span class="n">onrender</span><span class="o">.</span><span class="n">com</span>
+<span class="err">└─────────────────┘</span>
+
+<span class="n">External</span><span class="w"> </span><span class="n">Services</span><span class="p">:</span>
+<span class="err">•</span><span class="w"> </span><span class="n">Microsoft</span><span class="w"> </span><span class="n">Dataverse</span><span class="w"> </span><span class="p">(</span><span class="n">Database</span><span class="p">)</span>
+<span class="err">•</span><span class="w"> </span><span class="n">Google</span><span class="w"> </span><span class="n">APIs</span><span class="w"> </span><span class="p">(</span><span class="n">Meet</span><span class="p">,</span><span class="w"> </span><span class="n">Gemini</span><span class="p">)</span>
+<span class="err">•</span><span class="w"> </span><span class="n">Email</span><span class="w"> </span><span class="n">Service</span><span class="w"> </span><span class="p">(</span><span class="n">SMTP</span><span class="p">)</span>
+</code></pre></div>
+
+<hr />
+<h2>💡 Key Technical Decisions (Interview Points)</h2>
+<h3>1. <strong>Why Flask over Django?</strong></h3>
+<ul>
+<li><strong>Simplicity</strong>: Lightweight, minimal boilerplate</li>
+<li><strong>Flexibility</strong>: Easy to integrate with existing systems</li>
+<li><strong>Performance</strong>: Faster for simple CRUD operations</li>
+<li><strong>Legacy</strong>: System evolved from simple scripts</li>
+</ul>
+<h3>2. <strong>Why separate Socket Server?</strong></h3>
+<ul>
+<li><strong>Python limitations</strong>: Socket.IO in Python is less mature</li>
+<li><strong>Scalability</strong>: Can scale socket layer independently</li>
+<li><strong>Performance</strong>: Node.js better for real-time connections</li>
+<li><strong>Separation of concerns</strong>: Clear boundary between API and real-time</li>
+</ul>
+<h3>3. <strong>Why Dataverse over traditional DB?</strong></h3>
+<ul>
+<li><strong>Enterprise requirements</strong>: Auditing, compliance, security</li>
+<li><strong>Microsoft ecosystem</strong>: Integration with Office 365</li>
+<li><strong>No infrastructure management</strong>: Fully managed service</li>
+<li><strong>OData support</strong>: Standardized API protocol</li>
+</ul>
+<h3>4. <strong>Why JWT over Sessions?</strong></h3>
+<ul>
+<li><strong>Stateless</strong>: Easy to scale across multiple servers</li>
+<li><strong>Mobile friendly</strong>: Works well with SPAs</li>
+<li><strong>Decoupled</strong>: Auth separate from API server</li>
+<li><strong>Expiration</strong>: Built-in token expiry</li>
+</ul>
+<hr />
+<h2>🧪 Testing Strategy</h2>
+<h3>Current Testing Approach</h3>
+<div class="codehilite"><pre><span></span><code><span class="c1"># Test functions in unified_server.py</span>
+<span class="nd">@app</span><span class="o">.</span><span class="n">route</span><span class="p">(</span><span class="s2">&quot;/api/test-dataverse-connection&quot;</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">test_dataverse</span><span class="p">():</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">token</span> <span class="o">=</span> <span class="n">get_access_token</span><span class="p">()</span>
+        <span class="c1"># Test query</span>
+        <span class="k">return</span> <span class="n">jsonify</span><span class="p">({</span><span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">})</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">jsonify</span><span class="p">({</span><span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)})</span>
+</code></pre></div>
+
+<h3>Recommended Improvements</h3>
+<ol>
+<li><strong>Unit Tests</strong>: pytest for backend functions</li>
+<li><strong>Integration Tests</strong>: Test API endpoints</li>
+<li><strong>Frontend Tests</strong>: Jest for JavaScript modules</li>
+<li><strong>E2E Tests</strong>: Playwright for user flows</li>
+</ol>
+<hr />
+<h2>🔧 Performance Optimizations</h2>
+<h3>1. <strong>Caching Strategy</strong></h3>
+<div class="codehilite"><pre><span></span><code><span class="c1">// Simple in-memory cache</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">cache</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nb">Map</span><span class="p">();</span>
+
+<span class="k">async</span><span class="w"> </span><span class="kd">function</span><span class="w"> </span><span class="nx">cachedFetch</span><span class="p">(</span><span class="nx">url</span><span class="p">,</span><span class="w"> </span><span class="nx">ttl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">300000</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// 5 min TTL</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">cached</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">cache</span><span class="p">.</span><span class="nx">get</span><span class="p">(</span><span class="nx">url</span><span class="p">);</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">cached</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nb">Date</span><span class="p">.</span><span class="nx">now</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="nx">cached</span><span class="p">.</span><span class="nx">timestamp</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="nx">ttl</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">cached</span><span class="p">.</span><span class="nx">data</span><span class="p">;</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="nx">fetch</span><span class="p">(</span><span class="nx">url</span><span class="p">).</span><span class="nx">then</span><span class="p">(</span><span class="nx">r</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">r</span><span class="p">.</span><span class="nx">json</span><span class="p">());</span>
+<span class="w">    </span><span class="nx">cache</span><span class="p">.</span><span class="nx">set</span><span class="p">(</span><span class="nx">url</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">data</span><span class="p">,</span><span class="w"> </span><span class="nx">timestamp</span><span class="o">:</span><span class="w"> </span><span class="nb">Date</span><span class="p">.</span><span class="nx">now</span><span class="p">()</span><span class="w"> </span><span class="p">});</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">data</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<h3>2. <strong>Lazy Loading</strong></h3>
+<div class="codehilite"><pre><span></span><code><span class="c1">// Load modules on demand</span>
+<span class="k">async</span><span class="w"> </span><span class="kd">function</span><span class="w"> </span><span class="nx">loadAttendance</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="o">!</span><span class="nb">window</span><span class="p">.</span><span class="nx">attendanceModule</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nb">window</span><span class="p">.</span><span class="nx">attendanceModule</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="k">import</span><span class="p">(</span><span class="s1">&#39;./features/attendance.js&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nb">window</span><span class="p">.</span><span class="nx">attendanceModule</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<h3>3. <strong>Debouncing API Calls</strong></h3>
+<div class="codehilite"><pre><span></span><code><span class="c1">// Prevent excessive API calls</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">debounce</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">fn</span><span class="p">,</span><span class="w"> </span><span class="nx">delay</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">let</span><span class="w"> </span><span class="nx">timeoutId</span><span class="p">;</span>
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="p">(...</span><span class="nx">args</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">clearTimeout</span><span class="p">(</span><span class="nx">timeoutId</span><span class="p">);</span>
+<span class="w">        </span><span class="nx">timeoutId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">setTimeout</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="nx">fn</span><span class="p">.</span><span class="nx">apply</span><span class="p">(</span><span class="kc">null</span><span class="p">,</span><span class="w"> </span><span class="nx">args</span><span class="p">),</span><span class="w"> </span><span class="nx">delay</span><span class="p">);</span>
+<span class="w">    </span><span class="p">};</span>
+<span class="p">};</span>
+</code></pre></div>
+
+<hr />
+<h2>🚨 Common Interview Questions &amp; Answers</h2>
+<h3>Q1: How does your authentication system work?</h3>
+<p><strong>Answer</strong>: We use a two-layer authentication:
+1. <strong>MSAL OAuth</strong> for backend-to-Dataverse communication
+2. <strong>JWT tokens</strong> for user sessions. When users login, we verify credentials against Dataverse, then issue a 30-minute JWT. All API calls require this token in the Authorization header.</p>
+<h3>Q2: How do you handle real-time updates?</h3>
+<p><strong>Answer</strong>: We use Socket.IO with a dedicated Node.js server. The Flask backend communicates with the socket server via HTTP webhook (/emit endpoint). This architecture allows us to broadcast events like new messages, attendance changes, and incoming calls to connected clients instantly.</p>
+<h3>Q3: Why did you choose Microsoft Dataverse?</h3>
+<p><strong>Answer</strong>: Enterprise requirements drove this decision:
+- Built-in compliance and auditing
+- Seamless integration with Microsoft ecosystem
+- OData protocol for standardized API access
+- No infrastructure maintenance overhead
+- Role-based access control out of the box</p>
+<h3>Q4: How do you ensure data consistency across devices?</h3>
+<p><strong>Answer</strong>: For critical data like attendance:
+1. Backend is the single source of truth
+2. Socket events act as "invalidation" signals
+3. Clients re-fetch from API when notified of changes
+4. This prevents timer drift and ensures consistency</p>
+<h3>Q5: What would you improve in the current architecture?</h3>
+<p><strong>Answer</strong>:
+1. <strong>Microservices</strong>: Split the monolithic <code>unified_server.py</code> into modules
+2. <strong>Caching layer</strong>: Add Redis for session and data caching
+3. <strong>Message queue</strong>: Use RabbitMQ for async processing
+4. <strong>Type safety</strong>: Migrate more frontend code to TypeScript
+5. <strong>Testing</strong>: Implement comprehensive test suite</p>
+<h3>Q6: How do you handle errors and logging?</h3>
+<p><strong>Answer</strong>: </p>
+<div class="codehilite"><pre><span></span><code><span class="k">try</span><span class="p">:</span>
+    <span class="c1"># Operation</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="n">dataverse_operation</span><span class="p">()</span>
+    <span class="n">log_info</span><span class="p">(</span><span class="s2">&quot;[SUCCESS] Operation completed&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">jsonify</span><span class="p">({</span><span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span> <span class="s2">&quot;data&quot;</span><span class="p">:</span> <span class="n">result</span><span class="p">})</span>
+<span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+    <span class="n">log_error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[ERROR] Operation failed: </span><span class="si">{</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">jsonify</span><span class="p">({</span><span class="s2">&quot;success&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span> <span class="s2">&quot;error&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)}),</span> <span class="mi">500</span>
+</code></pre></div>
+
+<h3>Q7: What security measures are in place?</h3>
+<p><strong>Answer</strong>:
+- JWT tokens with expiration
+- HTTPS everywhere
+- Input validation and sanitization
+- Password hashing with bcrypt
+- CORS configuration
+- Environment variables for secrets
+- SQL injection prevention via OData</p>
+<hr />
+<h2>📈 Scalability Considerations</h2>
+<h3>Current Limitations</h3>
+<ol>
+<li>Single Flask instance (can be scaled with Gunicorn)</li>
+<li>In-memory state storage</li>
+<li>No database connection pooling</li>
+<li>Socket server is single instance</li>
+</ol>
+<h3>Scaling Strategies</h3>
+<ol>
+<li><strong>Horizontal Scaling</strong>: Load balancer + multiple app instances</li>
+<li><strong>Database</strong>: Connection pooling, read replicas</li>
+<li><strong>Caching</strong>: Redis for shared state</li>
+<li><strong>Sockets</strong>: Redis adapter for multi-instance socket servers</li>
+<li><strong>CDN</strong>: Static asset delivery</li>
+<li><strong>API Gateway</strong>: Rate limiting, throttling</li>
+</ol>
+<hr />
+<h2>🔮 Future Architecture Improvements</h2>
+<h3>1. <strong>Microservices Architecture</strong></h3>
+<div class="codehilite"><pre><span></span><code>┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+│ Auth Service│  │HR Service   │  │Chat Service │
+└─────────────┘  └─────────────┘  └─────────────┘
+       │                │                │
+       └────────────────┼────────────────┘
+                        │
+              ┌─────────────┐
+              │ API Gateway │
+              └─────────────┘
+</code></pre></div>
+
+<h3>2. <strong>Event-Driven Architecture</strong></h3>
+<div class="codehilite"><pre><span></span><code>Producer → Message Queue → Multiple Consumers
+   │           │               │
+   │           │               ├── Email Service
+   │           │               ├── Notification Service
+   │           │               └── Analytics Service
+</code></pre></div>
+
+<h3>3. <strong>Modern Frontend</strong></h3>
+<ul>
+<li>React or Vue.js instead of vanilla JS</li>
+<li>Redux/Zustand for state management</li>
+<li>React Query for server state</li>
+<li>Component library (Material-UI, Ant Design)</li>
+</ul>
+<hr />
+<h2>📝 Quick Reference Summary</h2>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Technology</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Frontend</strong></td>
+<td>Vite + TypeScript</td>
+<td>SPA, fast builds</td>
+</tr>
+<tr>
+<td><strong>Backend</strong></td>
+<td>Flask + Python</td>
+<td>REST APIs</td>
+</tr>
+<tr>
+<td><strong>Database</strong></td>
+<td>Dataverse</td>
+<td>Enterprise data store</td>
+</tr>
+<tr>
+<td><strong>Real-time</strong></td>
+<td>Socket.IO + Node.js</td>
+<td>Live updates</td>
+</tr>
+<tr>
+<td><strong>Auth</strong></td>
+<td>MSAL + JWT</td>
+<td>Secure authentication</td>
+</tr>
+<tr>
+<td><strong>Deployment</strong></td>
+<td>Netlify + Render</td>
+<td>Cloud hosting</td>
+</tr>
+<tr>
+<td><strong>AI</strong></td>
+<td>Google Gemini</td>
+<td>Smart assistant</td>
+</tr>
+<tr>
+<td><strong>Meetings</strong></td>
+<td>Google Meet API</td>
+<td>Video calls</td>
+</tr>
+<tr>
+<td><strong>Email</strong></td>
+<td>Flask-Mail</td>
+<td>Notifications</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>🎯 Key Takeaways for Interviews</h2>
+<ol>
+<li><strong>Full-Stack Experience</strong>: You worked across frontend, backend, and infrastructure</li>
+<li><strong>Enterprise Integration</strong>: Hands-on with Microsoft ecosystem (Dataverse, Azure AD)</li>
+<li><strong>Real-time Systems</strong>: Implemented Socket.IO for live features</li>
+<li><strong>API Design</strong>: RESTful APIs with proper authentication</li>
+<li><strong>Problem Solving</strong>: Fixed complex issues like RPT property errors</li>
+<li><strong>Architecture Decisions</strong>: Can explain why each technology was chosen</li>
+<li><strong>Scalability Mindset</strong>: Understand limitations and improvement strategies</li>
+</ol>
+<p>Remember: <strong>Focus on business value</strong> - how your technical decisions solved real business problems like improving HR efficiency, enabling remote work, and ensuring data security.</p>
+<hr />
+<p><em>This guide covers the entire project architecture. Practice explaining these concepts clearly and concisely. Good luck with your interviews!</em> 🚀</p>
+        </div>
+    </body>
+    </html>
+    
