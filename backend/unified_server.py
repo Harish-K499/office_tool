@@ -6832,9 +6832,9 @@ def list_employees():
         select_fields = f"$select={','.join(select_list)}"
         print(f"   [FETCH] DOJ field mapping: {field_map.get('doj')}")
         print(f"   [FETCH] Select fields: {select_fields}")
-        # Fetch all records (or a large number) to support pagination
-        # Using a high limit to get all records since Dataverse doesn't support $skip well
-        fetch_count = 5000  # Fetch up to 5000 records (adjust if you have more employees)
+        # Fetch records with pagination to avoid timeouts
+        # Use smaller batch size to prevent timeouts on Render
+        fetch_count = min(page_size * 3, 100)  # Fetch 3x page size, max 100 records
         top = f"$top={fetch_count}"
         # Order by creation date descending to show newest first
         orderby = f"$orderby=createdon desc"
@@ -9081,7 +9081,7 @@ def get_holidays():
         url = f"{RESOURCE}/api/data/v9.2/{HOLIDAY_ENTITY}?$select=crc6f_date,crc6f_holidayname,crc6f_hr_holidaysid&$orderby=crc6f_date asc"
         print(f"🔗 Request URL: {url}")
         
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=10)
         print(f"[DATA] Response status: {response.status_code}")
 
         if response.status_code != 200:
