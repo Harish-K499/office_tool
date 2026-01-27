@@ -1,0 +1,184 @@
+import { state } from '../state.js';
+import { isAdminUser, isL3User } from '../utils/accessControl.js';
+
+export const getSidebarHTML = () => {
+    const isAdmin = isAdminUser();
+    const isL3 = isL3User();
+    
+    return `
+    <div class="sidebar-header">
+        <a href="#/" class="sidebar-brand nav-link" data-page="home">
+            <div class="sidebar-logo">VS</div>
+            <span class="sidebar-title">VTAB SQUARE</span>
+        </a>
+    </div>
+    <ul class="sidebar-nav">
+        <li><p class="nav-section-title">APPLICATIONS</p></li>
+        <li><a href="#/" class="nav-link" data-page="home"><i class="fa-solid fa-house"></i> Home</a></li>
+        ${
+          isL3
+            ? `
+        <li class="nav-group" data-group="employee-module">
+            <a href="#" class="nav-link nav-toggle">
+                <span class="nav-toggle-label">
+                    <i class="fa-solid fa-users"></i>
+                    <span>Employee</span>
+                </span>
+                <i class="fa-solid fa-chevron-down"></i>
+            </a>
+            <ul class="nav-submenu">
+                <li><a href="#/employees" class="nav-link" data-page="employees">Employees</a></li>
+                <li><a href="#/interns" class="nav-link" data-page="interns">Interns</a></li>
+                <li><a href="#/team-management" class="nav-link" data-page="team-management">Team Management</a></li>
+            </ul>
+        </li>
+        `
+            : ""
+        }
+        <li><a href="#/inbox" class="nav-link" data-page="inbox"><i class="fa-solid fa-inbox"></i> Inbox</a></li>
+        <li><a href="#/chat" class="nav-link" data-page="chat">
+            <i class="fa-solid fa-comments"></i> Chat
+        </a></li>
+        <li><a href="#/meet" class="nav-link" data-page="meet"><i class="fa-solid fa-video"></i> Meet</a></li>
+        ${
+          isL3
+            ? '<li><a href="#/onboarding" class="nav-link" data-page="onboarding"><i class="fa-solid fa-user-plus"></i> Onboarding</a></li>'
+            : ""
+        }
+        <li class="nav-group" data-group="time-tracker">
+            <a href="#" class="nav-link nav-toggle">
+                <span class="nav-toggle-label">
+                    <i class="fa-solid fa-clock"></i>
+                    <span>Time Tracker</span>
+                </span>
+                <i class="fa-solid fa-chevron-down"></i>
+            </a>
+            <ul class="nav-submenu">
+                <li><a href="#/time-my-tasks" class="nav-link" data-page="time-my-tasks">My Tasks</a></li>
+                <li><a href="#/time-my-timesheet" class="nav-link" data-page="time-my-timesheet">My Timesheet</a></li>
+                ${
+                  isAdmin
+                    ? '<li><a href="#/time-team-timesheet" class="nav-link" data-page="time-team-timesheet">My Team Timesheet</a></li>'
+                    : ""
+                }
+                ${
+                  isL3
+                    ? '<li><a href="#/time-clients" class="nav-link" data-page="time-clients">Clients</a></li>'
+                    : ""
+                }
+                <li><a href="#/time-projects" class="nav-link" data-page="time-projects">Projects</a></li>
+            </ul>
+        </li>
+        
+        <li class="nav-group" data-group="attendance-tracker">
+            <a href="#" class="nav-link nav-toggle">
+                <span class="nav-toggle-label">
+                    <i class="fa-solid fa-calendar-check"></i>
+                    <span>Attendance Tracker</span>
+                </span>
+                <i class="fa-solid fa-chevron-down"></i>
+            </a>
+            <ul class="nav-submenu">
+                <li><a href="#/attendance-my" class="nav-link" data-page="attendance-my">My Attendance</a></li>
+                ${
+                  isAdmin
+                    ? '<li><a href="#/attendance-team" class="nav-link" data-page="attendance-team">My Team Attendance</a></li>'
+                    : ""
+                }
+                <li><a href="#/attendance-holidays" class="nav-link" data-page="attendance-holidays"><i class="fa-solid fa-umbrella-beach" style="margin-right:6px;"></i>Holidays</a></li>
+            </ul>
+        </li>
+
+        <li class="nav-group" data-group="leave-tracker">
+            <a href="#" class="nav-link nav-toggle">
+                <span class="nav-toggle-label">
+                    <i class="fa-solid fa-calendar-days"></i>
+                    <span>Leave Tracker</span>
+                </span>
+                <i class="fa-solid fa-chevron-down"></i>
+            </a>
+            <ul class="nav-submenu">
+                <li><a href="#/leave-my" class="nav-link" data-page="leave-my">My Leaves</a></li>
+                ${
+                  isAdmin
+                    ? '<li><a href="#/leave-team" class="nav-link" data-page="leave-team">My Team Leaves</a></li>'
+                    : ""
+                }
+                <li><a href="#/compoff" class="nav-link" data-page="compoff">Comp Off</a></li>
+            </ul>
+        </li>
+        <li><a href="#/assets" class="nav-link" data-page="assets"><i class="fa-solid fa-box"></i> Assets</a></li>
+        ${
+          isAdmin
+            ? `
+        <li class="nav-group" data-group="settings">
+            <a href="#" class="nav-link nav-toggle">
+                <span class="nav-toggle-label">
+                    <i class="fa-solid fa-gear"></i>
+                    <span>Settings</span>
+                </span>
+                <i class="fa-solid fa-chevron-down"></i>
+            </a>
+            <ul class="nav-submenu">
+                <li><a href="#/leave-settings" class="nav-link" data-page="leave-settings">Leave Settings</a></li>
+                <li><a href="#/login-settings" class="nav-link" data-page="login-settings">Login Settings</a></li>
+            </ul>
+        </li>`
+            : ""
+        }
+
+    </ul>
+`;
+};
+
+const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) return 'Good Morning';
+    if (hour >= 12 && hour < 17) return 'Good Afternoon';
+    if (hour >= 17 && hour < 21) return 'Good Evening';
+    return 'Good Night';
+};
+
+export const getHeaderHTML = (user, timer) => `
+    <div class="header-greeting header-visible" style="font-size:1.1rem; font-weight:600; color:var(--text-primary); margin-right:auto; display:flex; align-items:center;">
+        ${getGreeting()}, ${user.name ? user.name.split(' ')[0] : 'User'}!
+    </div>
+
+    <div class="header-search">
+        <i class="fa-solid fa-search"></i>
+        <input type="text" placeholder="Search for an employee name or ID (Ctrl + E)">
+    </div>
+    <div class="header-actions header-visible">
+        <button id="theme-toggle" class="icon-btn header-theme-toggle" aria-label="Toggle theme">
+            <i class="fa-solid fa-moon"></i>
+        </button>
+        <button id="timer-btn" class="timer-btn ${timer.isRunning ? 'check-out' : 'check-in'}">
+            <span id="timer-display">00:00:00</span> ${timer.isRunning ? 'CHECK OUT' : 'CHECK IN'}
+        </button>
+        <div class="notification-bell" id="notification-bell" style="cursor: pointer;">
+            <i class="fa-solid fa-bell"></i>
+            <span class="notification-badge" id="notification-badge" style="display: none;">0</span>
+        </div>
+        <div class="user-profile" id="user-profile" style="position:relative; cursor:pointer;">
+            <div class="user-avatar ${user.avatarUrl ? 'has-photo' : ''}" ${user.avatarUrl ? `style="background-image:url('${user.avatarUrl}')"` : ''}>${user.initials}</div>
+            <span>${user.name}</span>
+            <i class="fa-solid fa-chevron-down" style="margin-left:6px;"></i>
+            <div class="dropdown-menu" id="user-menu" style="display:none; position:absolute; right:0; top:100%; border-radius:8px; padding:6px; min-width:200px; box-shadow:0 8px 20px rgba(15,23,42,0.45); z-index:1000; background:var(--surface-color); border:1px solid var(--border-color);">
+                <div class="user-menu-header" style="padding:8px 10px 6px; border-bottom:1px solid var(--border-color); margin-bottom:4px;">
+                    <div style="font-weight:600; font-size:14px; color: var(--text-primary);">${user.name || ''}</div>
+                    ${user.designation ? `<div style="font-size:12px; color:var(--text-secondary); margin-top:2px;">${user.designation}</div>` : ''}
+                    ${user.email ? `<div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">${user.email}</div>` : ''}
+                    ${user.id ? `<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${user.id}</div>` : ''}
+                </div>
+                <button class="dropdown-item" id="profile-btn" style="width:100%; text-align:left; background:none; border:none; padding:8px 10px; cursor:pointer; font-size:13px; display:flex; align-items:center; gap:6px;">
+                    <i class="fa-solid fa-user"></i>
+                    <span>Profile</span>
+                </button>
+                <button class="dropdown-item" id="logout-btn" style="width:100%; text-align:left; background:none; border:none; padding:8px 10px; cursor:pointer; font-size:13px; display:flex; align-items:center; gap:6px;">
+                    <i class="fa-solid fa-arrow-right-from-bracket"></i>
+                    <span>Logout</span>
+                </button>
+            </div>
+        </div>
+    </div>
+`;

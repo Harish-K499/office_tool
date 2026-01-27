@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>VTAB / SIROCO – Internship Pack</title>
+<style>
+  @page { size: A4; margin: 0; }
+  html, body {
+    margin:0; padding:0; height:100%;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+  .page { width:210mm; height:297mm; position:relative; overflow:hidden; box-sizing:border-box; page-break-after:always; }
+
+  /* Header shared */
+  .hdr-left { font-size:10.5pt; line-height:1.5; }
+  .hdr-left a { color:#fff; text-decoration:none; }
+  .hdr-right { display:flex; flex-direction:column; align-items:flex-end; padding-right:20mm; padding-top:6mm; }
+  .hdr-right .logo { display:block; height:auto; margin:2mm 0; }
+  .hdr-right .now-part-of { font-size:9pt; color:#d9e6ff; margin:1mm 0; text-align:right; }
+
+ /* ---------------------------------- Page 1 ---------------------------------- */
+  .p1 {
+    background: #0D2D63;
+    color: #fff;
+  }
+  .p1 .hdr-left {
+    position: absolute; top: 14mm; left: 12mm;
+    font-size: 10.5pt; line-height: 1.55;
+  }
+  .p1 .hdr-left a { color:#fff; text-decoration:none; }
+
+  .p1 .cover-title {
+    position:absolute; top: 50%; left:0; right:0;
+    transform: translateY(-50%);
+    text-align:center;
+  }
+  .p1 .cover-title h3 { margin:0 0 6mm 0; font-weight:600; font-size:12.5pt; }
+  .p1 .cover-title p { margin:0; font-size:11pt; color:#dfe9ff; }
+
+  .p1 .footer {
+    position:absolute; left:0; right:0; bottom:0; background:#fff; color:#000;
+    padding: 6mm 12mm; box-sizing:border-box; font-size:9.8pt;
+  }
+  .p1 .footer h4 { margin:0 0 3mm 0; font-size:10.5pt; color:#333; }
+  .p1 .footer p { margin:0; line-height:1.45; color:#333; }
+
+  .p1 .hdr-right .logo {
+    max-width: 26mm;
+    height: auto;
+  }
+
+  /* Page 2 & 3 */
+  .p2 .header {
+    position:absolute; left:0; right:0; top:0; height:40mm;
+    background:#0D2D63; color:#fff;
+    display:flex; align-items:center; justify-content:space-between;
+    padding-left:20mm; padding-right:12mm;
+    box-sizing:border-box;
+  }
+  .p2 .hdr-right .logo { max-width:20mm; }
+  .p2 .title { margin-top:46mm; text-align:center; font-weight:bold; color:#0D2D63; font-size:12.5pt; }
+  .p2 .content { position:relative; padding:6mm 20mm 0 20mm;
+    height:219mm; font-size:10.5pt; line-height:1.55; color:#000; }
+  .p2 .profile-ph { position:absolute; right:20mm; top:0; width:32mm; height:32mm;
+    border:1.2pt solid #6b6b6b; display:flex; align-items:center; justify-content:center; font-size:9pt; }
+  .p2 .body-text { margin-top:36mm; }
+  .p2 .footer { position:absolute; left:0; right:0; bottom:0; height:18mm; background:#0D2D63; color:#fff;
+    padding:4mm 20mm; display:flex; align-items:center; justify-content:space-between; font-size:9pt; }
+
+  /* Page 4 (Contact Us) */
+  .p3 .title { position:absolute; left:20mm; right:20mm; top:12mm; font-size:12pt; color:#0D2D63; font-weight:600; }
+  .p3 .stack { position:absolute; left:20mm; right:20mm; top:22mm; bottom:24mm; }
+  .p3 .card { background:#f3f3f3; border-radius:2mm; padding:0 0 6mm; margin-bottom:8mm; box-shadow:inset 0 0 0 0.2mm #e2e2e2; }
+  .p3 .band { height:10mm; border-radius:2mm 2mm 0 0; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; }
+  .p3 .band.us{background:#d43d3d;} .p3 .band.in{background:#efa73a;} .p3 .band.me{background:#2f8f4e;}
+  .p3 .card-body { padding:6mm 8mm 0; font-size:10.5pt; line-height:1.55; }
+  .p3 .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:10mm; }
+  .p3 .footer { position:absolute; left:0; right:0; bottom:0; height:18mm; background:#0D2D63; color:#fff;
+    padding:4mm 20mm; display:flex; align-items:center; justify-content:space-between; font-size:9pt; }
+</style>
+</head>
+<body>
+
+<!-- PAGE 1 -->
+<section class="page p1">
+  <div class="hdr-left">www.sirocotech.com<br/><a href="mailto:sales@sirocollc.com">sales@sirocollc.com</a><br/>US: (844) 708-0008<br/>IND: (996) 258-7975</div>
+  <div class="hdr-right"><div class="now-part-of">NOW PART OF</div></div>
+  <div class="cover-title"><h3>Prepared for</h3><p>{{candidate_name}}</p><p>Internship and salary structure</p></div>
+  <div class="footer"><h4>Statement of Confidentiality</h4><p>This proposal has been distributed on a confidential basis for your information only. By accepting it, you agree not to
+disseminate it to any other person or entity in any manner and not to use the information for any purpose other than
+considering opportunities for a cooperative business relationship with the owner of this portfolio.</p></div>
+</section>
+
+<!-- PAGE 2 -->
+<section class="page p2">
+  <div class="header"><div class="hdr-left">www.sirocotech.com<br/><a href="mailto:sales@sirocotech.com">sales@sirocotech.com</a><br/>US: (844) 708-0008<br/>IND: (996) 258-7975</div>
+  <div class="hdr-right"><div class="now-part-of">NOW PART OF</div></div></div>
+  <div class="title">Internship and salary structure</div>
+  <div class="content"><div class="profile-ph">Photo</div>
+    <div class="body-text">
+      Dear {{candidate_name}},<br/><br/>
+      <ol>
+        <li><b>Internship Period:</b> Upon acceptance of the offer, the initial ({{unpaid_duration}}) months shall constitute an unpaid internship</li>
+        <li><b>Training Period:</b> Upon successful completion of the internship, you will enter a ({{training_duration}})-months training phase with a stipend of {{training_salary}}.</li>
+        <li><b>Probation Period:</b> After the training, you will proceed to a ({{probation_duration}})-months' probation period with a salary of {{probation_salary}}.</li>
+        <li><b>Post-Probation Period:</b> Upon successfully completing probation, your salary will increase to {{postprobation_salary}} for the following {{postprobation_duration}} months.</li>
+        <li><b>Performance-Based Hike:</b> After completing one year with the organization, a salary hike will be decided based on your performance.</li>
+        <li><b>Working Hours and Location:</b> Initially, your working hours will be from <b>{{work_hours_start}}</b> to <b>{{work_hours_end}}</b>, and it will be a work-from-home setup; however, you may need to work from the office if required. Any changes will be communicated in advance.</li>
+        <li><b>Work and Leave Policy:</b> You are required to work on all Saturdays and will not be eligible for any paid leave until confirmation of your probation period.</li>
+      </ol>
+      <h3>Intern Resignation Policy</h3>
+      <p><b>Early Resignation (before 11 months):</b></p>
+      <ul><li>The intern must pay a penalty of 3 months' last drawn salary.</li><li>The intern must serve a 90-day (3 months) notice period.</li></ul>
+    </div>
+  </div>
+  <div class="footer"><div class="brand"><div>Technology for Smarter Life</div></div><div class="pg">2</div></div>
+</section>
+
+<!-- PAGE 3 -->
+<section class="page p2">
+  <div class="header"><div class="hdr-left">www.sirocotech.com<br/><a href="mailto:sales@sirocotech.com">sales@sirocotech.com</a><br/>US: (844) 708-0008<br/>IND: (996) 258-7975</div>
+  <div class="hdr-right"><div class="now-part-of">NOW PART OF</div></div></div>
+  <div class="title">Intern Resignation Policy (contd.)</div>
+  <div class="content"><div class="body-text">
+    <p><b>Failure to Serve Notice Period:</b></p><ul>
+        <li>If the intern does not serve the full 90-day notice period, they must instead pay a penalty of 5 months' last drawn salary.</li>
+      <li>Immediate relieving will be granted after payment.</li>
+    </ul>
+    <h4>Example Cases</h4><ul><li>Intern resigns after 12 months:
+→ Eligible, no penalty, standard resignation process.</li><li>Intern resigns after 8 months, serves 90-day notice:
+→ Must pay 3 months' salary penalty, serve 90 days, then relieved.</li><li>Intern resigns after 8 months, refuses 90-day notice:
+→ Must pay 5 months' salary penalty, then relieved immediately.</li></ul>
+    <br/>Progression to each subsequent stage is contingent upon your performance. Please find the
+attachment for more details. As part of the onboarding process, please:<br/>
+<ul>
+<li>Reply with your confirmation.</li>
+<li>Attach a recent passport-sized photograph.</li>
+<li>Send a copy of your ID proof and signed agreement.</li>
+<li>Provide your educational certificates.</li>
+</ul>
+<br/>Regards,<br/>HR – Director<br/>VTAB Square Pvt Ltd (Now Part of Siroco)
+  </div></div>
+  <div class="footer"><div class="brand"><div>Technology for Smarter Life</div></div><div class="pg">3</div></div>
+</section>
+
+<!-- PAGE 4 -->
+<section class="page p3"> <div class="title">Contact Us</div> <div class="stack"> <div class="card"> <div class="band us">USA</div> <div class="card-body"> <div class="grid-2"> <div class="col"> <h4>Corporate Office</h4> <p>6800 Weiskopf Avenue,<br/>Suite 150 McKinney,<br/>TX 75070 USA</p> <p>Phone: (844) 708-0008</p> <p>Email: <span class="muted">sales@sirocollc.com</span></p> </div> <div class="col"> <h4>Regional Offices</h4> <p>Atlanta</p><p>Houston</p><p>Jacksonville</p><p>San Diego</p><p>Orland Park</p> </div> </div> </div> </div> <div class="card"> <div class="band in">India</div> <div class="card-body"> <div class="grid-2"> <div class="col"> <h4>Development Innovation Center</h4> <p>Module 12, Thejaswini Building,<br/>Technopark, Kovalam – 695581<br/>Kerala, INDIA</p> <p>Phone: +91 80868 00199</p> <p>Email: <span class="muted">info@sirocotech.com</span></p> </div> <div class="col"> <h4>IT DEVELOPMENT CENTER</h4> <p>17/99, 5<sup>th</sup> Street 2nd Floor, Iyappan Nagar,<br/> Vijayalakshmi Mills, Kuniamuthur, Palakkad<br/> Main Road, Coimbatore 641008, Tamil Nadu, India</p> <p>Mail id: <span class="muted">information@vtabsquare.com</span></p> </div> </div> </div> </div> <div class="card"> <div class="band me">MENA</div> <div class="card-body"> <div class="grid-2"> <div class="col"> <h4>Regional Office</h4> <p>Amman, Jordan</p> <p>Phone: +962 65373421</p> <p>Email: <span class="muted">sales@sirocomena.com</span></p> </div> <div class="col"></div> </div> </div> </div> </div> <div class="footer"> <div class="brand"> <div>Technology for Smarter Life</div> </div> <div class="pg">4</div> </div> </section>
+
+</body>
+</html>
